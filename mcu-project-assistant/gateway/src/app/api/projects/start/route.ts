@@ -5,6 +5,7 @@ import { publishToQueue } from "@/lib/rabbitmq";
 import { checkDailyQuota, consumeDailyQuota } from "@/lib/daily-quota";
 import { checkPlatformAccess, getAllowedPlatforms } from "@/lib/platform-permissions";
 import { resolveModelConfig } from "@/lib/model-router";
+import { resolveDecryptedApiKey } from "@/lib/api-key-resolver";
 import type { Membership, Platform } from "@/lib/models";
 import { QUEUES } from "@/lib/rabbitmq";
 
@@ -40,14 +41,8 @@ export async function POST(req: NextRequest) {
       await consumeDailyQuota(userId);
     }
 
-    const keyResult = await db.query(
-      `SELECT key_value_encrypted, key_type FROM api_keys
-       WHERE user_id = $1 AND is_active = true`,
-      [userId]
-    );
-
-    const aiKey = keyResult.rows.find((r: { key_type: string }) => r.key_type === "ai");
-    const modelConfig = resolveModelConfig(tier, aiKey?.key_value_encrypted);
+    const decryptedKey = await resolveDecryptedApiKey(userId);
+    const modelConfig = resolveModelConfig(tier, decryptedKey);
 
     const designDraftId = uuidv4();
     await db.query(

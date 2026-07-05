@@ -13,9 +13,10 @@ vi.mock("@/lib/encryption", () => ({
 }));
 
 import { db } from "@/lib/database";
-import { encrypt } from "@/lib/encryption";
+import { encrypt, decrypt } from "@/lib/encryption";
 import { POST as postCreate, GET as getList } from "@/app/api/keys/route";
 import { PATCH as patchRevoke, POST as postRotate } from "@/app/api/keys/[id]/route";
+import { resolveDecryptedApiKey } from "@/lib/api-key-resolver";
 
 function buildRequest(
   path: string,
@@ -156,6 +157,45 @@ describe("GET /api/keys", () => {
     const req = buildRequest("/api/keys", { "x-user-id": "user-1" });
     const res = await getList(req);
     expect(res.status).toBe(500);
+  });
+});
+
+describe("resolveDecryptedApiKey", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns decrypted key when active AI key exists", async () => {
+    (db.query as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      rows: [{ key_value_encrypted: "encrypted:sk-abc123" }],
+    });
+    (decrypt as ReturnType<typeof vi.fn>).mockReturnValueOnce("sk-abc123");
+
+    const result = await resolveDecryptedApiKey("user-1");
+    expect(result).toBe("sk-abc123");
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("key_value_encrypted"),
+      ["user-1"]
+    );
+    expect(decrypt).toHaveBeenCalledWith("encrypted:sk-abc123");
+  });
+
+  it("returns undefined when no active AI key", async () => {
+    (db.query as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      rows: [],
+    });
+
+    const result = await resolveDecryptedApiKey("user-1");
+    expect(result).toBeUndefined();
+  });
+
+  it("does not call decrypt when no key found", async () => {
+    (db.query as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      rows: [],
+    });
+
+    await resolveDecryptedApiKey("user-1");
+    expect(decrypt).not.toHaveBeenCalled();
   });
 });
 
