@@ -1,0 +1,108 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mcu_assistant
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./shared/database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  gateway:
+    build:
+      context: ./gateway
+      dockerfile: ../docker/Dockerfile.gateway
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mcu_assistant
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  requirement-service:
+    build:
+      context: ./services/requirement-service
+      dockerfile: ../../docker/Dockerfile.python
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      FREE_API_ENDPOINT: ${FREE_API_ENDPOINT:-https://api.deepseek.com/v1/chat/completions}
+      FREE_API_KEY: ${FREE_API_KEY:-}
+      FREE_API_MODEL: ${FREE_API_MODEL:-deepseek-chat}
+      PREMIUM_API_ENDPOINT: ${PREMIUM_API_ENDPOINT:-https://api.openai.com/v1/chat/completions}
+      PREMIUM_API_KEY: ${PREMIUM_API_KEY:-}
+      PREMIUM_API_MODEL: ${PREMIUM_API_MODEL:-gpt-4o}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  recommendation-service:
+    build:
+      context: ./services/recommendation-service
+      dockerfile: ../../docker/Dockerfile.python
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  websearch-service:
+    build:
+      context: ./services/websearch-service
+      dockerfile: ../../docker/Dockerfile.python
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  codegen-service:
+    build:
+      context: ./services/codegen-service
+      dockerfile: ../../docker/Dockerfile.python
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      FREE_API_ENDPOINT: ${FREE_API_ENDPOINT:-https://api.deepseek.com/v1/chat/completions}
+      FREE_API_MODEL: ${FREE_API_MODEL:-deepseek-chat}
+      PREMIUM_API_ENDPOINT: ${PREMIUM_API_ENDPOINT:-https://api.openai.com/v1/chat/completions}
+      PREMIUM_API_MODEL: ${PREMIUM_API_MODEL:-gpt-4o}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  schematic-service:
+    build:
+      context: ./services/schematic-service
+      dockerfile: ../../docker/Dockerfile.python
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
