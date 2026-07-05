@@ -3,19 +3,31 @@ import { v4 as uuidv4 } from "uuid";
 import { db } from "@/lib/database";
 import { publishToQueue } from "@/lib/rabbitmq";
 import { checkDailyQuota, consumeDailyQuota } from "@/lib/daily-quota";
+import { checkPlatformAccess, getAllowedPlatforms } from "@/lib/platform-permissions";
 import { resolveModelConfig } from "@/lib/model-router";
-import type { Membership } from "@/lib/models";
+import type { Membership, Platform } from "@/lib/models";
 import { QUEUES } from "@/lib/rabbitmq";
 
 export async function POST(req: NextRequest) {
   try {
-    const { userId, description, experienceLevel } = await req.json();
+    const { userId, description, experienceLevel, platform: rawPlatform } = await req.json();
+    const platform: Platform = rawPlatform || "arduino";
 
     const membershipResult = await db.query(
       `SELECT tier FROM memberships WHERE user_id = $1`,
       [userId]
     );
     const tier: string = membershipResult.rows[0]?.tier || "free";
+
+    if (!checkPlatformAccess(tier as Membership, platform)) {
+      return NextResponse.json(
+        {
+          error: "Platform not allowed",
+          allowedPlatforms: getAllowedPlatforms(tier as Membership),
+        },
+        { status: 403 }
+      );
+    }
 
     const hasQuota = await checkDailyQuota(userId, tier as Membership);
     if (!hasQuota) {
