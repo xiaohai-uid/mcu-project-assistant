@@ -4,6 +4,7 @@ import { db } from "@/lib/database";
 import { publishToQueue } from "@/lib/rabbitmq";
 import { checkDailyQuota, consumeDailyQuota } from "@/lib/daily-quota";
 import { resolveModelConfig } from "@/lib/model-router";
+import type { Membership } from "@/lib/models";
 import { QUEUES } from "@/lib/rabbitmq";
 
 export async function POST(req: NextRequest) {
@@ -16,7 +17,7 @@ export async function POST(req: NextRequest) {
     );
     const tier: string = membershipResult.rows[0]?.tier || "free";
 
-    const hasQuota = await checkDailyQuota(userId, tier as never);
+    const hasQuota = await checkDailyQuota(userId, tier as Membership);
     if (!hasQuota) {
       return NextResponse.json(
         { error: "Daily quota exceeded", quotaType: "daily" },
