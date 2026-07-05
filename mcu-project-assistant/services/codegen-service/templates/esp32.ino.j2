@@ -1,0 +1,37 @@
+/*
+ * MCU Project Assistant - Generated Code
+ * Platform: ESP32
+ */
+#include <WiFi.h>
+#include <BluetoothSerial.h>
+{% for dep in dependencies %}
+#include <{{ dep }}>
+{% endfor %}
+
+// Pin Definitions
+{% for pin in pinMappings %}
+const int PIN_{{ pin.componentName | upper }}_{{ pin.connectionType | upper }} = {{ pin.microcontrollerPin }};
+{% endfor %}
+
+// Global Variables
+{% for comp in components %}
+// {{ comp.name }}
+{% endfor %}
+
+BluetoothSerial SerialBT;
+
+void setup() {
+  Serial.begin(115200);
+  SerialBT.begin("MCU-Project");
+  Serial.println("ESP32 starting...");
+  {% for pin in pinMappings %}
+  {% if pin.connectionType == "signal" %}
+  pinMode(PIN_{{ pin.componentName | upper }}_{{ pin.connectionType | upper }}, OUTPUT);
+  {% endif %}
+  {% endfor %}
+  Serial.println("System ready.");
+}
+
+void loop() {
+  {{ businessLogic }}
+}
