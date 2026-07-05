@@ -12,6 +12,7 @@ import {
   consumeDailyQuota,
   checkSearchQuota,
   consumeSearchQuota,
+  consumePaygBalance,
   getQuotaStatus,
 } from "@/lib/daily-quota";
 
@@ -24,6 +25,7 @@ function mockRows(data: Record<string, unknown>[]): MockRows {
 beforeAll(() => {
   process.env.DAILY_QUOTA_LIMIT = "10";
   process.env.SEARCH_QUOTA_MONTHLY = "1000";
+  process.env.SEARCH_COST = "1.00";
 });
 
 beforeEach(() => {
@@ -217,6 +219,44 @@ describe("consumeSearchQuota", () => {
     expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("SET search_quota_used = search_quota_used + 1"),
       ["user-1"]
+    );
+  });
+});
+
+describe("consumePaygBalance", () => {
+  it("deducts cost from payg_balance", async () => {
+    (db.query as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ rowCount: 1 });
+
+    const result = await consumePaygBalance("user-1");
+    expect(result).toBe(true);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("SET payg_balance = payg_balance -"),
+      [1.00, "user-1"]
+    );
+  });
+
+  it("returns false on insufficient balance", async () => {
+    (db.query as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ rowCount: 0 });
+
+    const result = await consumePaygBalance("user-1");
+    expect(result).toBe(false);
+  });
+
+  it("returns false for non-payg tier", async () => {
+    (db.query as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ rowCount: 0 });
+
+    const result = await consumePaygBalance("user-1");
+    expect(result).toBe(false);
+  });
+
+  it("uses default cost when not specified", async () => {
+    (db.query as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ rowCount: 1 });
+
+    const result = await consumePaygBalance("user-1");
+    expect(result).toBe(true);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("$1"),
+      [1.00, "user-1"]
     );
   });
 });

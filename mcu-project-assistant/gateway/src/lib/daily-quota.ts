@@ -3,6 +3,7 @@ import type { Membership } from "./models";
 
 const DAILY_LIMIT = parseInt(process.env.DAILY_QUOTA_LIMIT || "10", 10);
 const SEARCH_MONTHLY_LIMIT = parseInt(process.env.SEARCH_QUOTA_MONTHLY || "1000", 10);
+const SEARCH_COST = parseFloat(process.env.SEARCH_COST || "1.00");
 
 export interface QuotaStatus {
   dailyRemaining: number;
@@ -126,6 +127,16 @@ export async function consumeSearchQuota(userId: string): Promise<void> {
      WHERE user_id = $1`,
     [userId]
   );
+}
+
+export async function consumePaygBalance(userId: string, cost: number = SEARCH_COST): Promise<boolean> {
+  const result = await db.query(
+    `UPDATE memberships
+     SET payg_balance = payg_balance - $1, updated_at = NOW()
+     WHERE user_id = $2 AND tier = 'pay-as-you-go' AND payg_balance >= $1`,
+    [cost, userId]
+  );
+  return (result.rowCount ?? 0) > 0;
 }
 
 export async function getQuotaStatus(userId: string): Promise<QuotaStatus | null> {
