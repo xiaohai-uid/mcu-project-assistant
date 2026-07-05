@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { verifyToken } from "@/lib/jwt";
 
-const protectedPaths = ["/api/projects", "/api/auth/profile"];
+const protectedPaths = ["/api/projects", "/api/auth/profile", "/api/membership"];
 
 export function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
