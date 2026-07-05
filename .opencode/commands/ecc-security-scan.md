@@ -1,0 +1,1 @@
+D:/Projects/ECC/.opencode/commands/security-scan.md

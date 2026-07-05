@@ -14,16 +14,16 @@ export async function POST(req: NextRequest) {
       `SELECT tier FROM memberships WHERE user_id = $1`,
       [userId]
     );
-    const tier = membershipResult.rows[0]?.tier || "free";
+    const tier: string = membershipResult.rows[0]?.tier || "free";
 
-    if (tier === "free" || tier === "hasKey") {
-      const hasQuota = await checkDailyQuota(userId);
-      if (!hasQuota) {
-        return NextResponse.json(
-          { error: "Daily quota exceeded. Upgrade or bring your own API Key." },
-          { status: 429 }
-        );
-      }
+    const hasQuota = await checkDailyQuota(userId, tier as never);
+    if (!hasQuota) {
+      return NextResponse.json(
+        { error: "Daily quota exceeded", quotaType: "daily" },
+        { status: 429 }
+      );
+    }
+    if (tier !== "hasKey") {
       await consumeDailyQuota(userId);
     }
 

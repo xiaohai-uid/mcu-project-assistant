@@ -1,0 +1,1 @@
+D:/Projects/ECC/.opencode/tools/security-audit.ts

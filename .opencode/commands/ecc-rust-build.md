@@ -1,0 +1,1 @@
+D:/Projects/ECC/.opencode/commands/rust-build.md
