@@ -2,19 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/database";
 import { signToken } from "@/lib/jwt";
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { isValidEmail, isValidPassword } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { email, password } = body;
 
-    if (!email || !EMAIL_RE.test(email)) {
+    if (!email || !isValidEmail(email)) {
       return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
     }
 
-    if (!password || password.length < 8) {
+    if (!password || !isValidPassword(password)) {
       return NextResponse.json(
         { error: "Password must be at least 8 characters" },
         { status: 400 }
@@ -45,7 +44,8 @@ export async function POST(req: NextRequest) {
     const token = signToken({ userId: user.id, email: user.email, membership });
 
     return NextResponse.json({ token, userId: user.id, email: user.email, membership });
-  } catch {
-    return NextResponse.json({ error: "Login failed" }, { status: 400 });
+  } catch (error) {
+    console.error("Login failed:", error);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

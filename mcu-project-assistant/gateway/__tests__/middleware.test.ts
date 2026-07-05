@@ -1,44 +1,40 @@
-import { describe, it, expect, beforeAll, vi } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
+import { NextRequest } from "next/server";
+import { middleware } from "@/middleware";
 import { signToken } from "@/lib/jwt";
 
 beforeAll(() => {
   process.env.JWT_SECRET = "test-secret-key";
 });
 
-function createRequest(url: string, authHeader?: string): Request {
-  const headers = new Headers({ "content-type": "application/json" });
-  if (authHeader) headers.set("authorization", authHeader);
-  return new Request(url, { headers });
-}
-
-describe("Middleware auth logic", () => {
-  it("rejects requests without Authorization header", () => {
-    const token = createToken();
-    // Just verify our token works
-    expect(token).toBeTruthy();
+describe("middleware", () => {
+  it("allows requests to unprotected paths", () => {
+    const req = new NextRequest("http://localhost:3000/api/auth/login");
+    const res = middleware(req);
+    expect(res.status).toBe(200);
   });
 
-  it("rejects requests with invalid token", () => {
-    const req = createRequest(
-      "http://localhost:3000/api/projects/123",
-      "Bearer invalid-token-here"
-    );
-    const authHeader = req.headers.get("authorization");
-    expect(authHeader).toBe("Bearer invalid-token-here");
+  it("rejects requests to protected paths without Authorization header", () => {
+    const req = new NextRequest("http://localhost:3000/api/projects/123");
+    const res = middleware(req);
+    expect(res.status).toBe(401);
   });
 
-  it("attaches user info headers for valid token", () => {
+  it("rejects requests to protected paths with invalid token", () => {
+    const req = new NextRequest("http://localhost:3000/api/projects/123", {
+      headers: { authorization: "Bearer invalid-token-here" },
+    });
+    const res = middleware(req);
+    expect(res.status).toBe(401);
+  });
+
+  it("allows requests to protected paths with valid token", () => {
     const payload = { userId: "u1", email: "a@b.com", membership: "free" };
     const token = signToken(payload);
-    // Simulate middleware logic: set x-user-id and x-membership
-    const headers = new Headers();
-    headers.set("x-user-id", payload.userId);
-    headers.set("x-membership", payload.membership);
-    expect(headers.get("x-user-id")).toBe("u1");
-    expect(headers.get("x-membership")).toBe("free");
+    const req = new NextRequest("http://localhost:3000/api/projects/123", {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const res = middleware(req);
+    expect(res.status).toBe(200);
   });
 });
-
-function createToken() {
-  return signToken({ userId: "x", email: "x@y.com", membership: "free" });
-}

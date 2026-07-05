@@ -1,33 +1,32 @@
 import { describe, it, expect } from "vitest";
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { isValidEmail, isValidPassword } from "@/lib/validation";
 
 describe("Input Validation", () => {
-  describe("email format", () => {
+  describe("isValidEmail", () => {
     it("accepts valid emails", () => {
-      expect(EMAIL_RE.test("user@example.com")).toBe(true);
-      expect(EMAIL_RE.test("a.b@c.co")).toBe(true);
-      expect(EMAIL_RE.test("test+tag@domain.org")).toBe(true);
+      expect(isValidEmail("user@example.com")).toBe(true);
+      expect(isValidEmail("a.b@c.co")).toBe(true);
+      expect(isValidEmail("test+tag@domain.org")).toBe(true);
     });
 
     it("rejects invalid emails", () => {
-      expect(EMAIL_RE.test("")).toBe(false);
-      expect(EMAIL_RE.test("notanemail")).toBe(false);
-      expect(EMAIL_RE.test("@domain.com")).toBe(false);
-      expect(EMAIL_RE.test("user@")).toBe(false);
-      expect(EMAIL_RE.test("user@.com")).toBe(false);
+      expect(isValidEmail("")).toBe(false);
+      expect(isValidEmail("notanemail")).toBe(false);
+      expect(isValidEmail("@domain.com")).toBe(false);
+      expect(isValidEmail("user@")).toBe(false);
+      expect(isValidEmail("user@.com")).toBe(false);
     });
   });
 
-  describe("password length", () => {
+  describe("isValidPassword", () => {
     it("accepts passwords >= 8 chars", () => {
-      expect("12345678".length >= 8).toBe(true);
-      expect("a".repeat(100).length >= 8).toBe(true);
+      expect(isValidPassword("12345678")).toBe(true);
+      expect(isValidPassword("a".repeat(100))).toBe(true);
     });
 
     it("rejects passwords < 8 chars", () => {
-      expect("1234567".length >= 8).toBe(false);
-      expect("".length >= 8).toBe(false);
+      expect(isValidPassword("1234567")).toBe(false);
+      expect(isValidPassword("")).toBe(false);
     });
   });
 });
