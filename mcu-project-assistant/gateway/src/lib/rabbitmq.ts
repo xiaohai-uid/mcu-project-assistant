@@ -1,4 +1,5 @@
 import amqplib from "amqplib";
+import { logger } from "@/lib/logger";
 
 let connection: any = null;
 let channel: amqplib.Channel | null = null;
@@ -26,7 +27,7 @@ export async function connectRabbitMQ(url?: string) {
     await channel.assertQueue(queue, { durable: true });
   }
 
-  console.log("RabbitMQ connected");
+  logger.info("RabbitMQ connected");
   return channel;
 }
 

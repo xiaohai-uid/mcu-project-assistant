@@ -62,8 +62,7 @@ describe("resolveDecryptedSearchKey", () => {
     const result = await resolveDecryptedSearchKey("user-1");
     expect(result).toBeUndefined();
     expect(consoleWarnSpy).toHaveBeenCalledWith(
-      "Failed to decrypt search API key for user user-1",
-      expect.any(Error)
+      expect.stringContaining("Failed to decrypt search API key for user user-1")
     );
   });
 });

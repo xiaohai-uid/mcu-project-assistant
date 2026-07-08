@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ApiError, ErrorCodes } from "@/lib/api-error";
+import { logger } from "@/lib/logger";
 
 export function withMiddlewareErrorHandler(fn: (req: NextRequest) => Promise<unknown>): (req: NextRequest) => Promise<unknown> {
   return async (req) => {
@@ -17,7 +18,7 @@ export function withMiddlewareErrorHandler(fn: (req: NextRequest) => Promise<unk
         );
       }
 
-      console.error("Middleware error:", error);
+      logger.error("Middleware error", { error });
       return NextResponse.json(
         {
           error: "Internal server error",

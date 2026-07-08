@@ -1,5 +1,6 @@
 import { db } from "@/lib/database";
 import { decrypt } from "@/lib/encryption";
+import { logger } from "@/lib/logger";
 
 export async function resolveDecryptedApiKey(userId: string): Promise<string | undefined> {
   const result = await db.query(
@@ -11,7 +12,7 @@ export async function resolveDecryptedApiKey(userId: string): Promise<string | u
   try {
     return decrypt(result.rows[0].key_value_encrypted);
   } catch (err) {
-    console.warn(`Failed to decrypt API key for user ${userId}`, err);
+    logger.warn(`Failed to decrypt API key for user ${userId}`, { error: err });
     return undefined;
   }
 }
@@ -26,7 +27,7 @@ export async function resolveDecryptedSearchKey(userId: string): Promise<string 
   try {
     return decrypt(result.rows[0].key_value_encrypted);
   } catch (err) {
-    console.warn(`Failed to decrypt search API key for user ${userId}`, err);
+    logger.warn(`Failed to decrypt search API key for user ${userId}`, { error: err });
     return undefined;
   }
 }

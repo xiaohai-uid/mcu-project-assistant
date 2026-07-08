@@ -56,8 +56,8 @@ describe("StageHandler error handling", () => {
 
     await handler.handle({ content: Buffer.from('{"designDraftId":"d1"}') } as any);
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith("Test stage failed:", expect.any(Error));
-    expect(consoleErrorSpy).toHaveBeenCalledWith("Failed to mark design draft as failed", expect.any(Error));
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("Test stage failed"));
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("Failed to mark design draft as failed"));
     expect(mockAck).toHaveBeenCalled();
   });
 
@@ -104,9 +104,9 @@ describe("StageHandler error handling", () => {
 
     await handler.handle({ content: Buffer.from('{"designDraftId":"d1"}') } as any);
 
-    expect(consoleErrorSpy).toHaveBeenCalledWith("Test stage failed:", expect.any(Error));
+    expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining("Test stage failed"));
     const dbErrorCalls = consoleErrorSpy.mock.calls.filter(
-      (call) => call[0] === "Failed to mark design draft as failed"
+      (call: any[]) => typeof call[0] === "string" && call[0].includes("Failed to mark design draft as failed")
     );
     expect(dbErrorCalls).toHaveLength(0);
   });

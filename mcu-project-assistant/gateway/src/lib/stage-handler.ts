@@ -1,6 +1,7 @@
-import { db, withTransaction } from "./database";
-import { getChannel } from "./rabbitmq";
-import type { PipelineMessage } from "./stage-types";
+import { db, withTransaction } from "@/lib/database";
+import { getChannel } from "@/lib/rabbitmq";
+import { logger } from "@/lib/logger";
+import type { PipelineMessage } from "@/lib/stage-types";
 
 export abstract class StageHandler {
   constructor(
@@ -29,14 +30,14 @@ export abstract class StageHandler {
 
       ch.ack(msg);
     } catch (err) {
-      console.error(`${this.errorMessage}:`, err);
+      logger.error(`${this.errorMessage}`, { error: err });
       try {
         await db.query(
           `UPDATE design_drafts SET status = $1, error_message = $2, updated_at = NOW() WHERE id = $3`,
           ["failed", this.errorMessage, designDraftId]
         );
       } catch (dbErr) {
-        console.error("Failed to mark design draft as failed", dbErr);
+        logger.error("Failed to mark design draft as failed", { error: dbErr });
       }
       ch.ack(msg);
     }

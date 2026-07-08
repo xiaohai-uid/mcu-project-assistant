@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 
 export class ApiError extends Error {
   public readonly status: number;
@@ -37,7 +38,7 @@ export function withErrorHandler(
         );
       }
 
-      console.error("Unhandled error:", error);
+      logger.error("Unhandled error", { error });
 
       const isDev = process.env.NODE_ENV === "development";
       return NextResponse.json(
