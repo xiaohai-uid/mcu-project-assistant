@@ -8,5 +8,10 @@ export async function resolveDecryptedApiKey(userId: string): Promise<string | u
     [userId]
   );
   if (result.rows.length === 0) return undefined;
-  return decrypt(result.rows[0].key_value_encrypted);
+  try {
+    return decrypt(result.rows[0].key_value_encrypted);
+  } catch (err) {
+    console.warn(`Failed to decrypt API key for user ${userId}`, err);
+    return undefined;
+  }
 }
