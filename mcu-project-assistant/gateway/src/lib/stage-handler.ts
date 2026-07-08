@@ -35,7 +35,9 @@ export abstract class StageHandler {
           `UPDATE design_drafts SET status = $1, error_message = $2, updated_at = NOW() WHERE id = $3`,
           ["failed", this.errorMessage, designDraftId]
         );
-      } catch {}
+      } catch (dbErr) {
+        console.error("Failed to mark design draft as failed", dbErr);
+      }
       ch.ack(msg);
     }
   }
