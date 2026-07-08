@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { handlers, mockChannel, QUEUES } = vi.hoisted(() => {
-  const h: Record<string, Function> = {};
+  const h: Record<string, (...args: unknown[]) => void> = {};
   const ch = {
-    consume: vi.fn((queue: string, handler: Function) => { h[queue] = handler; }),
+    consume: vi.fn((queue: string, handler: (...args: unknown[]) => void) => { h[queue] = handler; }),
     publish: vi.fn(),
     ack: vi.fn(),
     nack: vi.fn(),

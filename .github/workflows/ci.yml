@@ -18,7 +18,6 @@ jobs:
         working-directory: gateway
       - run: npm run lint
         working-directory: gateway
-        continue-on-error: true
       - run: npx tsc --noEmit
         working-directory: gateway
       - run: npm test

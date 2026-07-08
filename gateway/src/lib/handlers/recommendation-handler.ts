@@ -24,7 +24,7 @@ export class RecommendationHandler extends StageHandler<RecommendationOutput> {
     return result?.rows?.[0];
   }
 
-  protected buildNextPayload(content: RecommendationOutput, row: Record<string, unknown> | undefined): Record<string, unknown> | null {
+  protected buildNextPayload(content: RecommendationOutput, row: Record<string, unknown> | undefined): unknown {
     return buildCodegenInput(content, row);
   }
 }

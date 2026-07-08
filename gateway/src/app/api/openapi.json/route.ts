@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
+import spec from '@/lib/openapi'
 
 export async function GET() {
-  const spec = require('@/lib/openapi').default
   return NextResponse.json(spec)
 }

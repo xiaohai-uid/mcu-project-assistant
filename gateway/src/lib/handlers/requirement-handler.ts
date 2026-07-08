@@ -27,7 +27,7 @@ export class RequirementHandler extends StageHandler<RequirementOutput> {
     return result?.rows?.[0];
   }
 
-  protected buildNextPayload(content: RequirementOutput, row: Record<string, unknown> | undefined): Record<string, unknown> | null {
+  protected buildNextPayload(content: RequirementOutput, row: Record<string, unknown> | undefined): unknown {
     return enrichRequirement(content, row);
   }
 }

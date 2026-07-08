@@ -25,7 +25,7 @@ export class SchematicHandler extends StageHandler<SchematicOutput> {
     return undefined;
   }
 
-  protected buildNextPayload(): Record<string, unknown> | null {
+  protected buildNextPayload(): unknown {
     return null;
   }
 }
