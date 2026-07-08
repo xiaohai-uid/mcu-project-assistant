@@ -1,0 +1,38 @@
+/*
+ * MCU Project Assistant - Generated Code
+ * Platform: Arduino
+ * Generated: {{ generation_time }}
+ */
+
+// ===== Pin Definitions =====
+{% for pin in pinMappings %}
+const int PIN_{{ pin.componentName | upper | replace("-", "_") | replace(" ", "_") | replace(".", "_") }}_SIG = {{ pin.microcontrollerPin.split()[0] }};
+{% endfor %}
+
+// ===== Library Includes =====
+{% for dep in dependencies %}
+#include <{{ dep }}>
+{% endfor %}
+
+// ===== Global Variables =====
+{% for comp in components %}
+// {{ comp.name }} - {{ comp.specifications }}
+{% endfor %}
+
+void setup() {
+  Serial.begin(9600);
+  Serial.println("System starting...");
+
+  // Initialize pins
+  {% for pin in pinMappings %}
+  {% if pin.connectionType == "signal" %}
+  pinMode(PIN_{{ pin.componentName | upper }}_SIG, OUTPUT);
+  {% endif %}
+  {% endfor %}
+
+  Serial.println("System ready.");
+}
+
+void loop() {
+  {{ businessLogic }}
+}

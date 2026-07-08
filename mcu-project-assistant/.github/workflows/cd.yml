@@ -1,0 +1,21 @@
+name: CD
+on:
+  push:
+    tags: ['v*']
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build Gateway
+        uses: docker/build-push-action@v5
+        with:
+          context: gateway
+          push: false
+          tags: mcu-gateway:${{ github.ref_name }}
+      - name: Build Services
+        run: |
+          for service in requirement recommendation websearch codegen schematic; do
+            docker build -t mcu-$service:${{ github.ref_name }} -f services/$service/Dockerfile .
+          done

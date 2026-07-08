@@ -1,0 +1,1 @@
+D:/Projects/ECC/.opencode/plugins/lib/changed-files-store.ts

@@ -1,0 +1,1 @@
+D:/Projects/ECC/.opencode/tools/check-coverage.ts

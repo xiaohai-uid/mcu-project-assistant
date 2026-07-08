@@ -1,0 +1,1 @@
+D:/Projects/ECC/.opencode/tools/format-code.ts
