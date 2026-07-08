@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: mcu_assistant
       POSTGRES_USER: mcu
-      POSTGRES_PASSWORD: mcu_secret
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mcu_secret}
     ports:
       - "5432:5432"
     volumes:
@@ -46,7 +46,7 @@ services:
         condition: service_healthy
     environment:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-      DATABASE_URL: postgresql://mcu:mcu_secret@postgres:5432/mcu_assistant
+      DATABASE_URL: postgresql://mcu:${POSTGRES_PASSWORD:-mcu_secret}@postgres:5432/mcu_assistant
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
@@ -73,7 +73,7 @@ services:
         condition: service_healthy
     environment:
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-      DATABASE_URL: postgresql://mcu:mcu_secret@postgres:5432/mcu_assistant
+      DATABASE_URL: postgresql://mcu:${POSTGRES_PASSWORD:-mcu_secret}@postgres:5432/mcu_assistant
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
@@ -162,16 +162,17 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgresql://mcu:mcu_secret@postgres:5432/mcu_assistant
+      DATABASE_URL: postgresql://mcu:${POSTGRES_PASSWORD:-mcu_secret}@postgres:5432/mcu_assistant
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-      JWT_SECRET: dev-jwt-secret-for-testing-only-change-in-prod
-      ENCRYPTION_KEY: dev-32byte-key-for-test-1234567890abcd
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-for-testing-only-change-in-prod}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-32byte-key-for-test-1234567890abcd}
       REQUIREMENT_SERVICE_URL: http://requirement-service:8001
       RECOMMENDATION_SERVICE_URL: http://recommendation-service:8002
       WEBSERVICE_URL: http://websearch-service:8003
       CODEGEN_SERVICE_URL: http://codegen-service:8004
       SCHEMATIC_SERVICE_URL: http://schematic-service:8005
-      ENCRYPTION_KEY_OLD:
+      ENCRYPTION_KEY_OLD: ${ENCRYPTION_KEY_OLD:-}
+      MIGRATIONS_DIR: /app/migrations
       DAILY_QUOTA_LIMIT: "10"
       FREE_API_ENDPOINT: https://api.deepseek.com/v1/chat/completions
       FREE_API_MODEL: deepseek-chat
@@ -179,6 +180,8 @@ services:
       PREMIUM_API_ENDPOINT: https://api.openai.com/v1/chat/completions
       PREMIUM_API_MODEL: gpt-4o
       PREMIUM_API_KEY: ${PREMIUM_API_KEY:-}
+    volumes:
+      - ./shared/database/migrations:/app/migrations:ro
     depends_on:
       requirement-service:
         condition: service_healthy
