@@ -1,6 +1,7 @@
-import { db } from "../database";
-import { StageHandler } from "../stage-handler";
-import type { SchematicOutput } from "../stage-types";
+import { db } from "@/lib/database";
+import { createSnapshot } from "@/lib/snapshot";
+import { StageHandler } from "@/lib/stage-handler";
+import type { SchematicOutput } from "@/lib/stage-types";
 
 export class SchematicHandler extends StageHandler {
   constructor() {
@@ -18,6 +19,12 @@ export class SchematicHandler extends StageHandler {
         `UPDATE design_drafts SET status = $1, svg_content = $2, pin_table = $3, updated_at = NOW() WHERE id = $4`,
         ["ready", content.svgContent, JSON.stringify(content.pinTable), content.designDraftId]
       );
+
+      // Create auto-snapshot when pipeline completes
+      const userId = (content as Record<string, unknown>).userId as string | undefined;
+      if (userId) {
+        await createSnapshot(content.designDraftId, userId, { isAuto: true });
+      }
     }
   }
 
