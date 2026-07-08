@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcu-project-assistant-shared"
+version = "0.1.0"
+description = "Shared Python library (LLM client, RabbitMQ bindings, domain models) for the MCU Project Assistant pipeline services."
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.0.0",
+    "pydantic>=2.0.0",
+    "fastapi>=0.110.0",
+    "pika>=1.3.0",
+]
+
+[tool.setuptools]
+packages = [
+    "shared",
+    "shared.database",
+    "shared.domain",
+    "shared.models",
+    "shared.rabbitmq",
+    "shared.tests",
+]
+
+[tool.setuptools.package-dir]
+shared = "."
