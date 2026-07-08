@@ -5,104 +5,204 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: mcu_assistant
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: mcu
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mcu_secret}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./shared/database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U mcu"]
+      interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - mcu-network
 
   rabbitmq:
     image: rabbitmq:4-management-alpine
     ports:
       - "5672:5672"
       - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - mcu-network
+
+  requirement-service:
+    build:
+      context: .
+      dockerfile: services/requirement-service/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      DATABASE_URL: postgresql://mcu:mcu_secret@postgres:5432/mcu_assistant
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      MOCK_MODE: "true"
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+      - mcu-network
+
+  recommendation-service:
+    build:
+      context: .
+      dockerfile: services/recommendation-service/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      DATABASE_URL: postgresql://mcu:mcu_secret@postgres:5432/mcu_assistant
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      MOCK_MODE: "true"
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+      - mcu-network
+
+  websearch-service:
+    build:
+      context: .
+      dockerfile: services/websearch-service/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      MOCK_MODE: "true"
+    ports:
+      - "8003:8003"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+      - mcu-network
+
+  codegen-service:
+    build:
+      context: .
+      dockerfile: services/codegen-service/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      MOCK_MODE: "true"
+    ports:
+      - "8004:8004"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8004/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+      - mcu-network
+
+  schematic-service:
+    build:
+      context: .
+      dockerfile: services/schematic-service/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      MOCK_MODE: "true"
+    ports:
+      - "8005:8005"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+      - mcu-network
 
   gateway:
     build:
       context: ./gateway
-      dockerfile: ../docker/Dockerfile.gateway
+      dockerfile: Dockerfile
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/mcu_assistant
+      DATABASE_URL: postgresql://mcu:mcu_secret@postgres:5432/mcu_assistant
       RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-    depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-
-  requirement-service:
-    build:
-      context: ./services/requirement-service
-      dockerfile: ../../docker/Dockerfile.python
-    environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-      FREE_API_ENDPOINT: ${FREE_API_ENDPOINT:-https://api.deepseek.com/v1/chat/completions}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-for-testing-only-change-in-prod}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-32byte-key-for-test-1234567890abcd}
+      REQUIREMENT_SERVICE_URL: http://requirement-service:8001
+      RECOMMENDATION_SERVICE_URL: http://recommendation-service:8002
+      WEBSERVICE_URL: http://websearch-service:8003
+      CODEGEN_SERVICE_URL: http://codegen-service:8004
+      SCHEMATIC_SERVICE_URL: http://schematic-service:8005
+      ENCRYPTION_KEY_OLD:
+      DAILY_QUOTA_LIMIT: "10"
+      FREE_API_ENDPOINT: https://api.deepseek.com/v1/chat/completions
+      FREE_API_MODEL: deepseek-chat
       FREE_API_KEY: ${FREE_API_KEY:-}
-      FREE_API_MODEL: ${FREE_API_MODEL:-deepseek-chat}
-      PREMIUM_API_ENDPOINT: ${PREMIUM_API_ENDPOINT:-https://api.openai.com/v1/chat/completions}
+      PREMIUM_API_ENDPOINT: https://api.openai.com/v1/chat/completions
+      PREMIUM_API_MODEL: gpt-4o
       PREMIUM_API_KEY: ${PREMIUM_API_KEY:-}
-      PREMIUM_API_MODEL: ${PREMIUM_API_MODEL:-gpt-4o}
     depends_on:
-      rabbitmq:
+      requirement-service:
         condition: service_healthy
+      recommendation-service:
+        condition: service_healthy
+      websearch-service:
+        condition: service_healthy
+      codegen-service:
+        condition: service_healthy
+      schematic-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+    networks:
+      - mcu-network
 
-  recommendation-service:
-    build:
-      context: ./services/recommendation-service
-      dockerfile: ../../docker/Dockerfile.python
-    environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-
-  websearch-service:
-    build:
-      context: ./services/websearch-service
-      dockerfile: ../../docker/Dockerfile.python
-    environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-
-  codegen-service:
-    build:
-      context: ./services/codegen-service
-      dockerfile: ../../docker/Dockerfile.python
-    environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-      FREE_API_ENDPOINT: ${FREE_API_ENDPOINT:-https://api.deepseek.com/v1/chat/completions}
-      FREE_API_MODEL: ${FREE_API_MODEL:-deepseek-chat}
-      PREMIUM_API_ENDPOINT: ${PREMIUM_API_ENDPOINT:-https://api.openai.com/v1/chat/completions}
-      PREMIUM_API_MODEL: ${PREMIUM_API_MODEL:-gpt-4o}
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-
-  schematic-service:
-    build:
-      context: ./services/schematic-service
-      dockerfile: ../../docker/Dockerfile.python
-    environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
+networks:
+  mcu-network:
+    driver: bridge
 
 volumes:
   postgres_data:
+  rabbitmq_data:
