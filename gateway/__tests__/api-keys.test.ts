@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("@/lib/database", () => ({
@@ -23,13 +23,11 @@ function buildRequest(
   headers: Record<string, string>,
   body?: unknown
 ): NextRequest {
-  const init: RequestInit & { headers: Record<string, string> } = {
+  const init = {
     method: body ? "POST" : "GET",
     headers,
+    ...(body ? { body: JSON.stringify(body) } : {}),
   };
-  if (body) {
-    init.body = JSON.stringify(body);
-  }
   return new NextRequest(`http://localhost:3000${path}`, init);
 }
 

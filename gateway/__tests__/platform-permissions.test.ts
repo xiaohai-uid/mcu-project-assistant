@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
+import { NextRequest } from "next/server";
 
 vi.mock("@/lib/database", () => {
   const query = vi.fn();
@@ -73,7 +74,7 @@ describe("POST /api/projects/start platform validation", () => {
       mockRows([{ tier: "free" }])
     );
 
-    const req = new Request("http://localhost/api/projects/start", {
+    const req = new NextRequest("http://localhost/api/projects/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -97,7 +98,7 @@ describe("POST /api/projects/start platform validation", () => {
       mockRows([{ tier: "hasKey" }])
     );
 
-    const req = new Request("http://localhost/api/projects/start", {
+    const req = new NextRequest("http://localhost/api/projects/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -122,7 +123,7 @@ describe("POST /api/projects/start platform validation", () => {
       .mockResolvedValueOnce(mockRows([{ daily_quota_remaining: 5, daily_quota_reset_at: new Date().toISOString() }]))
       .mockResolvedValueOnce(mockRows([]));
 
-    const req = new Request("http://localhost/api/projects/start", {
+    const req = new NextRequest("http://localhost/api/projects/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -145,7 +146,7 @@ describe("POST /api/projects/start platform validation", () => {
       .mockResolvedValueOnce(mockRows([{ daily_quota_remaining: 5, daily_quota_reset_at: new Date().toISOString() }]))
       .mockResolvedValueOnce(mockRows([]));
 
-    const req = new Request("http://localhost/api/projects/start", {
+    const req = new NextRequest("http://localhost/api/projects/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -167,7 +168,7 @@ describe("POST /api/projects/start platform validation", () => {
       .mockResolvedValueOnce(mockRows([{ daily_quota_remaining: 5, daily_quota_reset_at: new Date().toISOString() }]))
       .mockResolvedValueOnce(mockRows([]));
 
-    const req = new Request("http://localhost/api/projects/start", {
+    const req = new NextRequest("http://localhost/api/projects/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -189,7 +190,7 @@ describe("POST /api/projects/start platform validation", () => {
       mockRows([{ tier: "free" }])
     );
 
-    const req = new Request("http://localhost/api/projects/start", {
+    const req = new NextRequest("http://localhost/api/projects/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

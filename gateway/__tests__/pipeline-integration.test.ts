@@ -176,7 +176,7 @@ describe("4.1 — Full Pipeline Integration", () => {
     await handlers[QUEUES.REQUIREMENT_OUTPUT](msg);
 
     const failedCall = mockQuery().mock.calls.find(
-      ([sql]: [string]) => sql.includes("error_message")
+      ([sql]) => sql.includes("error_message")
     );
     expect(failedCall).toBeDefined();
     expect(failedCall![1]).toContain("failed");
@@ -199,7 +199,7 @@ describe("4.2 — Pipeline Timeout", () => {
     vi.advanceTimersByTime(60000);
 
     const updateCalls = mockQuery().mock.calls.filter(
-      ([sql]: [string]) => sql.includes("UPDATE") && sql.includes("failed")
+      ([sql]) => sql.includes("UPDATE") && sql.includes("failed")
     );
 
     expect(mockQuery()).toHaveBeenCalledWith(
@@ -322,10 +322,10 @@ describe("4.6 — Async Flow End-to-End", () => {
     await simulateFullPipeline("draft-e2e");
 
     const readyCall = mockQuery().mock.calls.find(
-      ([sql]: [string]) => sql.includes("svg_content")
+      ([sql]) => sql.includes("svg_content")
     );
     expect(readyCall).toBeDefined();
-    expect(readyCall[1]).toContain("<svg />");
+    expect(readyCall![1]).toContain("<svg />");
   });
 
   it("continues pipeline when recommendation has no search prices", async () => {
@@ -353,7 +353,7 @@ describe("4.6 — Async Flow End-to-End", () => {
     await handlers[QUEUES.SCHEMATIC_OUTPUT](schematicMsg);
 
     const readyCall = mockQuery().mock.calls.find(
-      ([sql]: [string]) => sql.includes("svg_content")
+      ([sql]) => sql.includes("svg_content")
     );
     expect(readyCall).toBeDefined();
     expect(mockChannel.publish).toHaveBeenCalledWith(
@@ -371,7 +371,7 @@ describe("4.6 — Async Flow End-to-End", () => {
     await handlers[QUEUES.RECOMMENDATION_OUTPUT](recMsg);
 
     const failedCall = mockQuery().mock.calls.find(
-      ([sql]: [string]) => sql.includes("error_message")
+      ([sql]) => sql.includes("error_message")
     );
     expect(failedCall).toBeDefined();
     expect(failedCall![1]).toContain("failed");

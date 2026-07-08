@@ -12,13 +12,11 @@ import { POST as postTopup } from "@/app/api/billing/topup/route";
 import { GET as getBalance } from "@/app/api/billing/balance/route";
 
 function buildRequest(path: string, headers: Record<string, string>, body?: unknown): NextRequest {
-  const init: RequestInit & { headers: Record<string, string> } = {
+  const init = {
     method: body ? "POST" : "GET",
     headers,
+    ...(body ? { body: JSON.stringify(body) } : {}),
   };
-  if (body) {
-    init.body = JSON.stringify(body);
-  }
   return new NextRequest(`http://localhost:3000${path}`, init);
 }
 
