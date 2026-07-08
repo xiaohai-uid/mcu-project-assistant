@@ -6,7 +6,7 @@
 
 // ===== Pin Definitions =====
 {% for pin in pinMappings %}
-const int PIN_{{ pin.componentName | upper }}_SIG = {{ pin.microcontrollerPin }};
+const int PIN_{{ pin.componentName | upper | replace("-", "_") | replace(" ", "_") | replace(".", "_") }}_SIG = {{ pin.microcontrollerPin.split()[0] }};
 {% endfor %}
 
 // ===== Library Includes =====
