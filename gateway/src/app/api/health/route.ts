@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { withErrorHandler } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ async function checkService(name: string, url: string): Promise<{ status: string
   }
 }
 
-export async function GET() {
+export const GET = withErrorHandler(async () => {
   const uptimeSeconds = Math.floor((Date.now() - gatewayStartTime) / 1000);
 
   const results = await Promise.all(
@@ -51,4 +52,4 @@ export async function GET() {
     uptime_seconds: uptimeSeconds,
     services,
   });
-}
+});
