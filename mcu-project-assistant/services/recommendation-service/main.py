@@ -1,13 +1,13 @@
 import os
 import json
 import sqlite3
-import httpx
 import traceback
-import re
-from shared.rabbitmq.client import RabbitMQClient
-from shared.rabbitmq import queues
+from pydantic import BaseModel
+from shared.llm_client import LLMClient, LLMError
+from shared.rabbitmq import queues as q
+from shared.bootstrap import run_service, QueueBinding, make_rabbitmq_client
 
-client = RabbitMQClient(os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672"))
+client = make_rabbitmq_client()
 
 DB_PATH = os.getenv("COMPONENTS_DB", "components.db")
 
@@ -58,35 +58,41 @@ def detect_conflicts(components: list[dict]) -> list[dict]:
     return conflicts
 
 
+class ComponentSuggestion(BaseModel):
+    name: str
+    category: str
+    price: float
+    reason: str
+
+class ComponentSuggestions(BaseModel):
+    components: list[ComponentSuggestion]
+
+
 def ai_match_components(requirement: dict, model_config: dict) -> list[dict]:
-    prompt = f"""Given a microcontroller project requirement, suggest suitable components.
-Return JSON array: [{{"name": str, "category": str, "price": float, "reason": str}}]
-
-Requirement: {json.dumps(requirement, ensure_ascii=False)}"""
-
-    headers = {
-        "Authorization": f"Bearer {model_config['apiKey']}",
-        "Content-Type": "application/json",
-    }
-    body = {
-        "model": model_config["model"],
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-    }
+    llm = LLMClient(
+        api_key=model_config.get("apiKey"),
+        base_url=model_config.get("endpoint"),
+        model=model_config.get("model"),
+    )
     try:
-        resp = httpx.post(model_config["endpoint"], headers=headers, json=body, timeout=60)
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
-        match = re.search(r'\[.*?\]', content, re.DOTALL)
-        if match:
-            results = json.loads(match.group())
-            for r in results:
-                r["isAiSuggested"] = True
-                r["compatible_platforms"] = "arduino"
-            return results
-    except Exception:
-        pass
-    return []
+        result = llm.chat(
+            system_prompt="You are an embedded systems component selection expert. Suggest suitable components for the given project requirement.",
+            user_prompt=f"Requirement: {json.dumps(requirement, ensure_ascii=False)}",
+            response_model=ComponentSuggestions,
+        )
+        items = []
+        for comp in result.components:
+            items.append({
+                "name": comp.name,
+                "category": comp.category,
+                "price": comp.price,
+                "reason": comp.reason,
+                "isAiSuggested": True,
+                "compatible_platforms": "arduino",
+            })
+        return items
+    except LLMError:
+        return []
 
 
 def recommend_components(ch, method, _properties, body):
@@ -99,8 +105,9 @@ def recommend_components(ch, method, _properties, body):
         platform = message.get("platform", "arduino")
         design_draft_id = message["designDraftId"]
 
-        if membership == "free" and not has_search_key and not model_config:
-            client.publish(queues.RECOMMENDATION_OUTPUT, {
+        from shared.llm_client import MOCK_MODE
+        if membership == "free" and not has_search_key and not model_config and not MOCK_MODE:
+            client.publish(q.RECOMMENDATION_OUTPUT, {
                 "designDraftId": design_draft_id,
                 "componentList": {"tiers": {}, "source": "none"},
                 "error": "Free tier without AI key has no recommendation service",
@@ -166,12 +173,12 @@ def recommend_components(ch, method, _properties, body):
         }
 
         if use_websearch and compatible:
-            client.publish(queues.WEBSERACH_INPUT, {
+            client.publish(q.WEBSERACH_INPUT, {
                 "designDraftId": design_draft_id,
                 "components": [c["name"] for c in compatible[:10]],
             })
 
-        client.publish(queues.RECOMMENDATION_OUTPUT, {
+        client.publish(q.RECOMMENDATION_OUTPUT, {
             "designDraftId": design_draft_id,
             "componentList": result,
         })
@@ -180,7 +187,7 @@ def recommend_components(ch, method, _properties, body):
     except Exception:
         traceback.print_exc()
         try:
-            client.publish(queues.RECOMMENDATION_OUTPUT, {
+            client.publish(q.RECOMMENDATION_OUTPUT, {
                 "designDraftId": message.get("designDraftId"),
                 "error": "Recommendation processing failed",
             })
@@ -203,16 +210,24 @@ def _map_functionality_to_category(func: str) -> str:
 
 
 def main():
-    client.connect()
-    client.declare_queue(queues.RECOMMENDATION_INPUT)
-    client.declare_queue(queues.RECOMMENDATION_OUTPUT)
-    client.channel.basic_consume(
-        queue=queues.RECOMMENDATION_INPUT,
-        on_message_callback=recommend_components,
-        auto_ack=False,
+    run_service(
+        name="recommendation",
+        port=8002,
+        declare_queues=[q.RECOMMENDATION_OUTPUT],
+        bindings=[
+            QueueBinding(queue=q.RECOMMENDATION_INPUT, callback=recommend_components),
+        ],
+        client=client,
+        before_consume=_seed_db,
     )
-    print("RecommendationService started. Waiting for messages...")
-    client.channel.start_consuming()
+
+
+def _seed_db():
+    try:
+        from seed import seed
+        seed()
+    except Exception as e:
+        print(f"Seed warning: {e}")
 
 
 if __name__ == "__main__":

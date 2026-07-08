@@ -1,27 +1,23 @@
 import os
 import json
-import re
 import traceback
-import httpx
-from shared.rabbitmq.client import RabbitMQClient
-from shared.rabbitmq import queues
+from pydantic import BaseModel
+from shared.llm_client import LLMClient, LLMError
+from shared.rabbitmq import queues as q
+from shared.bootstrap import run_service, QueueBinding, make_rabbitmq_client
 
-client = RabbitMQClient(os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672"))
+client = make_rabbitmq_client()
 
 
-def call_llm(model_config: dict, prompt: str) -> str:
-    headers = {
-        "Authorization": f"Bearer {model_config['apiKey']}",
-        "Content-Type": "application/json",
-    }
-    body = {
-        "model": model_config["model"],
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.3,
-    }
-    resp = httpx.post(model_config["endpoint"], headers=headers, json=body, timeout=60)
-    resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+class RequirementOutput(BaseModel):
+    title: str
+    description: str
+    functionality: list[str]
+    io: dict
+    communication: dict
+    powerSupply: str
+    targetPlatform: str = "arduino"
+    budgetRange: str = ""
 
 
 def detect_language(text: str) -> str:
@@ -63,26 +59,6 @@ Return ONLY valid JSON in the following format, with no additional text:
 Description: {description}"""
 
 
-def parse_llm_response(raw: str) -> dict:
-    match = re.search(r'\{.*\}', raw, re.DOTALL)
-    if not match:
-        raise ValueError("No JSON block found in LLM response")
-    parsed = json.loads(match.group())
-    required = {"title", "description", "functionality", "io", "communication", "powerSupply"}
-    missing = required - set(parsed.keys())
-    if missing:
-        raise ValueError(f"Missing required fields: {missing}")
-    if not isinstance(parsed.get("functionality"), list):
-        raise ValueError("functionality must be a list")
-    io = parsed.get("io", {})
-    if not isinstance(io.get("inputDevices"), list) or not isinstance(io.get("outputDevices"), list):
-        raise ValueError("io.inputDevices and io.outputDevices must be lists")
-    comm = parsed.get("communication", {})
-    if not isinstance(comm.get("protocols"), list):
-        raise ValueError("communication.protocols must be a list")
-    return parsed
-
-
 def is_vague(description: str) -> bool:
     if len(description) < 15:
         return True
@@ -100,7 +76,7 @@ def analyze_requirement(ch, method, properties, body):
         model_config = message["modelConfig"]
 
         if is_vague(description):
-            client.publish(queues.CLARIFICATION_REQUEST, {
+            client.publish(q.CLARIFICATION_REQUEST, {
                 "designDraftId": message["designDraftId"],
                 "description": description,
                 "questions": [
@@ -116,10 +92,23 @@ def analyze_requirement(ch, method, properties, body):
 
         lang = detect_language(description)
         prompt = build_prompt(description, lang)
-        raw = call_llm(model_config, prompt)
-        parsed = parse_llm_response(raw)
 
-        client.publish(queues.REQUIREMENT_OUTPUT, {
+        llm = LLMClient(
+            api_key=model_config.get("apiKey") or os.getenv("OPENAI_API_KEY", ""),
+            base_url=model_config.get("endpoint") or os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            model=model_config.get("model") or os.getenv("LLM_MODEL", "gpt-4o-mini"),
+        )
+        try:
+            result = llm.chat(
+                system_prompt="You are an embedded/microcontroller project requirements analyst.",
+                user_prompt=prompt,
+                response_model=RequirementOutput,
+            )
+            parsed = result.model_dump()
+        except LLMError as e:
+            raise Exception(f"LLM analysis failed: {e}")
+
+        client.publish(q.REQUIREMENT_OUTPUT, {
             "designDraftId": message["designDraftId"],
             "requirement": parsed,
             "lang": lang,
@@ -129,7 +118,7 @@ def analyze_requirement(ch, method, properties, body):
 
     except Exception:
         traceback.print_exc()
-        client.publish(queues.REQUIREMENT_OUTPUT, {
+        client.publish(q.REQUIREMENT_OUTPUT, {
             "designDraftId": message.get("designDraftId", "unknown"),
             "error": traceback.format_exc(),
         })
@@ -143,23 +132,16 @@ def handle_clarification_response(ch, method, properties, body):
 
 
 def main():
-    client.connect()
-    client.declare_queue(queues.REQUIREMENT_INPUT)
-    client.declare_queue(queues.REQUIREMENT_OUTPUT)
-    client.declare_queue(queues.CLARIFICATION_REQUEST)
-    client.declare_queue(queues.CLARIFICATION_RESPONSE)
-    client.channel.basic_consume(
-        queue=queues.REQUIREMENT_INPUT,
-        on_message_callback=analyze_requirement,
-        auto_ack=False,
+    run_service(
+        name="requirement",
+        port=8001,
+        declare_queues=[q.REQUIREMENT_OUTPUT, q.CLARIFICATION_REQUEST],
+        bindings=[
+            QueueBinding(queue=q.REQUIREMENT_INPUT, callback=analyze_requirement),
+            QueueBinding(queue=q.CLARIFICATION_RESPONSE, callback=handle_clarification_response),
+        ],
+        client=client,
     )
-    client.channel.basic_consume(
-        queue=queues.CLARIFICATION_RESPONSE,
-        on_message_callback=handle_clarification_response,
-        auto_ack=False,
-    )
-    print("RequirementService started. Waiting for messages...")
-    client.channel.start_consuming()
 
 
 if __name__ == "__main__":

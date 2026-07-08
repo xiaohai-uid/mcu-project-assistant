@@ -1,6 +1,6 @@
 import amqplib from "amqplib";
 
-let connection: amqplib.Connection | null = null;
+let connection: any = null;
 let channel: amqplib.Channel | null = null;
 
 export const QUEUES = {
@@ -21,6 +21,7 @@ export async function connectRabbitMQ(url?: string) {
   connection = await amqplib.connect(connectionUrl);
   channel = await connection.createChannel();
 
+  if (!channel) throw new Error("Failed to create channel");
   for (const queue of Object.values(QUEUES)) {
     await channel.assertQueue(queue, { durable: true });
   }
@@ -35,7 +36,12 @@ export function getChannel() {
 }
 
 export async function publishToQueue(queue: string, message: object) {
-  const ch = getChannel();
+  let ch = channel;
+  if (!ch) {
+    await connectRabbitMQ();
+    ch = channel;
+  }
+  if (!ch) throw new Error("Failed to connect RabbitMQ");
   ch.sendToQueue(queue, Buffer.from(JSON.stringify(message)), {
     persistent: true,
   });

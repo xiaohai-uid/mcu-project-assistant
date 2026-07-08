@@ -2,10 +2,10 @@ import os
 import json
 import traceback
 from datetime import datetime
-from shared.rabbitmq.client import RabbitMQClient
-from shared.rabbitmq import queues
+from shared.rabbitmq import queues as q
+from shared.bootstrap import run_service, QueueBinding, make_rabbitmq_client
 
-client = RabbitMQClient(os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672"))
+client = make_rabbitmq_client()
 
 WIRE_COLORS = {
     "power": "#FF0000",
@@ -152,7 +152,7 @@ def generate_diagram(ch, method, _properties, body):
 
         svg_content = generate_svg(pinTable, components, platform)
 
-        client.publish(queues.SCHEMATIC_OUTPUT, {
+        client.publish(q.SCHEMATIC_OUTPUT, {
             "designDraftId": message["designDraftId"],
             "svgContent": svg_content,
             "pinTable": pinTable,
@@ -163,7 +163,7 @@ def generate_diagram(ch, method, _properties, body):
     except Exception:
         traceback.print_exc()
         try:
-            client.publish(queues.SCHEMATIC_OUTPUT, {
+            client.publish(q.SCHEMATIC_OUTPUT, {
                 "designDraftId": json.loads(body).get("designDraftId"),
                 "error": "Schematic generation failed",
             })
@@ -173,16 +173,15 @@ def generate_diagram(ch, method, _properties, body):
 
 
 def main():
-    client.connect()
-    client.declare_queue(queues.SCHEMATIC_INPUT)
-    client.declare_queue(queues.SCHEMATIC_OUTPUT)
-    client.channel.basic_consume(
-        queue=queues.SCHEMATIC_INPUT,
-        on_message_callback=generate_diagram,
-        auto_ack=False,
+    run_service(
+        name="schematic",
+        port=8005,
+        declare_queues=[q.SCHEMATIC_OUTPUT],
+        bindings=[
+            QueueBinding(queue=q.SCHEMATIC_INPUT, callback=generate_diagram),
+        ],
+        client=client,
     )
-    print("SchematicService started. Waiting for messages...")
-    client.channel.start_consuming()
 
 
 if __name__ == "__main__":

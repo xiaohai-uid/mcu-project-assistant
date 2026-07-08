@@ -52,7 +52,7 @@ export async function createSnapshot(
   return {
     id: result.rows[0].id,
     designDraftId: draftId,
-    name: finalName,
+    name: finalName || null,
     isAuto,
     createdAt: result.rows[0].created_at,
   };

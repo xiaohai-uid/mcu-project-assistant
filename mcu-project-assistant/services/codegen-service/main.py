@@ -1,15 +1,13 @@
 import os
 import json
-import re
-import time
-import httpx
 import traceback
 from datetime import datetime
 from jinja2 import Environment, FileSystemLoader
-from shared.rabbitmq.client import RabbitMQClient
-from shared.rabbitmq import queues
+from shared.llm_client import LLMClient, LLMError
+from shared.rabbitmq import queues as q
+from shared.bootstrap import run_service, QueueBinding, make_rabbitmq_client
 
-client = RabbitMQClient(os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672"))
+client = make_rabbitmq_client()
 env = Environment(loader=FileSystemLoader("templates"))
 
 PLATFORM_PINS = {
@@ -96,40 +94,29 @@ def resolve_dependencies(components):
     return sorted(deps)
 
 
-def call_llm(model_config, prompt, max_retries=2):
-    headers = {
-        "Authorization": f"Bearer {model_config['apiKey']}",
-        "Content-Type": "application/json",
-    }
-    body = {
-        "model": model_config.get("model", "gpt-3.5-turbo"),
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.2,
-    }
-    last_error = None
-    for attempt in range(max_retries + 1):
-        try:
-            resp = httpx.post(model_config["endpoint"], headers=headers, json=body, timeout=60)
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
-        except Exception as e:
-            last_error = str(e)
-            if attempt < max_retries:
-                time.sleep(2 ** attempt)
-    raise Exception(f"LLM call failed after {max_retries+1} attempts: {last_error}")
-
-
-def generate_business_logic(requirement, components, pinMappings, model_config):
+def generate_business_logic(requirement, components, pinMappings, platform, model_config):
     prompt = f"""You are an Arduino code generator. Generate the loop() function body for a project.
 
-Platform: {model_config.get('platform', 'arduino')}
+Platform: {platform}
 Components: {json.dumps([c['name'] for c in components], ensure_ascii=False)}
 Pin Mappings: {json.dumps(pinMappings, ensure_ascii=False)}
 Requirement: {json.dumps(requirement, ensure_ascii=False)}
 
 Return ONLY valid C++ code. No markdown. No explanation. The code will be inserted inside an existing loop() function.
 Start directly with the code."""
-    return call_llm(model_config, prompt)
+    llm = LLMClient(
+        api_key=model_config.get("apiKey"),
+        base_url=model_config.get("endpoint"),
+        model=model_config.get("model"),
+    )
+    try:
+        return llm.chat(
+            system_prompt="You are an Arduino code generator. Generate only the loop() function body.",
+            user_prompt=prompt,
+            temperature=0.2,
+        )
+    except LLMError:
+        return ""
 
 
 def validate_code(code, platform):
@@ -150,7 +137,7 @@ def generate_code(ch, method, _properties, body):
         model_config = message.get("modelConfig", {})
 
         if not components:
-            client.publish(queues.CODEGEN_OUTPUT, {
+            client.publish(q.CODEGEN_OUTPUT, {
                 "designDraftId": message["designDraftId"],
                 "error": "No components provided for code generation",
             })
@@ -168,7 +155,7 @@ def generate_code(ch, method, _properties, body):
 
         business_logic = ""
         if model_config:
-            business_logic = generate_business_logic(requirement, components, pin_mappings, model_config)
+            business_logic = generate_business_logic(requirement, components, pin_mappings, platform, model_config)
 
         code = template.render(
             components=components,
@@ -180,7 +167,7 @@ def generate_code(ch, method, _properties, body):
 
         validation = validate_code(code, platform)
 
-        client.publish(queues.CODEGEN_OUTPUT, {
+        client.publish(q.CODEGEN_OUTPUT, {
             "designDraftId": message["designDraftId"],
             "code": code,
             "platform": platform,
@@ -193,7 +180,7 @@ def generate_code(ch, method, _properties, body):
     except Exception:
         traceback.print_exc()
         try:
-            client.publish(queues.CODEGEN_OUTPUT, {
+            client.publish(q.CODEGEN_OUTPUT, {
                 "designDraftId": json.loads(body).get("designDraftId"),
                 "error": "Code generation failed",
             })
@@ -203,16 +190,15 @@ def generate_code(ch, method, _properties, body):
 
 
 def main():
-    client.connect()
-    client.declare_queue(queues.CODEGEN_INPUT)
-    client.declare_queue(queues.CODEGEN_OUTPUT)
-    client.channel.basic_consume(
-        queue=queues.CODEGEN_INPUT,
-        on_message_callback=generate_code,
-        auto_ack=False,
+    run_service(
+        name="codegen",
+        port=8004,
+        declare_queues=[q.CODEGEN_OUTPUT],
+        bindings=[
+            QueueBinding(queue=q.CODEGEN_INPUT, callback=generate_code),
+        ],
+        client=client,
     )
-    print("CodegenService started. Waiting for messages...")
-    client.channel.start_consuming()
 
 
 if __name__ == "__main__":

@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from "vitest";
 
-vi.mock("@/lib/database", () => ({
-  db: {
-    query: vi.fn(),
-  },
-}));
+vi.mock("@/lib/database", () => {
+  const query = vi.fn();
+  return {
+    db: { query },
+    withTransaction: async <T>(fn: (client: { query: typeof query }) => Promise<T>) => fn({ query }),
+  };
+});
 
 vi.mock("@/lib/rabbitmq", () => ({
   publishToQueue: vi.fn(),
@@ -28,6 +30,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  (db.query as ReturnType<typeof vi.fn>).mockResolvedValue(mockRows([]));
 });
 
 const TIERS: Membership[] = ["free", "hasKey", "subscription", "pay-as-you-go"];
@@ -117,7 +120,6 @@ describe("POST /api/projects/start platform validation", () => {
     (db.query as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(mockRows([{ tier: "subscription" }]))
       .mockResolvedValueOnce(mockRows([{ daily_quota_remaining: 5, daily_quota_reset_at: new Date().toISOString() }]))
-      .mockResolvedValueOnce(mockRows([{ key_value_encrypted: null, key_type: "ai" }]))
       .mockResolvedValueOnce(mockRows([]));
 
     const req = new Request("http://localhost/api/projects/start", {
@@ -141,7 +143,6 @@ describe("POST /api/projects/start platform validation", () => {
     (db.query as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(mockRows([{ tier: "free" }]))
       .mockResolvedValueOnce(mockRows([{ daily_quota_remaining: 5, daily_quota_reset_at: new Date().toISOString() }]))
-      .mockResolvedValueOnce(mockRows([{ key_value_encrypted: null, key_type: "ai" }]))
       .mockResolvedValueOnce(mockRows([]));
 
     const req = new Request("http://localhost/api/projects/start", {
@@ -164,7 +165,6 @@ describe("POST /api/projects/start platform validation", () => {
     (db.query as ReturnType<typeof vi.fn>)
       .mockResolvedValueOnce(mockRows([{ tier: "pay-as-you-go" }]))
       .mockResolvedValueOnce(mockRows([{ daily_quota_remaining: 5, daily_quota_reset_at: new Date().toISOString() }]))
-      .mockResolvedValueOnce(mockRows([{ key_value_encrypted: null, key_type: "ai" }]))
       .mockResolvedValueOnce(mockRows([]));
 
     const req = new Request("http://localhost/api/projects/start", {

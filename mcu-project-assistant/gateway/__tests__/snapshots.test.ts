@@ -8,7 +8,7 @@ vi.mock("@/lib/database", () => ({
 }));
 
 import { db } from "@/lib/database";
-import { GET as listSnapshots, POST as createSnapshotRoute } from "@/app/api/projects/[designDraftId]/snapshots/route";
+import { GET as listSnapshots, POST as createSnapshotRoute } from "@/app/api/projects/[id]/snapshots/route";
 import { POST as restoreSnapshotRoute } from "@/app/api/snapshots/[snapshotId]/restore/route";
 
 function buildRequest(path: string, headers: Record<string, string>, body?: unknown): NextRequest {
@@ -29,7 +29,7 @@ describe("POST /api/projects/:designDraftId/snapshots", () => {
       .mockResolvedValueOnce({ rows: [{ id: "snap-1", created_at: "2026-01-01T00:00:00Z" }] });
 
     const req = buildRequest("/api/projects/draft-1/snapshots", { "x-user-id": "user-1" }, { name: "My Snapshot" });
-    const res = await createSnapshotRoute(req, { params: Promise.resolve({ designDraftId: "draft-1" }) });
+    const res = await createSnapshotRoute(req, { params: Promise.resolve({ id: "draft-1" }) });
     expect(res.status).toBe(201);
 
     const data = await res.json();
@@ -39,7 +39,7 @@ describe("POST /api/projects/:designDraftId/snapshots", () => {
 
   it("returns 400 if name missing", async () => {
     const req = buildRequest("/api/projects/draft-1/snapshots", { "x-user-id": "user-1" }, {});
-    const res = await createSnapshotRoute(req, { params: Promise.resolve({ designDraftId: "draft-1" }) });
+    const res = await createSnapshotRoute(req, { params: Promise.resolve({ id: "draft-1" }) });
     expect(res.status).toBe(400);
 
     const data = await res.json();
@@ -48,7 +48,7 @@ describe("POST /api/projects/:designDraftId/snapshots", () => {
 
   it("returns 401 without x-user-id", async () => {
     const req = buildRequest("/api/projects/draft-1/snapshots", {}, { name: "Test" });
-    const res = await createSnapshotRoute(req, { params: Promise.resolve({ designDraftId: "draft-1" }) });
+    const res = await createSnapshotRoute(req, { params: Promise.resolve({ id: "draft-1" }) });
     expect(res.status).toBe(401);
   });
 
@@ -56,7 +56,7 @@ describe("POST /api/projects/:designDraftId/snapshots", () => {
     (db.query as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ rows: [] });
 
     const req = buildRequest("/api/projects/draft-none/snapshots", { "x-user-id": "user-1" }, { name: "Test" });
-    const res = await createSnapshotRoute(req, { params: Promise.resolve({ designDraftId: "draft-none" }) });
+    const res = await createSnapshotRoute(req, { params: Promise.resolve({ id: "draft-none" }) });
     expect(res.status).toBe(404);
   });
 });
@@ -68,7 +68,7 @@ describe("GET /api/projects/:designDraftId/snapshots", () => {
       .mockResolvedValueOnce({ rows: [] });
 
     const req = buildRequest("/api/projects/draft-1/snapshots", { "x-user-id": "user-1" });
-    const res = await listSnapshots(req, { params: Promise.resolve({ designDraftId: "draft-1" }) });
+    const res = await listSnapshots(req, { params: Promise.resolve({ id: "draft-1" }) });
     expect(res.status).toBe(200);
 
     const data = await res.json();
@@ -77,7 +77,7 @@ describe("GET /api/projects/:designDraftId/snapshots", () => {
 
   it("returns 401 without x-user-id", async () => {
     const req = buildRequest("/api/projects/draft-1/snapshots", {});
-    const res = await listSnapshots(req, { params: Promise.resolve({ designDraftId: "draft-1" }) });
+    const res = await listSnapshots(req, { params: Promise.resolve({ id: "draft-1" }) });
     expect(res.status).toBe(401);
   });
 });

@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeAll, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-vi.mock("@/lib/database", () => ({
-  db: {
-    query: vi.fn(),
-  },
-}));
+vi.mock("@/lib/database", () => {
+  const query = vi.fn();
+  return {
+    db: { query },
+    withTransaction: async <T>(fn: (client: { query: typeof query }) => Promise<T>) => fn({ query }),
+  };
+});
 
 import { db } from "@/lib/database";
 import { GET as getProfile } from "@/app/api/auth/profile/route";
