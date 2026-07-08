@@ -1,0 +1,9 @@
+{
+  "name": "mcu-project-assistant",
+  "private": true,
+  "scripts": {
+    "dev:gateway": "cd gateway && npm run dev",
+    "build:gateway": "cd gateway && npm run build",
+    "dev": "docker-compose up"
+  }
+}

@@ -1,0 +1,469 @@
+{
+  "$schema": "https://design-tokens.org/format/v1.0",
+  "name": "MCU Project Assistant Design Tokens",
+  "description": "Comprehensive design token system for the MCU Project Assistant — a Chinese-language web tool for microcontroller project ideation, component recommendations, code generation, and wiring diagrams. Inspired by Linear (minimal, dark-first), Vercel (typography hierarchy), and PCBWay (scannable technical parameters). Philosophy: Technical workshop meets clean SaaS.",
+  "version": "1.0.0",
+  "tokens": {
+    "color": {
+      "primary": {
+        "value": "#0d9488",
+        "description": "Deep teal — technical, circuit-board green feel for primary actions and branding",
+        "light": {
+          "bg": { "value": "#f0fdfa", "description": "Primary background (light): teal-50" },
+          "text": { "value": "#0d9488", "description": "Primary text (light): teal-600" },
+          "border": { "value": "#5eead4", "description": "Primary border (light): teal-300" },
+          "hover": { "value": "#0f766e", "description": "Primary hover state (light): teal-700" },
+          "active": { "value": "#115e59", "description": "Primary active/pressed (light): teal-800" },
+          "muted": { "value": "#ccfbf1", "description": "Primary muted fill (light): teal-100" }
+        },
+        "dark": {
+          "bg": { "value": "#115e59", "description": "Primary background (dark): teal-800" },
+          "text": { "value": "#5eead4", "description": "Primary text (dark): teal-300" },
+          "border": { "value": "#0f766e", "description": "Primary border (dark): teal-700" },
+          "hover": { "value": "#0d9488", "description": "Primary hover state (dark): teal-600" },
+          "active": { "value": "#14b8a6", "description": "Primary active/pressed (dark): teal-500" },
+          "muted": { "value": "#134e4a", "description": "Primary muted fill (dark): teal-800" }
+        }
+      },
+      "accent": {
+        "value": "#06b6d4",
+        "description": "Cyan — connections, links, data flow, interactive highlights",
+        "light": {
+          "bg": { "value": "#ecfeff", "description": "Accent background (light): cyan-50" },
+          "text": { "value": "#06b6d4", "description": "Accent text (light): cyan-500" },
+          "border": { "value": "#67e8f9", "description": "Accent border (light): cyan-300" },
+          "hover": { "value": "#0891b2", "description": "Accent hover (light): cyan-600" },
+          "active": { "value": "#0e7490", "description": "Accent active (light): cyan-700" }
+        },
+        "dark": {
+          "bg": { "value": "#164e63", "description": "Accent background (dark): cyan-900" },
+          "text": { "value": "#22d3ee", "description": "Accent text (dark): cyan-400" },
+          "border": { "value": "#0891b2", "description": "Accent border (dark): cyan-600" },
+          "hover": { "value": "#06b6d4", "description": "Accent hover (dark): cyan-500" },
+          "active": { "value": "#22d3ee", "description": "Accent active (dark): cyan-400" }
+        }
+      },
+      "surface": {
+        "description": "App surface / canvas backgrounds",
+        "light": {
+          "bg": { "value": "#f8fafc", "description": "Page background (light): slate-50" },
+          "bgAlt": { "value": "#f1f5f9", "description": "Alternate surface (light): slate-100" },
+          "bgElevated": { "value": "#ffffff", "description": "Elevated surface / cards (light): white" },
+          "text": { "value": "#0f172a", "description": "Body text (light): slate-900" },
+          "textSecondary": { "value": "#475569", "description": "Secondary text (light): slate-600" },
+          "textTertiary": { "value": "#94a3b8", "description": "Placeholder / disabled text (light): slate-400" },
+          "border": { "value": "#e2e8f0", "description": "Default border (light): slate-200" },
+          "borderStrong": { "value": "#cbd5e1", "description": "Strong border (light): slate-300" }
+        },
+        "dark": {
+          "bg": { "value": "#0f172a", "description": "Page background (dark): slate-900" },
+          "bgAlt": { "value": "#1e293b", "description": "Alternate surface (dark): slate-800" },
+          "bgElevated": { "value": "#1e293b", "description": "Elevated surface / cards (dark): slate-800" },
+          "text": { "value": "#f8fafc", "description": "Body text (dark): slate-50" },
+          "textSecondary": { "value": "#94a3b8", "description": "Secondary text (dark): slate-400" },
+          "textTertiary": { "value": "#64748b", "description": "Placeholder / disabled text (dark): slate-500" },
+          "border": { "value": "#334155", "description": "Default border (dark): slate-700" },
+          "borderStrong": { "value": "#475569", "description": "Strong border (dark): slate-600" }
+        }
+      },
+      "neutral": {
+        "description": "Full neutral scale for flexible use",
+        "50": { "value": "#f8fafc", "light": "#f8fafc", "dark": "#0f172a" },
+        "100": { "value": "#f1f5f9", "light": "#f1f5f9", "dark": "#1e293b" },
+        "200": { "value": "#e2e8f0", "light": "#e2e8f0", "dark": "#334155" },
+        "300": { "value": "#cbd5e1", "light": "#cbd5e1", "dark": "#475569" },
+        "400": { "value": "#94a3b8", "light": "#94a3b8", "dark": "#64748b" },
+        "500": { "value": "#64748b", "light": "#64748b", "dark": "#94a3b8" },
+        "600": { "value": "#475569", "light": "#475569", "dark": "#cbd5e1" },
+        "700": { "value": "#334155", "light": "#334155", "dark": "#e2e8f0" },
+        "800": { "value": "#1e293b", "light": "#1e293b", "dark": "#f1f5f9" },
+        "900": { "value": "#0f172a", "light": "#0f172a", "dark": "#f8fafc" }
+      },
+      "semantic": {
+        "description": "Semantic / feedback colors for status, validation, and alerts",
+        "success": {
+          "value": "#10b981",
+          "description": "Emerald — success, confirmation, positive signals",
+          "light": {
+            "bg": { "value": "#ecfdf5", "description": "Success bg (light): emerald-50" },
+            "text": { "value": "#047857", "description": "Success text (light): emerald-700" },
+            "border": { "value": "#6ee7b7", "description": "Success border (light): emerald-300" },
+            "hover": { "value": "#059669", "description": "Success hover (light): emerald-600" }
+          },
+          "dark": {
+            "bg": { "value": "#064e3b", "description": "Success bg (dark): emerald-900" },
+            "text": { "value": "#34d399", "description": "Success text (dark): emerald-400" },
+            "border": { "value": "#059669", "description": "Success border (dark): emerald-600" },
+            "hover": { "value": "#10b981", "description": "Success hover (dark): emerald-500" }
+          }
+        },
+        "warning": {
+          "value": "#d97706",
+          "description": "Amber — warnings, caution, attention needed",
+          "light": {
+            "bg": { "value": "#fffbeb", "description": "Warning bg (light): amber-50" },
+            "text": { "value": "#b45309", "description": "Warning text (light): amber-700" },
+            "border": { "value": "#fcd34d", "description": "Warning border (light): amber-300" },
+            "hover": { "value": "#b45309", "description": "Warning hover (light): amber-700" }
+          },
+          "dark": {
+            "bg": { "value": "#451a03", "description": "Warning bg (dark): amber-950" },
+            "text": { "value": "#fbbf24", "description": "Warning text (dark): amber-400" },
+            "border": { "value": "#d97706", "description": "Warning border (dark): amber-600" },
+            "hover": { "value": "#f59e0b", "description": "Warning hover (dark): amber-500" }
+          }
+        },
+        "error": {
+          "value": "#e11d48",
+          "description": "Rose — errors, destructive actions, critical failures",
+          "light": {
+            "bg": { "value": "#fff1f2", "description": "Error bg (light): rose-50" },
+            "text": { "value": "#be123c", "description": "Error text (light): rose-700" },
+            "border": { "value": "#fda4af", "description": "Error border (light): rose-300" },
+            "hover": { "value": "#be123c", "description": "Error hover (light): rose-700" }
+          },
+          "dark": {
+            "bg": { "value": "#4c0519", "description": "Error bg (dark): rose-950" },
+            "text": { "value": "#fb7185", "description": "Error text (dark): rose-400" },
+            "border": { "value": "#e11d48", "description": "Error border (dark): rose-600" },
+            "hover": { "value": "#f43f5e", "description": "Error hover (dark): rose-500" }
+          }
+        },
+        "info": {
+          "value": "#0ea5e9",
+          "description": "Sky — information, tips, help content",
+          "light": {
+            "bg": { "value": "#f0f9ff", "description": "Info bg (light): sky-50" },
+            "text": { "value": "#0369a1", "description": "Info text (light): sky-700" },
+            "border": { "value": "#7dd3fc", "description": "Info border (light): sky-300" },
+            "hover": { "value": "#0284c7", "description": "Info hover (light): sky-600" }
+          },
+          "dark": {
+            "bg": { "value": "#082f49", "description": "Info bg (dark): sky-950" },
+            "text": { "value": "#38bdf8", "description": "Info text (dark): sky-400" },
+            "border": { "value": "#0284c7", "description": "Info border (dark): sky-600" },
+            "hover": { "value": "#0ea5e9", "description": "Info hover (dark): sky-500" }
+          }
+        }
+      }
+    },
+    "typography": {
+      "fontFamily": {
+        "body": {
+          "value": "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
+          "description": "System UI stack with Chinese font fallbacks for readability"
+        },
+        "heading": {
+          "value": "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
+          "description": "Heading stack — same system fonts but heavier weights for hierarchy"
+        },
+        "code": {
+          "value": "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Source Code Pro', Consolas, monospace",
+          "description": "Monospace stack for code blocks, pin labels, and technical parameters"
+        }
+      },
+      "fontSize": {
+        "caption":   { "value": "12px", "description": "Smallest — labels, badges, meta text" },
+        "body":      { "value": "14px", "description": "Default body text size" },
+        "bodyLg":    { "value": "16px", "description": "Large body / input text" },
+        "h6":        { "value": "18px", "description": "Section heading level 6" },
+        "h5":        { "value": "20px", "description": "Section heading level 5" },
+        "h4":        { "value": "24px", "description": "Section heading level 4" },
+        "h3":        { "value": "28px", "description": "Sub-page / card title" },
+        "h2":        { "value": "32px", "description": "Page section heading" },
+        "h1":        { "value": "40px", "description": "Page title" },
+        "display":   { "value": "48px", "description": "Hero / splash headings" }
+      },
+      "fontWeight": {
+        "regular":  { "value": 400, "description": "Body text weight" },
+        "medium":   { "value": 500, "description": "Emphasized body / nav items" },
+        "semibold": { "value": 600, "description": "Subheadings / button labels" },
+        "bold":     { "value": 700, "description": "Headings / strong emphasis" }
+      },
+      "lineHeight": {
+        "tight":   { "value": 1.2, "description": "Headings, compact text" },
+        "normal":  { "value": 1.5, "description": "Default body text" },
+        "relaxed": { "value": 1.75, "description": "Long-form reading / descriptions" }
+      },
+      "letterSpacing": {
+        "tight":   { "value": "-0.025em", "description": "Headings for tighter kerning" },
+        "normal":  { "value": "0em",      "description": "Default spacing" },
+        "wide":    { "value": "0.05em",   "description": "Uppercase labels / badges" }
+      }
+    },
+    "spacing": {
+      "0":   { "value": "0px",  "description": "No spacing" },
+      "1":   { "value": "2px",  "description": "Tiny / icon gap" },
+      "2":   { "value": "4px",  "description": "Mini / inner padding tight" },
+      "3":   { "value": "8px",  "description": "Small / element inner padding" },
+      "4":   { "value": "12px", "description": "Default / component padding" },
+      "5":   { "value": "16px", "description": "Medium / card padding" },
+      "6":   { "value": "20px", "description": "Large / section gap" },
+      "7":   { "value": "24px", "description": "XLarge / panel padding" },
+      "8":   { "value": "32px", "description": "2X / section margin" },
+      "9":   { "value": "40px", "description": "3X / page section separation" },
+      "10":  { "value": "48px", "description": "4X / large page breaks" },
+      "11":  { "value": "64px", "description": "5X / page margins, hero spacing" }
+    },
+    "borderRadius": {
+      "none": { "value": "0px",    "description": "No rounding — code blocks, tables" },
+      "sm":   { "value": "4px",    "description": "Small rounding — inputs, buttons, badges" },
+      "md":   { "value": "8px",    "description": "Medium rounding — cards, modals, panels" },
+      "lg":   { "value": "12px",   "description": "Large rounding — dialogs, elevated cards" },
+      "xl":   { "value": "16px",   "description": "Extra large — feature cards, hero sections" },
+      "full": { "value": "9999px", "description": "Fully round — avatars, pills, step indicators" }
+    },
+    "shadow": {
+      "sm": {
+        "value": "0 1px 2px 0 rgba(0, 0, 0, 0.05)",
+        "description": "Small shadow — subtle depth for inputs, cards",
+        "dark": { "value": "0 1px 2px 0 rgba(0, 0, 0, 0.3)" }
+      },
+      "md": {
+        "value": "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)",
+        "description": "Medium shadow — dropdowns, elevated cards, tooltips",
+        "dark": { "value": "0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3)" }
+      },
+      "lg": {
+        "value": "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1)",
+        "description": "Large shadow — modals, drawers, floating panels",
+        "dark": { "value": "0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.3)" }
+      },
+      "focus": {
+        "value": "0 0 0 3px rgba(13, 148, 136, 0.2)",
+        "description": "Focus ring shadow — accessible focus indicator for interactive elements",
+        "dark": { "value": "0 0 0 3px rgba(13, 148, 136, 0.35)" }
+      }
+    },
+    "breakpoint": {
+      "sm": { "value": "640px",  "description": "Small / mobile landscape" },
+      "md": { "value": "768px",  "description": "Medium / tablet" },
+      "lg": { "value": "1024px", "description": "Large / desktop" },
+      "xl": { "value": "1280px", "description": "Extra large / wide desktop" }
+    },
+    "animation": {
+      "duration": {
+        "fast":   { "value": "150ms", "description": "Hover states, micro-interactions, ripple" },
+        "normal": { "value": "250ms", "description": "Toggle, collapse, tooltip show/hide" },
+        "slow":   { "value": "350ms", "description": "Panel open/close, route transitions" },
+        "page":   { "value": "500ms", "description": "Page-level enter/exit transitions" }
+      },
+      "easing": {
+        "default": { "value": "cubic-bezier(0.4, 0, 0.2, 1)",   "description": "Standard easing — default for most transitions" },
+        "enter":   { "value": "cubic-bezier(0, 0, 0.2, 1)",     "description": "Enter easing — elements appearing on screen" },
+        "exit":    { "value": "cubic-bezier(0.4, 0, 1, 1)",     "description": "Exit easing — elements leaving screen" },
+        "spring":  { "value": "cubic-bezier(0.34, 1.56, 0.64, 1)", "description": "Spring-like bounce for emphasis animations" }
+      }
+    },
+    "component": {
+      "button": {
+        "description": "Primary, secondary, ghost, and destructive button variants",
+        "sm": {
+          "height":   { "value": "28px", "description": "Small button height" },
+          "paddingX": { "value": "10px", "description": "Small button horizontal padding" },
+          "fontSize": { "value": "12px", "description": "Small button font size" }
+        },
+        "md": {
+          "height":   { "value": "36px", "description": "Default button height" },
+          "paddingX": { "value": "16px", "description": "Default button horizontal padding" },
+          "fontSize": { "value": "14px", "description": "Default button font size" }
+        },
+        "lg": {
+          "height":   { "value": "44px", "description": "Large button height" },
+          "paddingX": { "value": "24px", "description": "Large button horizontal padding" },
+          "fontSize": { "value": "16px", "description": "Large button font size" }
+        },
+        "borderRadius": { "value": "6px", "description": "Button border radius" },
+        "fontWeight":   { "value": 500,   "description": "Button label weight" },
+        "gap":          { "value": "8px",  "description": "Gap between icon and label in button" }
+      },
+      "card": {
+        "description": "Elevated and bordered card variants for panels, results, steps",
+        "default": {
+          "padding":      { "value": "24px",        "description": "Default card padding" },
+          "borderWidth":  { "value": "1px",         "description": "Default card border width" },
+          "borderRadius": { "value": "8px",         "description": "Default card corner rounding" },
+          "background": {
+            "light": { "value": "#ffffff", "description": "Card bg (light)" },
+            "dark":  { "value": "#1e293b", "description": "Card bg (dark)" }
+          }
+        },
+        "bordered": {
+          "padding":      { "value": "20px",        "description": "Bordered card padding" },
+          "borderWidth":  { "value": "1px",         "description": "Bordered card border" },
+          "borderRadius": { "value": "8px",         "description": "Bordered card rounding" },
+          "background": {
+            "light": { "value": "#f8fafc", "description": "Bordered card bg (light)" },
+            "dark":  { "value": "#0f172a", "description": "Bordered card bg (dark)" }
+          }
+        },
+        "elevated": {
+          "padding":      { "value": "24px",        "description": "Elevated card padding" },
+          "borderWidth":  { "value": "0px",         "description": "Elevated card — borderless, shadow only" },
+          "borderRadius": { "value": "12px",        "description": "Elevated card rounding" },
+          "background": {
+            "light": { "value": "#ffffff", "description": "Elevated card bg (light)" },
+            "dark":  { "value": "#1e293b", "description": "Elevated card bg (dark)" }
+          }
+        }
+      },
+      "badge": {
+        "description": "Status and label badges for component tags, pin labels, step states",
+        "height":       { "value": "22px",        "description": "Badge height" },
+        "paddingX":     { "value": "8px",         "description": "Badge horizontal padding" },
+        "fontSize":     { "value": "11px",        "description": "Badge font size" },
+        "fontWeight":   { "value": 500,           "description": "Badge label weight" },
+        "borderRadius": { "value": "4px",         "description": "Badge corner rounding" },
+        "letterSpacing": { "value": "0.03em",     "description": "Badge letter spacing for readability at small sizes" }
+      },
+      "input": {
+        "description": "Text inputs, selects, textareas, and search fields",
+        "height":       { "value": "40px",        "description": "Default input height" },
+        "paddingX":     { "value": "12px",        "description": "Input horizontal padding" },
+        "fontSize":     { "value": "14px",        "description": "Input font size" },
+        "borderRadius": { "value": "6px",         "description": "Input border radius" },
+        "borderWidth":  { "value": "1px",         "description": "Input border width" },
+        "background": {
+          "light": { "value": "#ffffff", "description": "Input bg (light)" },
+          "dark":  { "value": "#1e293b", "description": "Input bg (dark)" }
+        }
+      },
+      "code": {
+        "description": "Code blocks, inline code, terminal output, pin schematics",
+        "fontSize": {
+          "inline": { "value": "13px", "description": "Inline code font size" },
+          "block":  { "value": "13px", "description": "Code block font size" }
+        },
+        "lineHeight": { "value": 1.6, "description": "Code block line height" },
+        "padding": {
+          "inline": { "value": "2px 6px", "description": "Inline code padding" },
+          "block":  { "value": "16px 20px", "description": "Code block padding" }
+        },
+        "borderRadius": {
+          "inline": { "value": "4px", "description": "Inline code rounding" },
+          "block":  { "value": "8px", "description": "Code block rounding" }
+        },
+        "background": {
+          "light": { "value": "#f5f5f5", "description": "Code bg (light) — inspired by classic code editors" },
+          "dark":  { "value": "#1e1e1e", "description": "Code bg (dark) — VS Code dark theme" }
+        },
+        "text": {
+          "light": { "value": "#1e293b", "description": "Code text (light)" },
+          "dark":  { "value": "#d4d4d4", "description": "Code text (dark) — VS Code editor foreground" }
+        }
+      },
+      "modal": {
+        "description": "Dialog overlays for confirmations, component details, settings",
+        "sm": {
+          "width": { "value": "400px", "description": "Small modal width — confirmations, alerts" }
+        },
+        "md": {
+          "width": { "value": "560px", "description": "Default modal width — forms, details" }
+        },
+        "lg": {
+          "width": { "value": "720px", "description": "Large modal width — complex content" }
+        },
+        "padding":      { "value": "24px",        "description": "Modal body padding" },
+        "borderRadius": { "value": "12px",        "description": "Modal corner rounding" },
+        "overlayBackground": {
+          "value": "rgba(0, 0, 0, 0.5)",
+          "description": "Modal backdrop overlay (same in both modes)"
+        },
+        "maxHeight":    { "value": "85vh",        "description": "Modal max height with overflow scroll" }
+      },
+      "table": {
+        "description": "Data tables for component lists, BOM tables, comparison views",
+        "cellPaddingX":   { "value": "12px",       "description": "Table cell horizontal padding" },
+        "cellPaddingY":   { "value": "10px",       "description": "Table cell vertical padding" },
+        "fontSize":       { "value": "13px",       "description": "Table cell font size" },
+        "headerFontSize": { "value": "12px",       "description": "Table header font size" },
+        "borderWidth":    { "value": "1px",        "description": "Table cell border" },
+        "borderColor": {
+          "light": { "value": "#e2e8f0", "description": "Table border (light)" },
+          "dark":  { "value": "#334155", "description": "Table border (dark)" }
+        },
+        "headerBackground": {
+          "light": { "value": "#f1f5f9", "description": "Table header bg (light)" },
+          "dark":  { "value": "#1e293b", "description": "Table header bg (dark)" }
+        },
+        "rowHover": {
+          "light": { "value": "#f8fafc", "description": "Table row hover (light)" },
+          "dark":  { "value": "#334155", "description": "Table row hover (dark)" }
+        },
+        "borderRadius": { "value": "8px",         "description": "Table outer border radius" }
+      },
+      "step": {
+        "description": "Pipeline step indicator — used in the multi-stage MCU project workflow",
+        "size":           { "value": "36px",       "description": "Step indicator circle diameter" },
+        "iconSize":       { "value": "16px",       "description": "Step indicator icon size" },
+        "connectorWidth": { "value": "2px",        "description": "Step connector line width" },
+        "connectorStyle": { "value": "dashed",     "description": "Connector line style for incomplete steps" },
+        "activeColor": {
+          "value": "#0d9488",
+          "description": "Active step color (teal-600) — matches primary"
+        },
+        "completedColor": {
+          "value": "#059669",
+          "description": "Completed step color (emerald-600)"
+        },
+        "inactiveColor": {
+          "light": { "value": "#cbd5e1", "description": "Incomplete step (light)" },
+          "dark":  { "value": "#475569", "description": "Incomplete step (dark)" }
+        },
+        "labelFontSize":  { "value": "13px",       "description": "Step label font size below circle" },
+        "labelFontWeight": { "value": 500,         "description": "Step label weight" }
+      },
+      "sidebar": {
+        "description": "Left navigation sidebar for project structure / settings",
+        "width":          { "value": "260px",      "description": "Sidebar collapsed width" },
+        "widthExpanded":  { "value": "300px",      "description": "Sidebar expanded width" },
+        "padding":        { "value": "16px",       "description": "Sidebar inner padding" },
+        "itemHeight":     { "value": "36px",       "description": "Sidebar nav item height" },
+        "background": {
+          "light": { "value": "#f1f5f9", "description": "Sidebar bg (light): slate-100" },
+          "dark":  { "value": "#1e293b", "description": "Sidebar bg (dark): slate-800" }
+        }
+      },
+      "tabs": {
+        "description": "Tab navigation for switching between code / diagram / BOM views",
+        "height":         { "value": "40px",       "description": "Tab bar height" },
+        "fontSize":       { "value": "14px",       "description": "Tab label font size" },
+        "fontWeight":     { "value": 500,          "description": "Active tab label weight" },
+        "indicatorHeight": { "value": "2px",       "description": "Active tab underline height" },
+        "gap":            { "value": "4px",        "description": "Gap between adjacent tabs" }
+      },
+      "toast": {
+        "description": "Notification toasts for feedback and system messages",
+        "padding":        { "value": "12px 16px",  "description": "Toast content padding" },
+        "borderRadius":   { "value": "8px",        "description": "Toast corner rounding" },
+        "fontSize":       { "value": "14px",       "description": "Toast message font size" },
+        "minWidth":       { "value": "300px",      "description": "Toast minimum width" },
+        "maxWidth":       { "value": "480px",      "description": "Toast maximum width" }
+      },
+      "resultPanel": {
+        "description": "AI-generated result display — BOM, code preview, wiring diagram area",
+        "padding":        { "value": "24px",       "description": "Result panel inner padding" },
+        "borderRadius":   { "value": "8px",        "description": "Result panel rounding" },
+        "background": {
+          "light": { "value": "#ffffff", "description": "Result panel bg (light)" },
+          "dark":  { "value": "#0f172a", "description": "Result panel bg (dark)" }
+        },
+        "headerHeight":   { "value": "48px",       "description": "Result panel header area height" }
+      }
+    },
+    "opacity": {
+      "disabled":  { "value": 0.4, "description": "Disabled element opacity" },
+      "muted":     { "value": 0.6, "description": "Muted / secondary content opacity" },
+      "subtle":    { "value": 0.08, "description": "Subtle overlay / ripple opacity" },
+      "overlay":   { "value": 0.5, "description": "Modal / drawer backdrop opacity" }
+    },
+    "zIndex": {
+      "base":       { "value": 0,    "description": "Base document layer" },
+      "dropdown":   { "value": 100,  "description": "Dropdowns, popovers" },
+      "sticky":     { "value": 200,  "description": "Sticky headers, sidebars" },
+      "modal":      { "value": 300,  "description": "Modal dialogs" },
+      "toast":      { "value": 400,  "description": "Toast notifications" },
+      "tooltip":    { "value": 500,  "description": "Tooltips, on-hover overlays" }
+    }
+  }
+}
