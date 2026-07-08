@@ -106,14 +106,8 @@ def recommend_components(ch, method, _properties, body):
         design_draft_id = message["designDraftId"]
 
         from shared.llm_client import MOCK_MODE
-        if membership == "free" and not has_search_key and not model_config and not MOCK_MODE:
-            client.publish(q.RECOMMENDATION_OUTPUT, {
-                "designDraftId": design_draft_id,
-                "componentList": {"tiers": {}, "source": "none"},
-                "error": "Free tier without AI key has no recommendation service",
-            })
-            ch.basic_ack(delivery_tag=method.delivery_tag)
-            return
+        # Free users without model_config get built-in DB results (no AI fallback)
+        use_ai_fallback = model_config is not None
 
         conn = get_db()
         categories = []
