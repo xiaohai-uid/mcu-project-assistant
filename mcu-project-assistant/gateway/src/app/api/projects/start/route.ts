@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
-import { db } from "@/lib/database";
+import { db, withTransaction } from "@/lib/database";
 import { publishToQueue } from "@/lib/rabbitmq";
 import { checkDailyQuota, consumeDailyQuota } from "@/lib/daily-quota";
 import { checkPlatformAccess, getAllowedPlatforms } from "@/lib/platform-permissions";
@@ -18,38 +18,44 @@ export async function POST(req: NextRequest) {
       `SELECT tier FROM memberships WHERE user_id = $1`,
       [userId]
     );
-    const tier: string = membershipResult.rows[0]?.tier || "free";
+    const tier: Membership = (membershipResult.rows[0]?.tier) || "free";
 
-    if (!checkPlatformAccess(tier as Membership, platform)) {
+    if (!checkPlatformAccess(tier, platform)) {
       return NextResponse.json(
         {
           error: "Platform not allowed",
-          allowedPlatforms: getAllowedPlatforms(tier as Membership),
+          allowedPlatforms: getAllowedPlatforms(tier),
         },
         { status: 403 }
       );
     }
 
-    const hasQuota = await checkDailyQuota(userId, tier as Membership);
+    const hasQuota = await checkDailyQuota(userId, tier);
     if (!hasQuota) {
       return NextResponse.json(
         { error: "Daily quota exceeded", quotaType: "daily" },
         { status: 429 }
       );
     }
-    if (tier !== "hasKey") {
-      await consumeDailyQuota(userId);
-    }
 
+    const designDraftId = uuidv4();
     const decryptedKey = await resolveDecryptedApiKey(userId);
     const modelConfig = resolveModelConfig(tier, decryptedKey);
 
-    const designDraftId = uuidv4();
-    await db.query(
-      `INSERT INTO design_drafts (id, user_id, raw_description, experience_level, membership_tier, status)
-       VALUES ($1, $2, $3, $4, $5, 'analyzing')`,
-      [designDraftId, userId, description, experienceLevel, tier]
-    );
+    await withTransaction(async (client) => {
+      if (tier !== "hasKey") {
+        await client.query(
+          `UPDATE memberships SET daily_quota_remaining = daily_quota_remaining - 1 WHERE user_id = $1`,
+          [userId]
+        );
+      }
+
+      await client.query(
+        `INSERT INTO design_drafts (id, user_id, raw_description, experience_level, membership_tier, status, model_config, platform)
+         VALUES ($1, $2, $3, $4, $5, 'analyzing', $6, $7)`,
+        [designDraftId, userId, description, experienceLevel, tier, JSON.stringify(modelConfig), platform]
+      );
+    });
 
     await publishToQueue(QUEUES.REQUIREMENT_INPUT, {
       designDraftId,

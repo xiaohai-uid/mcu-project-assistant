@@ -10,12 +10,12 @@ export async function POST(req: NextRequest) {
     const { email, password } = body;
 
     if (!email || !isValidEmail(email)) {
-      return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
+      return NextResponse.json({ error: "邮箱格式错误" }, { status: 400 });
     }
 
     if (!password || !isValidPassword(password)) {
       return NextResponse.json(
-        { error: "Password must be at least 8 characters" },
+        { error: "密码至少需要 8 位" },
         { status: 400 }
       );
     }
@@ -26,13 +26,13 @@ export async function POST(req: NextRequest) {
     );
 
     if (userResult.rows.length === 0) {
-      return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
+      return NextResponse.json({ error: "邮箱或密码错误" }, { status: 401 });
     }
 
     const user = userResult.rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
-      return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
+      return NextResponse.json({ error: "邮箱或密码错误" }, { status: 401 });
     }
 
     const membershipResult = await db.query(
@@ -41,11 +41,19 @@ export async function POST(req: NextRequest) {
     );
     const membership = membershipResult.rows[0]?.tier || "free";
 
-    const token = signToken({ userId: user.id, email: user.email, membership });
+    const token = await signToken({ userId: user.id, email: user.email, membership });
 
-    return NextResponse.json({ token, userId: user.id, email: user.email, membership });
+    const response = NextResponse.json({ token, userId: user.id, email: user.email, membership });
+    response.cookies.set("token", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60,
+    });
+    return response;
   } catch (error) {
     console.error("Login failed:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "服务器错误，请稍后重试" }, { status: 500 });
   }
 }

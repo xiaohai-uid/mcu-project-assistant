@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/database";
+import { withTransaction } from "@/lib/database";
 import type { Membership } from "@/lib/models";
 
 const VALID_TIERS: Membership[] = ["subscription", "pay-as-you-go"];
@@ -21,50 +21,46 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const current = await db.query(
-      "SELECT tier FROM memberships WHERE user_id = $1",
-      [userId]
-    );
-
-    if (current.rows.length === 0) {
-      return NextResponse.json({ error: "Membership not found" }, { status: 404 });
-    }
-
-    const currentTier: string = current.rows[0].tier;
-
-    if (currentTier === "subscription" && tier !== "subscription") {
-      return NextResponse.json(
-        { error: "Cannot downgrade subscription via upgrade endpoint. Use /api/membership/downgrade instead." },
-        { status: 400 }
+    const result = await withTransaction(async (client) => {
+      const current = await client.query(
+        "SELECT tier FROM memberships WHERE user_id = $1",
+        [userId]
       );
-    }
 
-    let updateQuery: string;
-    let updateParams: unknown[];
+      if (current.rows.length === 0) {
+        return { status: 404 as const, body: { error: "Membership not found" } };
+      }
 
-    if (tier === "subscription") {
-      updateQuery = `UPDATE memberships
-        SET tier = 'subscription', search_quota_monthly = 1000, updated_at = NOW()
-        WHERE user_id = $1 RETURNING *`;
-      updateParams = [userId];
-    } else {
-      updateQuery = `UPDATE memberships
-        SET tier = 'pay-as-you-go', payg_balance = 0, updated_at = NOW()
-        WHERE user_id = $1 RETURNING *`;
-      updateParams = [userId];
-    }
+      const currentTier: string = current.rows[0].tier;
 
-    const result = await db.query(updateQuery, updateParams);
+      if (currentTier === "subscription" && tier !== "subscription") {
+        return {
+          status: 400 as const,
+          body: { error: "Cannot downgrade subscription via upgrade endpoint. Use /api/membership/downgrade instead." },
+        };
+      }
 
-    const row = result.rows[0];
-    return NextResponse.json({
-      userId: row.user_id,
-      tier: row.tier,
-      dailyQuotaRemaining: row.daily_quota_remaining,
-      searchQuotaMonthly: row.search_quota_monthly,
-      searchQuotaUsed: row.search_quota_used,
-      paygBalance: Number(row.payg_balance),
+      const updateQuery = tier === "subscription"
+        ? `UPDATE memberships SET tier = 'subscription', search_quota_monthly = 1000, updated_at = NOW() WHERE user_id = $1 RETURNING *`
+        : `UPDATE memberships SET tier = 'pay-as-you-go', payg_balance = 0, updated_at = NOW() WHERE user_id = $1 RETURNING *`;
+
+      const updateResult = await client.query(updateQuery, [userId]);
+      const row = updateResult.rows[0];
+
+      return {
+        status: 200 as const,
+        body: {
+          userId: row.user_id,
+          tier: row.tier,
+          dailyQuotaRemaining: row.daily_quota_remaining,
+          searchQuotaMonthly: row.search_quota_monthly,
+          searchQuotaUsed: row.search_quota_used,
+          paygBalance: Number(row.payg_balance),
+        },
+      };
     });
+
+    return NextResponse.json(result.body, { status: result.status });
   } catch (error) {
     console.error("Upgrade failed:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

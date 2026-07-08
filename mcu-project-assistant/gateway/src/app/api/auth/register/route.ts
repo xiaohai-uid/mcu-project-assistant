@@ -9,19 +9,19 @@ export async function POST(req: NextRequest) {
     const { email, password } = body;
 
     if (!email || !isValidEmail(email)) {
-      return NextResponse.json({ error: "Invalid email format" }, { status: 400 });
+      return NextResponse.json({ error: "邮箱格式错误" }, { status: 400 });
     }
 
     if (!password || !isValidPassword(password)) {
       return NextResponse.json(
-        { error: "Password must be at least 8 characters" },
+        { error: "密码至少需要 8 位" },
         { status: 400 }
       );
     }
 
     const existing = await db.query("SELECT id FROM users WHERE email = $1", [email]);
     if (existing.rows.length > 0) {
-      return NextResponse.json({ error: "Email already registered" }, { status: 409 });
+      return NextResponse.json({ error: "该邮箱已注册" }, { status: 409 });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -40,6 +40,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ userId: result.rows[0].id, email: result.rows[0].email });
   } catch (error) {
     console.error("Registration failed:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: "服务器错误，请稍后重试" }, { status: 500 });
   }
 }
