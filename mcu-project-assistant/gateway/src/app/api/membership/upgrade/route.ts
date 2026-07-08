@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withTransaction } from "@/lib/database";
 import type { Membership } from "@/lib/models";
+import { logger } from "@/lib/logger";
 
 const VALID_TIERS: Membership[] = ["subscription", "pay-as-you-go"];
 
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) {
-    console.error("Upgrade failed:", error);
+    logger.error("Upgrade failed", { error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

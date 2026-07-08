@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSnapshot, listSnapshots } from "@/lib/snapshot";
+import { logger } from "@/lib/logger";
 
 export async function GET(
   req: NextRequest,
@@ -17,7 +18,7 @@ export async function GET(
     if (error.message === "Design draft not found") {
       return NextResponse.json({ error: "Design draft not found" }, { status: 404 });
     }
-    console.error("List snapshots failed:", error);
+    logger.error("List snapshots failed", { error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -42,7 +43,7 @@ export async function POST(
     if (error.message === "Design draft not found") {
       return NextResponse.json({ error: "Design draft not found" }, { status: 404 });
     }
-    console.error("Create snapshot failed:", error);
+    logger.error("Create snapshot failed", { error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

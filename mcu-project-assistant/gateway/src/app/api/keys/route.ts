@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "@/lib/database";
 import { encrypt } from "@/lib/encryption";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
-    console.error("Create API key failed:", error);
+    logger.error("Create API key failed", { error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -61,7 +62,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(keys);
   } catch (error) {
-    console.error("List API keys failed:", error);
+    logger.error("List API keys failed", { error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

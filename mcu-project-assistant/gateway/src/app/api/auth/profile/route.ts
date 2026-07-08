@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/database";
+import { logger } from "@/lib/logger";
 
 export async function GET(req: Request) {
   try {
@@ -32,7 +33,7 @@ export async function GET(req: Request) {
       paygBalance: Number(row.payg_balance),
     });
   } catch (error) {
-    console.error("Profile fetch failed:", error);
+    logger.error("Profile fetch failed", { error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

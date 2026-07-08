@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/database";
+import { logger } from "@/lib/logger";
 
 export async function GET() {
   try {
@@ -20,7 +21,7 @@ export async function GET() {
 
     return NextResponse.json(templates);
   } catch (error) {
-    console.error("List templates failed:", error);
+    logger.error("List templates failed", { error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

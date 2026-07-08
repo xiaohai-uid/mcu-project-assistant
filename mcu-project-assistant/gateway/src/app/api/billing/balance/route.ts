@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/database";
+import { logger } from "@/lib/logger";
 
 export async function GET(req: NextRequest) {
   try {
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
       tier: result.rows[0].tier,
     });
   } catch (error) {
-    console.error("Get balance failed:", error);
+    logger.error("Get balance failed", { error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

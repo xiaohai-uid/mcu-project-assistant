@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { restoreSnapshot } from "@/lib/snapshot";
+import { logger } from "@/lib/logger";
 
 export async function POST(
   req: NextRequest,
@@ -21,7 +22,7 @@ export async function POST(
     if (error.message === "Snapshot not found") {
       return NextResponse.json({ error: "Snapshot not found" }, { status: 404 });
     }
-    console.error("Restore snapshot failed:", error);
+    logger.error("Restore snapshot failed", { error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

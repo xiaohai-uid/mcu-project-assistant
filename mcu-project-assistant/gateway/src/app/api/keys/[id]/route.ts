@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "@/lib/database";
 import { encrypt } from "@/lib/encryption";
+import { logger } from "@/lib/logger";
 
 export async function PATCH(
   req: NextRequest,
@@ -26,7 +27,7 @@ export async function PATCH(
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Revoke API key failed:", error);
+    logger.error("Revoke API key failed", { error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
@@ -74,7 +75,7 @@ export async function POST(
       { status: 201 }
     );
   } catch (error) {
-    console.error("Rotate API key failed:", error);
+    logger.error("Rotate API key failed", { error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

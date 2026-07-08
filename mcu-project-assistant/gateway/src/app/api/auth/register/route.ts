@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/database";
 import { isValidEmail, isValidPassword } from "@/lib/validation";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
   try {
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ userId: result.rows[0].id, email: result.rows[0].email });
   } catch (error) {
-    console.error("Registration failed:", error);
+    logger.error("Registration failed", { error });
     return NextResponse.json({ error: "服务器错误，请稍后重试" }, { status: 500 });
   }
 }

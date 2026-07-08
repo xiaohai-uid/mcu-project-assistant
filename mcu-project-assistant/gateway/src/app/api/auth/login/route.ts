@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/database";
 import { signToken } from "@/lib/jwt";
 import { isValidEmail, isValidPassword } from "@/lib/validation";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
   try {
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
     });
     return response;
   } catch (error) {
-    console.error("Login failed:", error);
+    logger.error("Login failed", { error });
     return NextResponse.json({ error: "服务器错误，请稍后重试" }, { status: 500 });
   }
 }

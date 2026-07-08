@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withTransaction } from "@/lib/database";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: Request) {
   try {
@@ -56,7 +57,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(result.body, { status: result.status });
   } catch (error) {
-    console.error("Downgrade failed:", error);
+    logger.error("Downgrade failed", { error });
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
