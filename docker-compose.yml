@@ -167,8 +167,8 @@ services:
     environment:
       DATABASE_URL: postgresql://mcu:${POSTGRES_PASSWORD:-mcu_secret}@postgres:5432/mcu_assistant
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-mcu_service}:${RABBITMQ_PASSWORD:-mcu_mq_secret}@rabbitmq:5672
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-encryption-key-32ch}
       REQUIREMENT_SERVICE_URL: http://requirement-service:8001
       RECOMMENDATION_SERVICE_URL: http://recommendation-service:8002
       WEBSERVICE_URL: http://websearch-service:8003

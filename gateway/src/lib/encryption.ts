@@ -2,9 +2,10 @@ import crypto from "crypto";
 
 const ALGORITHM = "aes-256-gcm";
 
+const DEV_FALLBACK = "dev-encryption-key-32ch";
+
 function getKey(): Buffer {
-  const key = process.env.ENCRYPTION_KEY;
-  if (!key) throw new Error("ENCRYPTION_KEY not configured");
+  const key = process.env.ENCRYPTION_KEY || DEV_FALLBACK;
   return crypto.scryptSync(key, "salt", 32);
 }
 

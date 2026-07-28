@@ -93,12 +93,14 @@ describe("encryption security properties", () => {
 });
 
 describe("encryption key management", () => {
-  it("throws error when ENCRYPTION_KEY missing at call time", async () => {
+  it("uses dev fallback when ENCRYPTION_KEY is not set", async () => {
     const savedKey = process.env.ENCRYPTION_KEY;
     delete process.env.ENCRYPTION_KEY;
-    const { encrypt } = await import("@/lib/encryption");
-    expect(() => encrypt("test")).toThrow("ENCRYPTION_KEY not configured");
-    process.env.ENCRYPTION_KEY = savedKey;
+    const { encrypt, decrypt } = await import("@/lib/encryption");
+    const result = encrypt("test");
+    expect(result).toContain(":");
+    expect(decrypt(result)).toBe("test");
+    if (savedKey) process.env.ENCRYPTION_KEY = savedKey;
   });
 });
 

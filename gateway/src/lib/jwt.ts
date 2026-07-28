@@ -1,8 +1,9 @@
 import { SignJWT, jwtVerify } from "jose";
 
+const DEV_FALLBACK = "dev-jwt-secret-change-in-production";
+
 const getSecret = () => {
-  const s = process.env.JWT_SECRET;
-  if (!s) throw new Error("JWT_SECRET not configured");
+  const s = process.env.JWT_SECRET || DEV_FALLBACK;
   return new TextEncoder().encode(s);
 };
 
