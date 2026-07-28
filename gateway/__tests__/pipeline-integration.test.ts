@@ -145,12 +145,15 @@ describe("4.1 — Full Pipeline Integration", () => {
 
     vi.clearAllMocks();
 
-    mockQuery().mockResolvedValueOnce({ rows: [] });
-    const schematicMsg = mockMsg({ designDraftId: "draft-1", svgContent: "<svg />", pinTable: [{ pin: "D13", component: "led" }] });
+    mockQuery()
+      .mockResolvedValueOnce({ rows: [{ pin_mappings: [{ componentName: "led", microcontrollerPin: "D13", connectionType: "digital" }] }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const schematicMsg = mockMsg({ designDraftId: "draft-1", svgContent: "<svg />", pinTable: [{ componentName: "led", microcontrollerPin: "D13", connectionType: "digital" }] });
     await handlers[QUEUES.SCHEMATIC_OUTPUT](schematicMsg);
 
-    expect(mockQuery().mock.calls[0][0]).toContain("SET status = $1");
-    expect(mockQuery().mock.calls[0][1]).toContain("<svg />");
+    expect(mockQuery().mock.calls[0][0]).toContain("SELECT pin_mappings");
+    expect(mockQuery().mock.calls[1][0]).toContain("SET status = $1");
+    expect(mockQuery().mock.calls[1][1]).toContain("<svg />");
     expect(mockChannel.ack).toHaveBeenCalledWith(schematicMsg);
   });
 

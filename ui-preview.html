@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCU Assistant — Design System Preview</title>
+<style>
+/* ===== Design Tokens ===== */
+:root {
+  --bg-primary: #0f1117;
+  --bg-secondary: #1a1d27;
+  --bg-tertiary: #242836;
+  --bg-hover: #2a2f3e;
+  --bg-active: #323848;
+  --border: #2e3345;
+  --border-focus: #6366f1;
+  --text-primary: #f1f3f7;
+  --text-secondary: #9ca3b4;
+  --text-muted: #6b7280;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-subtle: rgba(99,102,241,0.12);
+  --success: #10b981;
+  --success-subtle: rgba(16,185,129,0.12);
+  --warning: #f59e0b;
+  --warning-subtle: rgba(245,158,11,0.12);
+  --error: #ef4444;
+  --error-subtle: rgba(239,68,68,0.12);
+  --info: #3b82f6;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.3);
+  --font-sans: "Inter", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  --space-xs: 4px; --space-sm: 8px; --space-md: 16px;
+  --space-lg: 24px; --space-xl: 32px; --space-2xl: 48px;
+}
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fb;
+  --bg-tertiary: #f0f2f5;
+  --bg-hover: #e8eaef;
+  --bg-active: #dfe2e8;
+  --border: #e2e5eb;
+  --text-primary: #1a1d27;
+  --text-secondary: #5a6172;
+  --text-muted: #9ca3b4;
+  --shadow: 0 4px 24px rgba(0,0,0,0.08);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: var(--font-sans); background: var(--bg-primary); color: var(--text-primary); line-height: 1.6; }
+a { color: var(--accent); text-decoration: none; }
+
+/* ===== Layout ===== */
+.container { max-width: 1200px; margin: 0 auto; padding: 0 var(--space-lg); }
+.section { padding: var(--space-2xl) 0; border-bottom: 1px solid var(--border); }
+.section-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: var(--text-muted); margin-bottom: var(--space-lg); }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-lg); }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--space-md); }
+
+/* ===== Nav ===== */
+.nav { display: flex; align-items: center; justify-content: space-between; padding: var(--space-md) var(--space-lg); border-bottom: 1px solid var(--border); background: var(--bg-secondary); position: sticky; top: 0; z-index: 100; backdrop-filter: blur(12px); }
+.nav-brand { display: flex; align-items: center; gap: var(--space-sm); font-weight: 700; font-size: 18px; }
+.nav-brand .icon { width: 32px; height: 32px; background: linear-gradient(135deg, var(--accent), #a855f7); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.nav-links { display: flex; gap: var(--space-lg); }
+.nav-links a { color: var(--text-secondary); font-size: 14px; font-weight: 500; transition: color .2s; }
+.nav-links a:hover { color: var(--text-primary); }
+
+/* ===== Buttons ===== */
+.btn { display: inline-flex; align-items: center; gap: var(--space-sm); padding: 10px 20px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 500; border: none; cursor: pointer; transition: all .2s; font-family: inherit; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(99,102,241,0.3); }
+.btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); }
+.btn-secondary:hover { background: var(--bg-hover); border-color: var(--text-muted); }
+.btn-ghost { background: transparent; color: var(--text-secondary); }
+.btn-ghost:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+.btn-sm { padding: 6px 12px; font-size: 13px; }
+.btn-lg { padding: 14px 28px; font-size: 16px; border-radius: var(--radius-md); }
+
+/* ===== Cards ===== */
+.card { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-lg); transition: border-color .2s, box-shadow .2s; }
+.card:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-subtle); }
+.card-title { font-size: 16px; font-weight: 600; margin-bottom: var(--space-sm); }
+.card-desc { font-size: 14px; color: var(--text-secondary); }
+
+/* ===== Input ===== */
+.input-group { display: flex; flex-direction: column; gap: var(--space-sm); }
+.input-label { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+.input { padding: 12px 16px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-primary); font-size: 15px; font-family: inherit; transition: border-color .2s, box-shadow .2s; outline: none; width: 100%; }
+.input:focus { border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--accent-subtle); }
+.input::placeholder { color: var(--text-muted); }
+textarea.input { resize: vertical; min-height: 100px; }
+
+/* ===== Badge ===== */
+.badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 100px; font-size: 12px; font-weight: 500; }
+.badge-success { background: var(--success-subtle); color: var(--success); }
+.badge-warning { background: var(--warning-subtle); color: var(--warning); }
+.badge-error { background: var(--error-subtle); color: var(--error); }
+.badge-info { background: var(--accent-subtle); color: var(--accent-hover); }
+
+/* ===== Table ===== */
+.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-md); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; padding: 12px 16px; background: var(--bg-tertiary); color: var(--text-secondary); font-weight: 500; font-size: 13px; border-bottom: 1px solid var(--border); }
+td { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--bg-hover); }
+
+/* ===== Code Block ===== */
+.code-block { background: #0d1117; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+.code-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--bg-tertiary); border-bottom: 1px solid var(--border); }
+.code-header span { font-size: 13px; color: var(--text-secondary); font-family: var(--font-mono); }
+.code-body { padding: 16px; overflow-x: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.7; color: #e6edf3; }
+.code-body .kw { color: #ff7b72; }
+.code-body .fn { color: #d2a8ff; }
+.code-body .str { color: #a5d6ff; }
+.code-body .cm { color: #8b949e; }
+.code-body .num { color: #79c0ff; }
+
+/* ===== Steps / Progress ===== */
+.steps { display: flex; flex-direction: column; gap: 0; }
+.step { display: flex; gap: var(--space-md); position: relative; padding-bottom: var(--space-xl); }
+.step:last-child { padding-bottom: 0; }
+.step::before { content: ''; position: absolute; left: 15px; top: 32px; bottom: 0; width: 2px; background: var(--border); }
+.step:last-child::before { display: none; }
+.step-dot { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; border: 2px solid var(--border); background: var(--bg-secondary); z-index: 1; }
+.step.done .step-dot { background: var(--success); border-color: var(--success); color: #fff; }
+.step.active .step-dot { background: var(--accent); border-color: var(--accent); color: #fff; animation: pulse 2s infinite; }
+.step.done::before { background: var(--success); }
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(99,102,241,0.4); } 50% { box-shadow: 0 0 0 8px rgba(99,102,241,0); } }
+.step-content { flex: 1; padding-top: 4px; }
+.step-title { font-size: 15px; font-weight: 600; }
+.step-desc { font-size: 13px; color: var(--text-secondary); margin-top: 2px; }
+
+/* ===== Tabs ===== */
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: var(--space-lg); }
+.tab { padding: 12px 20px; font-size: 14px; font-weight: 500; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; transition: all .2s; }
+.tab:hover { color: var(--text-primary); }
+.tab.active { color: var(--accent-hover); border-bottom-color: var(--accent); }
+
+/* ===== Toast ===== */
+.toast { display: flex; align-items: center; gap: var(--space-md); padding: 14px 20px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow); }
+.toast-icon { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+.toast-success .toast-icon { background: var(--success-subtle); color: var(--success); }
+.toast-msg { font-size: 14px; }
+
+/* ===== Hero / Landing ===== */
+.hero { text-align: center; padding: 80px 0 60px; }
+.hero h1 { font-size: 42px; font-weight: 800; letter-spacing: -0.5px; background: linear-gradient(135deg, var(--text-primary), var(--accent-hover)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: var(--space-md); }
+.hero p { font-size: 18px; color: var(--text-secondary); max-width: 560px; margin: 0 auto var(--space-xl); }
+.hero-input { display: flex; gap: var(--space-md); max-width: 600px; margin: 0 auto; }
+.hero-input .input { flex: 1; padding: 14px 20px; font-size: 16px; border-radius: var(--radius-md); }
+.hero-features { display: flex; justify-content: center; gap: var(--space-xl); margin-top: var(--space-2xl); }
+.hero-feat { display: flex; align-items: center; gap: var(--space-sm); font-size: 14px; color: var(--text-secondary); }
+.hero-feat .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+
+/* ===== Toggle ===== */
+.toggle-wrap { display: flex; align-items: center; gap: var(--space-sm); }
+.toggle { width: 44px; height: 24px; border-radius: 12px; background: var(--bg-tertiary); border: 1px solid var(--border); position: relative; cursor: pointer; transition: background .2s; }
+.toggle.on { background: var(--accent); border-color: var(--accent); }
+.toggle::after { content: ''; position: absolute; width: 18px; height: 18px; border-radius: 50%; background: #fff; top: 2px; left: 2px; transition: transform .2s; }
+.toggle.on::after { transform: translateX(20px); }
+.toggle-label { font-size: 13px; color: var(--text-secondary); }
+
+/* ===== Wiring Checklist ===== */
+.checklist { list-style: none; }
+.checklist li { display: flex; align-items: flex-start; gap: var(--space-md); padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.checklist li:last-child { border-bottom: none; }
+.check-num { width: 24px; height: 24px; border-radius: 50%; background: var(--accent-subtle); color: var(--accent-hover); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<!-- ===== NAV ===== -->
+<nav class="nav">
+  <div class="nav-brand"><div class="icon">⚡</div>MCU Assistant</div>
+  <div class="nav-links">
+    <a href="#">首页</a><a href="#">我的项目</a><a href="#">组件库</a><a href="#">文档</a>
+  </div>
+  <div style="display:flex;gap:12px;align-items:center;">
+    <div class="toggle-wrap"><span class="toggle-label">暗色</span><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+    <button class="btn btn-primary btn-sm">登录</button>
+  </div>
+</nav>
+
+<div class="container">
+
+<!-- ===== 1. LANDING / HERO ===== -->
+<div class="section">
+  <div class="section-title">页面一 · 首页 / Landing</div>
+  <div class="hero">
+    <h1>一句话，生成完整硬件方案</h1>
+    <p>描述你的想法，AI 自动完成选型、接线、代码生成。从创意到实物，只需 60 秒。</p>
+    <div class="hero-input">
+      <input class="input" placeholder="例如：智能浇花系统，土壤湿度低于阈值时自动浇水...">
+      <button class="btn btn-primary btn-lg">开始设计 →</button>
+    </div>
+    <div class="hero-features">
+      <div class="hero-feat"><div class="dot"></div>自动选型 + 购买链接</div>
+      <div class="hero-feat"><div class="dot"></div>可直接烧录的代码</div>
+      <div class="hero-feat"><div class="dot"></div>逐条接线指南</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 2. WIZARD ===== -->
+<div class="section">
+  <div class="section-title">页面二 · 新建项目向导</div>
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">📝 项目描述</div>
+      <div class="card-desc" style="margin-bottom:16px;">用自然语言描述你想做的东西</div>
+      <div class="input-group">
+        <textarea class="input" placeholder="我想做一个智能温控风扇，当温度超过28度时自动开启，OLED显示当前温度..."></textarea>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;">
+        <span class="badge badge-info">智能浇花</span>
+        <span class="badge badge-info">温控风扇</span>
+        <span class="badge badge-info">超声波测距</span>
+        <span class="badge badge-info">蓝牙遥控车</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">⚙️ 配置</div>
+      <div class="card-desc" style="margin-bottom:16px;">选择平台和你的经验级别</div>
+      <div class="input-group" style="margin-bottom:16px;">
+        <label class="input-label">目标平台</label>
+        <select class="input"><option>Arduino UNO</option><option disabled>ESP32 (即将支持)</option><option disabled>STM32 (即将支持)</option></select>
+      </div>
+      <div class="input-group" style="margin-bottom:16px;">
+        <label class="input-label">经验级别</label>
+        <select class="input"><option>🌱 新手 — 需要详细指导</option><option>🔧 进阶 — 了解基本电路</option><option>⚡ 专业 — 只需代码和原理图</option></select>
+      </div>
+      <div class="input-group">
+        <label class="input-label">预算范围（可选）</label>
+        <input class="input" placeholder="例如：50元以内">
+      </div>
+      <button class="btn btn-primary" style="margin-top:20px;width:100%;justify-content:center;">生成方案 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 3. PROGRESS ===== -->
+<div class="section">
+  <div class="section-title">页面三 · 生成进度</div>
+  <div class="grid-2">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+        <div class="card-title">智能浇花系统</div>
+        <span class="badge badge-info">生成中...</span>
+      </div>
+      <div class="steps">
+        <div class="step done"><div class="step-dot">✓</div><div class="step-content"><div class="step-title">需求分析</div><div class="step-desc">识别到 5 个组件：土壤湿度传感器、DHT22、继电器、水泵、LCD1602</div></div></div>
+        <div class="step done"><div class="step-dot">✓</div><div class="step-content"><div class="step-title">器件选型</div><div class="step-desc">已匹配 8 个器件，预估总价 ¥35.50</div></div></div>
+        <div class="step active"><div class="step-dot">3</div><div class="step-content"><div class="step-title">代码生成</div><div class="step-desc">正在生成 Arduino 控制代码...</div></div></div>
+        <div class="step"><div class="step-dot">4</div><div class="step-content"><div class="step-title">接线图</div><div class="step-desc">等待上一步完成</div></div></div>
+      </div>
+    </div>
+    <div class="card" style="display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;">
+      <div style="font-size:48px;margin-bottom:16px;">🔌</div>
+      <div class="card-title">正在连接虚拟面包板...</div>
+      <div class="card-desc">AI 正在为每个组件分配引脚并验证电气兼容性</div>
+      <div style="margin-top:20px;width:200px;height:4px;background:var(--bg-tertiary);border-radius:2px;overflow:hidden;">
+        <div style="width:65%;height:100%;background:linear-gradient(90deg,var(--accent),#a855f7);border-radius:2px;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 4. RESULT PAGE ===== -->
+<div class="section">
+  <div class="section-title">页面四 · 结果页（四栏 Tab）</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <h2 style="font-size:20px;font-weight:700;">智能浇花系统</h2>
+      <span class="badge badge-success">✓ 已完成</span>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-secondary btn-sm">📋 导出全部</button>
+      <button class="btn btn-ghost btn-sm">🔄 重新生成</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab(0)">💻 代码</div>
+    <div class="tab" onclick="switchTab(1)">🧩 元器件清单</div>
+    <div class="tab" onclick="switchTab(2)">🔌 接线图</div>
+    <div class="tab" onclick="switchTab(3)">🚀 烧录指南</div>
+  </div>
+
+  <!-- Tab 0: Code -->
+  <div class="tab-panel" id="tab-0">
+    <div class="code-block">
+      <div class="code-header">
+        <span>smart_watering.ino</span>
+        <button class="btn btn-ghost btn-sm" style="color:var(--accent-hover);">📋 复制代码</button>
+      </div>
+      <div class="code-body"><pre><span class="cm">/* 智能浇花系统 — Arduino UNO */</span>
+<span class="kw">#include</span> <span class="str">&lt;DHT.h&gt;</span>
+<span class="kw">#include</span> <span class="str">&lt;LiquidCrystal_I2C.h&gt;</span>
+
+<span class="cm">// 引脚定义</span>
+<span class="kw">const int</span> PIN_SOIL_MOISTURE = <span class="num">A0</span>;
+<span class="kw">const int</span> PIN_DHT22 = <span class="num">2</span>;
+<span class="kw">const int</span> PIN_RELAY = <span class="num">3</span>;
+
+<span class="cm">// 全局对象</span>
+DHT <span class="fn">dht</span>(PIN_DHT22, DHT22);
+LiquidCrystal_I2C <span class="fn">lcd</span>(<span class="num">0x27</span>, <span class="num">16</span>, <span class="num">2</span>);
+
+<span class="kw">const int</span> MOISTURE_THRESHOLD = <span class="num">400</span>;
+
+<span class="kw">void</span> <span class="fn">setup</span>() {
+  Serial.<span class="fn">begin</span>(<span class="num">9600</span>);
+  dht.<span class="fn">begin</span>();
+  <span class="fn">pinMode</span>(PIN_RELAY, OUTPUT);
+  lcd.<span class="fn">init</span>(); lcd.<span class="fn">backlight</span>();
+}
+
+<span class="kw">void</span> <span class="fn">loop</span>() {
+  <span class="kw">int</span> moisture = <span class="fn">analogRead</span>(PIN_SOIL_MOISTURE);
+  <span class="kw">float</span> temp = dht.<span class="fn">readTemperature</span>();
+
+  <span class="kw">if</span> (moisture &lt; MOISTURE_THRESHOLD) {
+    <span class="fn">digitalWrite</span>(PIN_RELAY, HIGH); <span class="cm">// 浇水</span>
+  } <span class="kw">else</span> {
+    <span class="fn">digitalWrite</span>(PIN_RELAY, LOW);
+  }
+  <span class="fn">delay</span>(<span class="num">2000</span>);
+}</pre></div>
+    </div>
+  </div>
+
+  <!-- Tab 1: Components -->
+  <div class="tab-panel" id="tab-1" style="display:none;">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>名称</th><th>数量</th><th>用途</th><th>参考价</th><th>购买</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Arduino Uno R3</strong></td><td>1</td><td>主控制器</td><td>¥18.00</td><td><a href="#">立创 ↗</a></td></tr>
+          <tr><td>土壤湿度传感器</td><td>1</td><td>检测土壤水分</td><td>¥1.50</td><td><a href="#">淘宝 ↗</a></td></tr>
+          <tr><td>DHT22</td><td>1</td><td>环境温湿度</td><td>¥4.00</td><td><a href="#">立创 ↗</a></td></tr>
+          <tr><td>继电器模块</td><td>1</td><td>控制水泵开关</td><td>¥2.00</td><td><a href="#">淘宝 ↗</a></td></tr>
+          <tr><td>小型水泵</td><td>1</td><td>执行浇水</td><td>¥4.00</td><td><a href="#">淘宝 ↗</a></td></tr>
+          <tr><td>LCD1602 (I2C)</td><td>1</td><td>显示状态</td><td>¥2.50</td><td><a href="#">立创 ↗</a></td></tr>
+          <tr><td>面包板 + 杜邦线</td><td>1套</td><td>电路搭建</td><td>¥3.50</td><td><a href="#">淘宝 ↗</a></td></tr>
+        </tbody>
+        <tfoot><tr><td colspan="3" style="font-weight:600;">总计</td><td style="font-weight:700;color:var(--success);">¥35.50</td><td></td></tr></tfoot>
+      </table>
+    </div>
+  </div>
+
+  <!-- Tab 2: Wiring -->
+  <div class="tab-panel" id="tab-2" style="display:none;">
+    <div class="grid-2">
+      <div>
+        <h3 style="font-size:15px;font-weight:600;margin-bottom:12px;">📋 接线步骤</h3>
+        <ul class="checklist">
+          <li><span class="check-num">1</span>将 Arduino 5V → 面包板红色电源轨，GND → 蓝色地线轨</li>
+          <li><span class="check-num">2</span>土壤湿度传感器：VCC→5V, GND→GND, 信号→<strong>A0</strong></li>
+          <li><span class="check-num">3</span>DHT22：VCC→5V, GND→GND, DATA→<strong>D2</strong></li>
+          <li><span class="check-num">4</span>继电器模块：VCC→5V, GND→GND, IN→<strong>D3</strong></li>
+          <li><span class="check-num">5</span>水泵：正极→继电器 COM，负极→GND（外部5V供电）</li>
+          <li><span class="check-num">6</span>LCD1602：VCC→5V, GND→GND, SDA→<strong>A4</strong>, SCL→<strong>A5</strong></li>
+        </ul>
+      </div>
+      <div style="background:var(--bg-tertiary);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;min-height:280px;border:1px solid var(--border);">
+        <div style="text-align:center;color:var(--text-muted);">
+          <div style="font-size:36px;margin-bottom:8px;">📐</div>
+          <div style="font-size:14px;">SVG 接线示意图</div>
+          <div style="font-size:12px;">(暗色主题 · 组件按功能分区)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 3: Upload Guide -->
+  <div class="tab-panel" id="tab-3" style="display:none;">
+    <div class="card">
+      <h3 style="font-size:15px;font-weight:600;margin-bottom:16px;">🚀 从零到运行的完整步骤</h3>
+      <ul class="checklist">
+        <li><span class="check-num">1</span>下载安装 <a href="#">Arduino IDE</a></li>
+        <li><span class="check-num">2</span>用 USB 数据线连接 Arduino UNO 到电脑</li>
+        <li><span class="check-num">3</span>IDE → 工具 → 开发板 → 选择 "Arduino Uno"</li>
+        <li><span class="check-num">4</span>IDE → 工具 → 端口 → 选择出现的 COM 口</li>
+        <li><span class="check-num">5</span>安装库：工具 → 管理库 → 搜索 "DHT sensor library", "LiquidCrystal_I2C"</li>
+        <li><span class="check-num">6</span>将代码复制到 IDE 编辑器</li>
+        <li><span class="check-num">7</span>点击 "上传" (→)，等待 "Done uploading"</li>
+        <li><span class="check-num">8</span>打开串口监视器 (9600 baud) 查看运行状态</li>
+      </ul>
+      <div class="code-block" style="margin-top:16px;">
+        <div class="code-header"><span>命令行（可选）</span></div>
+        <div class="code-body"><pre>arduino-cli lib install "DHT sensor library"
+arduino-cli lib install "LiquidCrystal_I2C"
+arduino-cli compile --fqbn arduino:avr:uno smart_watering.ino
+arduino-cli upload --fqbn arduino:avr:uno --port COM3 smart_watering.ino</pre></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 5. COMPONENTS ===== -->
+<div class="section">
+  <div class="section-title">组件库 · Components</div>
+  <div class="grid-3" style="margin-bottom:24px;">
+    <div class="card"><div class="card-title">🌡️ 传感器</div><div class="card-desc">DHT22、HC-SR04、BMP280、光敏、土壤湿度等 12 种</div></div>
+    <div class="card"><div class="card-title">⚡ 执行器</div><div class="card-desc">继电器、舵机、电机、水泵、蜂鸣器、LED 灯带等 8 种</div></div>
+    <div class="card"><div class="card-title">🖥️ 显示屏</div><div class="card-desc">LCD1602、OLED 0.96"、数码管等 4 种</div></div>
+  </div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+    <button class="btn btn-primary">主要按钮</button>
+    <button class="btn btn-secondary">次要按钮</button>
+    <button class="btn btn-ghost">幽灵按钮</button>
+    <span class="badge badge-success">成功</span>
+    <span class="badge badge-warning">警告</span>
+    <span class="badge badge-error">错误</span>
+    <span class="badge badge-info">信息</span>
+  </div>
+  <div style="margin-top:24px;">
+    <div class="toast toast-success" style="max-width:400px;">
+      <div class="toast-icon">✓</div>
+      <div class="toast-msg">方案生成完成！代码已通过引脚一致性校验。</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<div style="text-align:center;padding:40px;color:var(--text-muted);font-size:13px;border-top:1px solid var(--border);">
+  MCU Assistant Design System v1.0 · 暗色主题 · 中文排版优先 · 2026
+</div>
+
+<script>
+function switchTab(idx) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', i===idx));
+  document.querySelectorAll('.tab-panel').forEach((p,i) => p.style.display = i===idx ? '' : 'none');
+}
+</script>
+</body>
+</html>

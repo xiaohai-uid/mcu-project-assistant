@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { randomUUID } from "crypto";
 
 const STATIC_ASSET_PATTERNS = [
   /\.(png|jpg|jpeg|gif|svg|webp|ico|avif)$/i,
@@ -12,7 +13,7 @@ const SECURITY_HEADERS: Record<string, string> = {
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-  "Content-Security-Policy-Report-Only": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+  "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'",
 };
 
 function isStaticAsset(pathname: string): boolean {
@@ -28,5 +29,10 @@ export function securityHeadersMiddleware(req: NextRequest): NextResponse | unde
   for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
     response.headers.set(key, value);
   }
+
+  // x-request-id: propagate from upstream or generate new
+  const requestId = req.headers.get("x-request-id") || randomUUID();
+  response.headers.set("x-request-id", requestId);
+
   return response;
 }

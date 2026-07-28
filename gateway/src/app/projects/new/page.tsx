@@ -17,17 +17,23 @@ function NewProjectForm() {
 
   const handleSubmit = async () => {
     if (!description.trim()) return;
+    const token = localStorage.getItem("token");
+    let userId = "anonymous";
+    if (token) {
+      try { userId = JSON.parse(atob(token.split(".")[1])).sub || userId; } catch {}
+    }
     const res = await fetch("/api/projects/start", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        rawDescription: description,
+        userId,
+        description,
         experienceLevel: isPro ? "professional" : "beginner",
-        ...(isPro ? { platform, budgetTier: budget } : {}),
+        platform,
       }),
     });
     if (res.ok) {
       const data = await res.json();
-      router.push(`/projects/${data.id}/review`);
+      router.push(`/projects/${data.designDraftId}/progress`);
     }
   };
 

@@ -9,8 +9,9 @@ export async function GET(
     const { id } = await params;
     const result = await db.query(
       `SELECT id, user_id, raw_description, status, requirement, component_list,
-              generated_code, svg_content, pin_table, error_message,
-              price_comparison, created_at, updated_at
+              generated_code, svg_content, pin_table, pin_mappings, library_deps,
+              validation, validation_warnings, error_message,
+              price_comparison, experience_level, created_at, updated_at
        FROM design_drafts WHERE id = $1`,
       [id]
     );

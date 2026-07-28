@@ -1,5 +1,6 @@
 import amqplib from "amqplib";
 import { QUEUE_NAMES } from "./pipeline";
+import { logger } from "./logger";
 
 export const QUEUES = QUEUE_NAMES;
 
@@ -16,7 +17,7 @@ export async function connectRabbitMQ(url?: string) {
     await channel.assertQueue(queue, { durable: true });
   }
 
-  console.log("RabbitMQ connected");
+  logger.info("RabbitMQ connected");
   return channel;
 }
 

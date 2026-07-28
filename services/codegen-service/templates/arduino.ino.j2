@@ -1,38 +1,61 @@
 /*
+ * {{ projectTitle }}
  * MCU Project Assistant - Generated Code
- * Platform: Arduino
+ * Platform: Arduino UNO
  * Generated: {{ generation_time }}
+ *
+ * Components:
+{%- for comp in components %}
+ *   - {{ comp.name }} ({{ comp.role }})
+{%- endfor %}
+ *
+ * Wiring:
+{%- for pin in pinMappings %}
+ *   {{ pin.componentName }} -> Arduino {{ pin.microcontrollerPin }} ({{ pin.wireColor }} wire)
+{%- endfor %}
  */
 
-// ===== Pin Definitions =====
-{% for pin in pinMappings %}
-const int PIN_{{ pin.componentName | upper | replace("-", "_") | replace(" ", "_") | replace(".", "_") }}_SIG = {{ pin.microcontrollerPin.split()[0] }};
-{% endfor %}
-
 // ===== Library Includes =====
-{% for dep in dependencies %}
-#include <{{ dep }}>
-{% endfor %}
+{%- for inc in includes %}
+#include <{{ inc }}>
+{%- endfor %}
 
-// ===== Global Variables =====
-{% for comp in components %}
-// {{ comp.name }} - {{ comp.specifications }}
-{% endfor %}
+// ===== Pin Definitions =====
+{%- for pin in pinMappings %}
+{%- if pin.connectionType == "analog" %}
+const int {{ pin.pinVarName }} = {{ pin.microcontrollerPin.split()[0] }};  // {{ pin.componentName }}
+{%- elif pin.connectionType == "digital" or pin.connectionType == "pwm" %}
+const int {{ pin.pinVarName }} = {{ pin.microcontrollerPin.split()[0] }};  // {{ pin.componentName }}
+{%- endif %}
+{%- endfor %}
+
+// ===== Global Objects =====
+{%- for obj in globalObjects %}
+{{ obj }}
+{%- endfor %}
+
+// ===== Thresholds & Constants =====
+{%- for const in constants %}
+{{ const }}
+{%- endfor %}
 
 void setup() {
   Serial.begin(9600);
-  Serial.println("System starting...");
+  Serial.println(F("=== {{ projectTitle }} ==="));
+  Serial.println(F("System initializing..."));
+{%- for line in setupLines %}
+  {{ line }}
+{%- endfor %}
 
-  // Initialize pins
-  {% for pin in pinMappings %}
-  {% if pin.connectionType == "signal" %}
-  pinMode(PIN_{{ pin.componentName | upper }}_SIG, OUTPUT);
-  {% endif %}
-  {% endfor %}
-
-  Serial.println("System ready.");
+  Serial.println(F("System ready."));
+  delay(1000);
 }
 
 void loop() {
-  {{ businessLogic }}
+{%- if businessLogic %}
+{{ businessLogic }}
+{%- else %}
+  // TODO: Add your business logic here
+  delay(1000);
+{%- endif %}
 }

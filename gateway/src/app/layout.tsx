@@ -3,6 +3,7 @@
 import { useRouter, usePathname } from "next/navigation";
 import { s, theme } from "@/lib/styles";
 import { useState, useEffect } from "react";
+import "./globals.css";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -26,7 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <title>MCU 项目助手</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
-      <body style={{ margin: 0, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", background: theme.bgLight, color: theme.dark }}>
+      <body style={{ margin: 0, fontFamily: "'Inter', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif", background: theme.bgLight, color: theme.dark }}>
         <header style={s.header}>
           <div style={{ display: "flex", alignItems: "center", gap: 24 }}>
             <strong style={{ fontSize: 18, cursor: "pointer" }} onClick={() => router.push("/")}>MCU 项目助手</strong>

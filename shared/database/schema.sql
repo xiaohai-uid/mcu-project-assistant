@@ -39,6 +39,9 @@ CREATE TABLE design_drafts (
     current_stage VARCHAR(50) DEFAULT 'requirement',
     experience_level VARCHAR(50) NOT NULL DEFAULT 'beginner',
     membership_tier VARCHAR(50) NOT NULL DEFAULT 'free',
+    validation_warnings JSONB DEFAULT '[]',
+    failure_reason TEXT,
+    last_processed_stage VARCHAR(50),
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );

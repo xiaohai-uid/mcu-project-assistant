@@ -1,5 +1,6 @@
 import { db, withTransaction } from "./database";
 import { getChannel } from "./rabbitmq";
+import { logger } from "./logger";
 import type { PipelineMessage } from "./stage-types";
 
 export abstract class StageHandler<TContent extends PipelineMessage = PipelineMessage> {
@@ -29,7 +30,7 @@ export abstract class StageHandler<TContent extends PipelineMessage = PipelineMe
 
       ch.ack(msg);
     } catch (err) {
-      console.error(`${this.errorMessage}:`, err);
+      logger.error(this.errorMessage, { stage: this.stageName, designDraftId, error: String(err) });
       try {
         await db.query(
           `UPDATE design_drafts SET status = $1, error_message = $2, updated_at = NOW() WHERE id = $3`,

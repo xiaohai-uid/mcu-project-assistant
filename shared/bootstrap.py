@@ -8,6 +8,7 @@ import uvicorn
 
 from shared.rabbitmq.client import RabbitMQClient
 from shared.rabbitmq import queues as q
+from shared.logging_config import setup_logging
 
 
 @dataclass
@@ -75,5 +76,6 @@ def run_service(
     if before_consume:
         before_consume()
 
-    print(f"{name}Service started. Waiting for messages...")
+    logger = setup_logging(name)
+    logger.info(f"{name} service started. Waiting for messages...")
     client.channel.start_consuming()

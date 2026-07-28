@@ -9,9 +9,9 @@ from shared.domain.pins import (
 
 
 class TestPlatformPins:
-    def test_has_arduino_esp32_stm32(self):
-        for platform in ("arduino", "esp32", "stm32"):
-            assert platform in PLATFORM_PINS
+    def test_has_arduino(self):
+        # This version only supports Arduino UNO (ESP32/STM32 frozen)
+        assert "arduino" in PLATFORM_PINS
 
     def test_arduino_has_digital_and_analog(self):
         assert "digital" in PLATFORM_PINS["arduino"]
@@ -22,8 +22,8 @@ class TestPinTypeMap:
     def test_sensor_maps_to_analog(self):
         assert PIN_TYPE_MAP["sensor"] == "analog"
 
-    def test_actuator_maps_to_signal(self):
-        assert PIN_TYPE_MAP["actuator"] == "signal"
+    def test_actuator_maps_to_digital(self):
+        assert PIN_TYPE_MAP["actuator"] == "digital"
 
     def test_display_maps_to_i2c(self):
         assert PIN_TYPE_MAP["display"] == "i2c"
@@ -33,8 +33,8 @@ class TestComponentLibraries:
     def test_dht11_has_library(self):
         assert "DHT sensor library" in COMPONENT_LIBRARIES["DHT11"]
 
-    def test_hc_sr04_has_no_libraries(self):
-        assert COMPONENT_LIBRARIES["HC-SR04"] == []
+    def test_hc_sr04_has_newping_library(self):
+        assert COMPONENT_LIBRARIES["HC-SR04"] == ["NewPing"]
 
 
 class TestAssignPins:
@@ -43,7 +43,8 @@ class TestAssignPins:
         result = assign_pins(comps, "arduino")
         assert len(result) == 1
         assert result[0]["componentName"] == "DHT11"
-        assert result[0]["connectionType"] == "analog"
+        # DHT11 uses digital interface (1-Wire protocol)
+        assert result[0]["connectionType"] == "digital"
         assert result[0]["microcontrollerPin"] != "N/A"
 
     def test_falls_back_to_arduino_for_unknown_platform(self):
@@ -64,10 +65,11 @@ class TestAssignPins:
     def test_none_assigned_for_empty_input(self):
         assert assign_pins([], "arduino") == []
 
-    def test_default_category_is_sensor(self):
-        comps = [{"name": "Generic", "category": "unknown"}]
+    def test_unknown_category_skipped(self):
+        # Components with unknown category and no COMPONENT_INTERFACE entry are skipped
+        comps = [{"name": "Generic", "category": "unknown", "interface": "digital"}]
         result = assign_pins(comps, "arduino")
-        assert result[0]["connectionType"] == "digital"
+        assert len(result) == 0
 
 
 class TestResolveDependencies:

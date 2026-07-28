@@ -1,35 +1,35 @@
 import type { CSSProperties } from "react";
 
 // ─── Design Token Colors ────────────────────────────────────
-// Source: design-tokens.json v1.0.0
-// Palette: Deep teal primary (#0d9488), slate surfaces, cyan accent
-// Philosophy: Technical workshop meets clean SaaS — oscilloscope aesthetic
+// Dark-first design system v2.0
+// Palette: Indigo accent (#6366f1), deep slate surfaces
+// Philosophy: Technical SaaS — dark, focused, high-contrast
 
 export const colors = {
-  primary: "#0d9488",
-  accent: "#06b6d4",
+  primary: "#6366f1",
+  accent: "#818cf8",
   success: "#10b981",
-  warning: "#d97706",
-  danger: "#e11d48",
-  info: "#0ea5e9",
-  light: "#f8fafc",
-  dark: "#0f172a",
-  gray: "#64748b",
-  border: "#e2e8f0",
-  bgLight: "#f8fafc",
-  white: "#ffffff",
+  warning: "#f59e0b",
+  danger: "#ef4444",
+  info: "#3b82f6",
+  light: "#242836",
+  dark: "#f1f3f7",
+  gray: "#9ca3b4",
+  border: "#2e3345",
+  bgLight: "#0f1117",
+  white: "#1a1d27",
 } as const;
 
-// Light-mode theme (backwards compatible — all 29 references keep working)
+// Dark-mode theme (default)
 export const theme = { ...colors };
 
 // Full design token set for component authors
 export const token = {
   color: colors,
   font: {
-    body: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
-    heading: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
-    code: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Source Code Pro', Consolas, monospace",
+    body: "'Inter', -apple-system, 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
+    heading: "'Inter', -apple-system, 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif",
+    code: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace",
   },
   fontSize: {
     caption: 12, body: 14, bodyLg: 16, h6: 18, h5: 20, h4: 24, h3: 28, h2: 32, h1: 40, display: 48,
@@ -39,28 +39,28 @@ export const token = {
   },
   radius: { none: 0, sm: 4, md: 8, lg: 12, xl: 16, full: 9999 },
   shadow: {
-    sm: "0 1px 2px 0 rgba(0, 0, 0, 0.05)",
-    md: "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)",
-    lg: "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1)",
-    focus: "0 0 0 3px rgba(13, 148, 136, 0.2)",
+    sm: "0 1px 3px rgba(0, 0, 0, 0.3)",
+    md: "0 4px 16px rgba(0, 0, 0, 0.3)",
+    lg: "0 8px 32px rgba(0, 0, 0, 0.4)",
+    focus: "0 0 0 3px rgba(99, 102, 241, 0.2)",
   },
   zIndex: { base: 0, dropdown: 100, sticky: 200, modal: 300, toast: 400, tooltip: 500 },
 } as const;
 
-// Dark-mode color overrides (slate-900 canvas, teal-300 text, slate-700 borders)
+// Light-mode color overrides (for future theme toggle)
 export const darkColors: Record<string, string> = {
-  primary: "#5eead4",
-  accent: "#22d3ee",
-  success: "#34d399",
-  warning: "#fbbf24",
-  danger: "#fb7185",
-  info: "#38bdf8",
-  light: "#1e293b",
-  dark: "#f8fafc",
-  gray: "#94a3b8",
-  border: "#334155",
-  bgLight: "#0f172a",
-  white: "#1e293b",
+  primary: "#6366f1",
+  accent: "#818cf8",
+  success: "#10b981",
+  warning: "#f59e0b",
+  danger: "#ef4444",
+  info: "#3b82f6",
+  light: "#f0f2f5",
+  dark: "#1a1d27",
+  gray: "#5a6172",
+  border: "#e2e5eb",
+  bgLight: "#ffffff",
+  white: "#ffffff",
 };
 
 // ─── Component Styles ────────────────────────────────────────
@@ -116,8 +116,9 @@ export const s = {
   } satisfies CSSProperties,
 
   modalContent: {
-    background: "#fff", borderRadius: 12, padding: 24,
+    background: "#1a1d27", borderRadius: 12, padding: 24,
     minWidth: 400, maxWidth: 600, boxShadow: token.shadow.lg,
+    border: `1px solid ${theme.border}`,
   } satisfies CSSProperties,
 
   table: { width: "100%", borderCollapse: "collapse" } satisfies CSSProperties,
@@ -148,6 +149,6 @@ export const s = {
   header: {
     display: "flex", justifyContent: "space-between", alignItems: "center",
     padding: "12px 24px", borderBottom: `1px solid ${theme.border}`,
-    background: "#fff",
+    background: "#1a1d27",
   } satisfies CSSProperties,
 };

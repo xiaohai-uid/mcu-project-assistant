@@ -22,6 +22,9 @@ services:
 
   rabbitmq:
     image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-mcu_service}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-mcu_mq_secret}
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -45,12 +48,12 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-mcu_service}:${RABBITMQ_PASSWORD:-mcu_mq_secret}@rabbitmq:5672
       DATABASE_URL: postgresql://mcu:${POSTGRES_PASSWORD:-mcu_secret}@postgres:5432/mcu_assistant
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
-      MOCK_MODE: "true"
+      MOCK_MODE: ${MOCK_MODE:-false}
     ports:
       - "8001:8001"
     healthcheck:
@@ -72,12 +75,12 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-mcu_service}:${RABBITMQ_PASSWORD:-mcu_mq_secret}@rabbitmq:5672
       DATABASE_URL: postgresql://mcu:${POSTGRES_PASSWORD:-mcu_secret}@postgres:5432/mcu_assistant
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
-      MOCK_MODE: "true"
+      MOCK_MODE: ${MOCK_MODE:-false}
     ports:
       - "8002:8002"
     healthcheck:
@@ -97,8 +100,8 @@ services:
       rabbitmq:
         condition: service_healthy
     environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-      MOCK_MODE: "true"
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-mcu_service}:${RABBITMQ_PASSWORD:-mcu_mq_secret}@rabbitmq:5672
+      MOCK_MODE: ${MOCK_MODE:-false}
     ports:
       - "8003:8003"
     healthcheck:
@@ -118,11 +121,11 @@ services:
       rabbitmq:
         condition: service_healthy
     environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-mcu_service}:${RABBITMQ_PASSWORD:-mcu_mq_secret}@rabbitmq:5672
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
-      MOCK_MODE: "true"
+      MOCK_MODE: ${MOCK_MODE:-false}
     ports:
       - "8004:8004"
     healthcheck:
@@ -142,8 +145,8 @@ services:
       rabbitmq:
         condition: service_healthy
     environment:
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-      MOCK_MODE: "true"
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-mcu_service}:${RABBITMQ_PASSWORD:-mcu_mq_secret}@rabbitmq:5672
+      MOCK_MODE: ${MOCK_MODE:-false}
     ports:
       - "8005:8005"
     healthcheck:
@@ -163,9 +166,9 @@ services:
       - "3000:3000"
     environment:
       DATABASE_URL: postgresql://mcu:${POSTGRES_PASSWORD:-mcu_secret}@postgres:5432/mcu_assistant
-      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
-      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-for-testing-only-change-in-prod}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-32byte-key-for-test-1234567890abcd}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-mcu_service}:${RABBITMQ_PASSWORD:-mcu_mq_secret}@rabbitmq:5672
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY must be set}
       REQUIREMENT_SERVICE_URL: http://requirement-service:8001
       RECOMMENDATION_SERVICE_URL: http://recommendation-service:8002
       WEBSERVICE_URL: http://websearch-service:8003

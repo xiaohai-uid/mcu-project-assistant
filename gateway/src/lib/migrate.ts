@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { pool } from "./database";
+import { logger } from "./logger";
 
 const MIGRATIONS_TABLE = "_migrations";
 
@@ -41,7 +42,7 @@ export async function runMigrations(): Promise<void> {
   const dir = getMigrationsDir();
 
   if (!fs.existsSync(dir)) {
-    console.warn(`[migrate] Migrations directory not found: ${dir}, skipping`);
+    logger.warn(`Migrations directory not found: ${dir}, skipping`);
     return;
   }
 
@@ -51,7 +52,7 @@ export async function runMigrations(): Promise<void> {
     .sort();
 
   if (files.length === 0) {
-    console.log("[migrate] No migration files found");
+    logger.info("No migration files found");
     return;
   }
 
@@ -60,7 +61,7 @@ export async function runMigrations(): Promise<void> {
 
   for (const file of files) {
     if (applied.has(file)) {
-      console.log(`[migrate] SKIP ${file} (already applied)`);
+      logger.debug(`SKIP ${file} (already applied)`);
       continue;
     }
 
@@ -75,10 +76,10 @@ export async function runMigrations(): Promise<void> {
         [file, checksum]
       );
       await pool.query("COMMIT");
-      console.log(`[migrate] OK  ${file}`);
+      logger.info(`Migration applied: ${file}`);
     } catch (err) {
       await pool.query("ROLLBACK");
-      console.error(`[migrate] FAIL ${file}:`, err);
+      logger.error(`Migration failed: ${file}`, { error: String(err) });
       throw err;
     }
   }
