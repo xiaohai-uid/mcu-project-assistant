@@ -28,6 +28,7 @@ interface ComponentItem {
 interface ProjectData {
   id: string;
   status: string;
+  raw_description?: string;
   generated_code: string | null;
   component_list: unknown;
   svg_content: string | null;

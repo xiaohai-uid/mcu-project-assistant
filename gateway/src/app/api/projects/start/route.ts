@@ -9,6 +9,8 @@ import { resolveDecryptedApiKey } from "@/lib/api-key-resolver";
 import type { Membership, Platform } from "@/lib/models";
 import { QUEUES } from "@/lib/rabbitmq";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     const { userId, description, experienceLevel, platform: rawPlatform } = await req.json();

@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from "uuid";
 import { db } from "@/lib/database";
 import { encrypt } from "@/lib/encryption";
 
+export const dynamic = "force-dynamic";
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

@@ -3,6 +3,8 @@ import bcrypt from "bcryptjs";
 import { db } from "@/lib/database";
 import { isValidEmail, isValidPassword } from "@/lib/validation";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();

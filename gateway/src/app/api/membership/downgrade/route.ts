@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { withTransaction } from "@/lib/database";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: Request) {
   try {
     const userId = req.headers.get("x-user-id");

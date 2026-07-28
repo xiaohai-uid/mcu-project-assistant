@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { db } from "@/lib/database";
 
+export const dynamic = "force-dynamic";
+
 /**
  * SSE endpoint: GET /api/projects/[id]/stream
  * Pushes stage completion events to the client in real-time.

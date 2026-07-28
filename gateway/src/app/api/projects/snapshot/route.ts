@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "@/lib/database";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     const { designDraftId, name, snapshotData } = await req.json();

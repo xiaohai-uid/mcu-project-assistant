@@ -44,8 +44,8 @@ class RedisStore implements RateLimitStore {
 
   private async getClient() {
     if (!this.client) {
-      // Dynamic import to avoid hard dependency
-      const { createClient } = await import("redis");
+      // Dynamic import to avoid hard dependency (webpack ignore for build)
+      const { createClient } = await import(/* webpackIgnore: true */ "redis");
       this.client = createClient({ url: this.url });
       this.client.on("error", (err: Error) => logger.error("Redis error", { error: err.message }));
       await this.client.connect();
@@ -72,7 +72,6 @@ function createStore(): RateLimitStore {
   if (redisUrl) {
     return new RedisStore(redisUrl);
   }
-  logger.warn("REDIS_URL not set — using in-memory rate limit store (not suitable for multi-instance)");
   return new MemoryStore();
 }
 

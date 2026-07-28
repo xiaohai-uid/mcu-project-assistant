@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { withTransaction } from "@/lib/database";
 import type { Membership } from "@/lib/models";
 
+export const dynamic = "force-dynamic";
+
 const VALID_TIERS: Membership[] = ["subscription", "pay-as-you-go"];
 
 export async function POST(req: NextRequest) {

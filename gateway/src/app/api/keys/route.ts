@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from "uuid";
 import { db } from "@/lib/database";
 import { encrypt } from "@/lib/encryption";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
   try {
     const userId = req.headers.get("x-user-id");
