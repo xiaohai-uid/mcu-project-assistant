@@ -188,7 +188,13 @@ class PipelineRuntime:
                 # Accumulate artifacts
                 for key, payload in result.outputs.items():
                     ctx.set_artifact(key, payload)
-                self._repo.mark_succeeded(stage_run_id, None)
+                # Persist stage output for observability / acceptance verification
+                output_json = {
+                    k: v.content_json
+                    for k, v in result.outputs.items()
+                    if v.content_json is not None
+                } or None
+                self._repo.mark_succeeded(stage_run_id, output_json)
                 completed.append(stage.name)
                 logger.info("Run %s: stage %s succeeded", ctx.run_id, stage.name)
 

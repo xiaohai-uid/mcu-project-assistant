@@ -8,9 +8,21 @@ RUN tar -xzf /tmp/arduino-cli.tar.gz -C /usr/local/bin arduino-cli && \
     rm /tmp/arduino-cli.tar.gz && \
     chmod +x /usr/local/bin/arduino-cli
 
-# Install Arduino AVR core (needs network - use buildkit proxy)
+# Install Arduino AVR core + required libraries
 RUN arduino-cli core update-index && \
-    arduino-cli core install arduino:avr
+    arduino-cli core install arduino:avr && \
+    arduino-cli lib install \
+      "DHT sensor library" \
+      "Adafruit Unified Sensor" \
+      "LiquidCrystal I2C" \
+      "Adafruit SSD1306" \
+      "Adafruit GFX Library" \
+      "Adafruit NeoPixel" \
+      "Adafruit BMP280 Library" \
+      "MFRC522" \
+      "Keypad" \
+      "NewPing" \
+      "Servo"
 
 # Copy worker package
 COPY worker/pyproject.toml .

@@ -55,9 +55,14 @@ class FirmwareGenerator:
     def generate_globals(self) -> list[str]:
         """Generate global object declarations (e.g. DHT dht(PIN, DHT22))."""
         lines: list[str] = []
+        seen_vars: dict[str, int] = {}
         for instance_id, comp in self._components:
             adapter = comp.firmware.codegen_adapter
-            var = comp.firmware.var_name.lower()
+            base_var = comp.firmware.var_name.lower()
+            # Ensure unique variable names for multiple instances
+            count = seen_vars.get(base_var, 0)
+            seen_vars[base_var] = count + 1
+            var = base_var if count == 0 else f"{base_var}_{count + 1}"
 
             if adapter == "dht":
                 # Find the pin for this instance
@@ -66,9 +71,9 @@ class FirmwareGenerator:
                 dht_type = "DHT22" if "22" in comp.id else "DHT11"
                 lines.append(f"DHT {var}({pin_num}, {dht_type});")
             elif adapter == "lcd":
-                lines.append("LiquidCrystal_I2C lcd(0x27, 16, 2);")
+                lines.append(f"LiquidCrystal_I2C {var}(0x27, 16, 2);")
             elif adapter == "oled":
-                lines.append("Adafruit_SSD1306 display(128, 64, &Wire, -1);")
+                lines.append(f"Adafruit_SSD1306 {var}(128, 64, &Wire, -1);")
             elif adapter == "servo":
                 lines.append(f"Servo {var};")
             elif adapter == "neopixel":
@@ -82,18 +87,22 @@ class FirmwareGenerator:
     def generate_setup(self) -> list[str]:
         """Generate setup() body with initialization calls."""
         lines: list[str] = ["Serial.begin(9600);"]
+        seen_vars: dict[str, int] = {}
         for instance_id, comp in self._components:
             adapter = comp.firmware.codegen_adapter
-            var = comp.firmware.var_name.lower()
+            base_var = comp.firmware.var_name.lower()
+            count = seen_vars.get(base_var, 0)
+            seen_vars[base_var] = count + 1
+            var = base_var if count == 0 else f"{base_var}_{count + 1}"
 
             if adapter == "dht":
                 lines.append(f"{var}.begin();")
             elif adapter == "lcd":
-                lines.append("lcd.init();")
-                lines.append("lcd.backlight();")
+                lines.append(f"{var}.init();")
+                lines.append(f"{var}.backlight();")
             elif adapter == "oled":
-                lines.append("display.begin(SSD1306_SWITCHCAPVCC, 0x3C);")
-                lines.append("display.clearDisplay();")
+                lines.append(f"{var}.begin(SSD1306_SWITCHCAPVCC, 0x3C);")
+                lines.append(f"{var}.clearDisplay();")
             elif adapter == "servo":
                 pin = self._get_first_pin(instance_id)
                 pin_num = pin[1:] if pin and pin.startswith("D") else "9"

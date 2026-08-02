@@ -63,18 +63,30 @@ class ConstraintEngine:
         )
 
     def _check_voltage(self) -> None:
-        """Check that all components are compatible with platform logic voltage."""
+        """Check that all components are compatible with platform logic voltage.
+
+        I2C/SPI bus devices commonly run at 3.3V on 5V platforms (Arduino 3V3 pin
+        or level shifters). These get WARNING instead of ERROR.
+        """
         platform_voltage = self._platform.logic_voltage
         for instance_id, comp in self._components:
             max_supply = comp.electrical.supply_voltage_max
             min_supply = comp.electrical.supply_voltage_min
+
+            # Bus-only devices (i2c/spi) can be powered from 3V3 pin — warn only
+            bus_only = all(
+                iface.type in ("i2c", "spi") for iface in comp.interfaces
+            )
+
             if platform_voltage > max_supply + 0.5:
+                severity = DiagnosticSeverity.WARNING if bus_only else DiagnosticSeverity.ERROR
                 self._diagnostics.append(Diagnostic(
                     code="VOLTAGE_INCOMPATIBLE",
-                    severity=DiagnosticSeverity.ERROR,
+                    severity=severity,
                     message=(
                         f"{comp.display_name} ({instance_id}) max supply {max_supply}V "
                         f"is below platform logic {platform_voltage}V"
+                        + (" (bus device: use 3V3 pin or level shifter)" if bus_only else "")
                     ),
                     details={"instance_id": instance_id, "component_id": comp.id},
                     source=DiagnosticSource.DOMAIN,

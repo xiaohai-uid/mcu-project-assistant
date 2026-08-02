@@ -32,16 +32,18 @@ class TestVoltageCompatibility:
         result = engine.validate()
         assert result.is_feasible
 
-    def test_3v3_only_component_warns_or_errors(self, uno, comp_registry):
-        """BMP280 max supply is 3.6V, platform is 5V -> error."""
+    def test_3v3_bus_device_gets_warning_not_error(self, uno, comp_registry):
+        """BMP280 (I2C-only) max supply 3.6V < 5V -> WARNING (use 3V3 pin), still feasible."""
         components = [
             ("pressure_1", comp_registry.get("sensor.bmp280")),
         ]
         engine = ConstraintEngine(uno, components)
         result = engine.validate()
-        # BMP280 max is 3.6V, platform is 5V -> VOLTAGE_INCOMPATIBLE
-        voltage_errors = [d for d in result.errors if d.code == "VOLTAGE_INCOMPATIBLE"]
-        assert len(voltage_errors) == 1
+        # Bus-only device: voltage mismatch is WARNING, not ERROR
+        assert result.is_feasible
+        voltage_warnings = [d for d in result.warnings if d.code == "VOLTAGE_INCOMPATIBLE"]
+        assert len(voltage_warnings) == 1
+        assert "3V3 pin" in voltage_warnings[0].message
 
 
 class TestPinBudget:
