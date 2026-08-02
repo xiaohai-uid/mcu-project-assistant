@@ -1,0 +1,9 @@
+{
+  "id": "servo_control",
+  "description": "Control a SG90 servo motor with a potentiometer",
+  "expected_components": [
+    "actuator.sg90"
+  ],
+  "expected_compile": true,
+  "min_warnings": 0
+}

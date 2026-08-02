@@ -1,0 +1,32 @@
+id: sensor.ir_tracker
+display_name: 红外循迹传感器
+aliases:
+- IR Tracker
+- 红外避障传感器
+- TCRT5000
+categories:
+- sensor
+capabilities:
+- line_tracking
+- obstacle_detection
+electrical:
+  logic_voltage: 5.0
+  supply_voltage_min: 3.3
+  supply_voltage_max: 5.5
+  typical_current_ma: 10.0
+interfaces:
+- type: digital
+  signal_count: 1
+  io_direction: input
+platform_compatibility:
+  arduino_uno: supported
+firmware:
+  libraries: []
+  includes: []
+  codegen_adapter: generic_digital_input
+  var_name: IR_TRACKER
+purchasing:
+  search_terms:
+  - IR tracking sensor
+  - 红外循迹
+schema_version: '1'

@@ -1,0 +1,10 @@
+{
+  "id": "bluetooth_control",
+  "description": "Control LED strip via HC-05 bluetooth module",
+  "expected_components": [
+    "comm.hc_05",
+    "actuator.led_strip"
+  ],
+  "expected_compile": true,
+  "min_warnings": 0
+}

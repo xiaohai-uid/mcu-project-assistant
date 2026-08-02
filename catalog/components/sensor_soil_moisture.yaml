@@ -1,0 +1,30 @@
+id: sensor.soil_moisture
+display_name: 土壤湿度传感器
+aliases:
+- Soil Moisture Sensor
+- 土壤水分传感器
+categories:
+- sensor
+capabilities:
+- soil_moisture_sensing
+electrical:
+  logic_voltage: 5.0
+  supply_voltage_min: 3.3
+  supply_voltage_max: 5.5
+  typical_current_ma: 15.0
+interfaces:
+- type: analog
+  signal_count: 1
+  io_direction: input
+platform_compatibility:
+  arduino_uno: supported
+firmware:
+  libraries: []
+  includes: []
+  codegen_adapter: generic_analog_sensor
+  var_name: SOIL_MOISTURE
+purchasing:
+  search_terms:
+  - soil moisture sensor
+  - 土壤湿度传感器
+schema_version: '1'

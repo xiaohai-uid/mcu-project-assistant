@@ -1,0 +1,10 @@
+{
+  "id": "rfid_lock",
+  "description": "RFID door lock using RC522 reader and relay module",
+  "expected_components": [
+    "comm.rc522",
+    "actuator.relay"
+  ],
+  "expected_compile": true,
+  "min_warnings": 0
+}

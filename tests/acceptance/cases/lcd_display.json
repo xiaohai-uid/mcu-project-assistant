@@ -1,0 +1,9 @@
+{
+  "id": "lcd_display",
+  "description": "Display hello world on LCD1602 I2C screen",
+  "expected_components": [
+    "display.lcd1602"
+  ],
+  "expected_compile": true,
+  "min_warnings": 0
+}

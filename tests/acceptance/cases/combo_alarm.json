@@ -1,0 +1,10 @@
+{
+  "id": "combo_alarm",
+  "description": "Home alarm with PIR sensor, buzzer, and LCD status display",
+  "expected_components": [
+    "actuator.buzzer",
+    "display.lcd1602"
+  ],
+  "expected_compile": true,
+  "min_warnings": 0
+}

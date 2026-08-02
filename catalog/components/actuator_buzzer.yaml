@@ -1,0 +1,31 @@
+id: actuator.buzzer
+display_name: 蜂鸣器
+aliases:
+- Buzzer
+- 有源蜂鸣器
+- 无源蜂鸣器
+categories:
+- actuator
+capabilities:
+- audio_alert
+electrical:
+  logic_voltage: 5.0
+  supply_voltage_min: 3.3
+  supply_voltage_max: 5.5
+  typical_current_ma: 30.0
+interfaces:
+- type: pwm
+  signal_count: 1
+  io_direction: output
+platform_compatibility:
+  arduino_uno: supported
+firmware:
+  libraries: []
+  includes: []
+  codegen_adapter: generic_pwm_output
+  var_name: BUZZER
+purchasing:
+  search_terms:
+  - buzzer module
+  - 蜂鸣器模块
+schema_version: '1'

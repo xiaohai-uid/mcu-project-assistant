@@ -1,0 +1,30 @@
+id: actuator.relay
+display_name: 继电器模块
+aliases:
+- Relay Module
+- 5V继电器
+categories:
+- actuator
+capabilities:
+- high_power_switching
+electrical:
+  logic_voltage: 5.0
+  supply_voltage_min: 4.5
+  supply_voltage_max: 5.5
+  typical_current_ma: 70.0
+interfaces:
+- type: digital
+  signal_count: 1
+  io_direction: output
+platform_compatibility:
+  arduino_uno: supported
+firmware:
+  libraries: []
+  includes: []
+  codegen_adapter: generic_digital_output
+  var_name: RELAY
+purchasing:
+  search_terms:
+  - relay module 5V
+  - 继电器模块
+schema_version: '1'

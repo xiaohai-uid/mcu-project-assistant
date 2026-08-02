@@ -1,0 +1,10 @@
+{
+  "id": "smart_watering",
+  "description": "Auto water plants when soil moisture is low, using a soil moisture sensor and water pump",
+  "expected_components": [
+    "sensor.soil_moisture",
+    "actuator.water_pump"
+  ],
+  "expected_compile": true,
+  "min_warnings": 0
+}

@@ -1,0 +1,7 @@
+{
+  "id": "blink",
+  "description": "Blink an LED on pin 13",
+  "expected_components": [],
+  "expected_compile": true,
+  "min_warnings": 0
+}

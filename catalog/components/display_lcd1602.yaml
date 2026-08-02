@@ -1,0 +1,33 @@
+id: display.lcd1602
+display_name: LCD1602
+aliases:
+- LCD 1602
+- 16x2 LCD
+- LCD1602 I2C
+categories:
+- display
+capabilities:
+- text_display
+electrical:
+  logic_voltage: 5.0
+  supply_voltage_min: 4.5
+  supply_voltage_max: 5.5
+  typical_current_ma: 5.0
+interfaces:
+- type: i2c
+  signal_count: 2
+  io_direction: output
+platform_compatibility:
+  arduino_uno: supported
+firmware:
+  libraries:
+  - LiquidCrystal_I2C
+  includes:
+  - LiquidCrystal_I2C.h
+  codegen_adapter: lcd
+  var_name: LCD
+purchasing:
+  search_terms:
+  - LCD1602 I2C
+  - 1602液晶屏
+schema_version: '1'

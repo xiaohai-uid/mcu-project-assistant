@@ -1,0 +1,9 @@
+{
+  "id": "dht_monitor",
+  "description": "Read temperature and humidity from DHT22 and print to serial",
+  "expected_components": [
+    "sensor.dht22"
+  ],
+  "expected_compile": true,
+  "min_warnings": 0
+}

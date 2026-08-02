@@ -1,0 +1,33 @@
+id: actuator.led_strip
+display_name: LED 灯带
+aliases:
+- NeoPixel
+- WS2812
+- RGB LED Strip
+categories:
+- actuator
+capabilities:
+- rgb_lighting
+electrical:
+  logic_voltage: 5.0
+  supply_voltage_min: 4.5
+  supply_voltage_max: 5.5
+  typical_current_ma: 60.0
+interfaces:
+- type: digital
+  signal_count: 1
+  io_direction: output
+platform_compatibility:
+  arduino_uno: supported
+firmware:
+  libraries:
+  - Adafruit_NeoPixel
+  includes:
+  - Adafruit_NeoPixel.h
+  codegen_adapter: neopixel
+  var_name: LED_STRIP
+purchasing:
+  search_terms:
+  - WS2812 LED strip
+  - NeoPixel灯带
+schema_version: '1'

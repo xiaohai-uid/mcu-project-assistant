@@ -1,0 +1,10 @@
+{
+  "id": "ultrasonic_ruler",
+  "description": "Measure distance with HC-SR04 and show on OLED display",
+  "expected_components": [
+    "sensor.hc_sr04",
+    "display.oled_096"
+  ],
+  "expected_compile": true,
+  "min_warnings": 0
+}

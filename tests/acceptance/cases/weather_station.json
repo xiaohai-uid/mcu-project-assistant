@@ -1,0 +1,10 @@
+{
+  "id": "weather_station",
+  "description": "Weather station with BMP280 pressure sensor and OLED display",
+  "expected_components": [
+    "sensor.bmp280",
+    "display.oled_096"
+  ],
+  "expected_compile": true,
+  "min_warnings": 0
+}

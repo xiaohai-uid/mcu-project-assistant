@@ -1,0 +1,35 @@
+id: actuator.water_pump
+display_name: 小型水泵
+aliases:
+- Water Pump
+- 微型水泵
+- 潜水泵
+categories:
+- actuator
+capabilities:
+- water_pump_control
+electrical:
+  logic_voltage: 5.0
+  supply_voltage_min: 4.5
+  supply_voltage_max: 12.0
+  typical_current_ma: 200.0
+interfaces:
+- type: digital
+  signal_count: 1
+  io_direction: output
+  requirements:
+    note: via relay or transistor
+platform_compatibility:
+  arduino_uno: supported
+firmware:
+  libraries: []
+  includes: []
+  codegen_adapter: generic_digital_output
+  var_name: PUMP
+purchasing:
+  search_terms:
+  - mini water pump
+  - 小型水泵
+safety_notes:
+- Requires external power via relay/transistor; do not drive directly from MCU pin
+schema_version: '1'

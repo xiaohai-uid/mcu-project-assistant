@@ -1,0 +1,33 @@
+id: sensor.bmp280
+display_name: BMP280
+aliases:
+- BMP280气压传感器
+categories:
+- sensor
+capabilities:
+- pressure_sensing
+- temperature_sensing
+- altitude_sensing
+electrical:
+  logic_voltage: 3.3
+  supply_voltage_min: 1.71
+  supply_voltage_max: 3.6
+  typical_current_ma: 2.7
+interfaces:
+- type: i2c
+  signal_count: 2
+  io_direction: input
+platform_compatibility:
+  arduino_uno: supported
+firmware:
+  libraries:
+  - Adafruit_BMP280
+  includes:
+  - Adafruit_BMP280.h
+  codegen_adapter: bmp280
+  var_name: BMP280
+purchasing:
+  search_terms:
+  - BMP280 module
+  - BMP280气压
+schema_version: '1'

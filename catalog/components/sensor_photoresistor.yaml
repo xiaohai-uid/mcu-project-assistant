@@ -1,0 +1,31 @@
+id: sensor.photoresistor
+display_name: 光敏电阻模块
+aliases:
+- Photoresistor
+- LDR
+- 光敏传感器
+categories:
+- sensor
+capabilities:
+- light_sensing
+electrical:
+  logic_voltage: 5.0
+  supply_voltage_min: 3.3
+  supply_voltage_max: 5.5
+  typical_current_ma: 5.0
+interfaces:
+- type: analog
+  signal_count: 1
+  io_direction: input
+platform_compatibility:
+  arduino_uno: supported
+firmware:
+  libraries: []
+  includes: []
+  codegen_adapter: generic_analog_sensor
+  var_name: LIGHT
+purchasing:
+  search_terms:
+  - photoresistor module
+  - 光敏电阻模块
+schema_version: '1'

@@ -1,0 +1,36 @@
+id: input.keypad_4x4
+display_name: 矩阵键盘 4x4
+aliases:
+- 4x4 Keypad
+- Matrix Keypad
+- 16键键盘
+categories:
+- input
+capabilities:
+- keypad_input
+electrical:
+  logic_voltage: 5.0
+  supply_voltage_min: 3.3
+  supply_voltage_max: 5.5
+  typical_current_ma: 1.0
+interfaces:
+- type: digital
+  signal_count: 8
+  io_direction: input
+  requirements:
+    rows: 4
+    cols: 4
+platform_compatibility:
+  arduino_uno: supported
+firmware:
+  libraries:
+  - Keypad
+  includes:
+  - Keypad.h
+  codegen_adapter: keypad
+  var_name: KEYPAD
+purchasing:
+  search_terms:
+  - 4x4 matrix keypad
+  - 矩阵键盘4x4
+schema_version: '1'

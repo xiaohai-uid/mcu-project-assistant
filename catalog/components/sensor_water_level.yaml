@@ -1,0 +1,30 @@
+id: sensor.water_level
+display_name: 水位传感器
+aliases:
+- Water Level Sensor
+- 雨水传感器
+categories:
+- sensor
+capabilities:
+- water_level_sensing
+electrical:
+  logic_voltage: 5.0
+  supply_voltage_min: 3.3
+  supply_voltage_max: 5.5
+  typical_current_ma: 15.0
+interfaces:
+- type: analog
+  signal_count: 1
+  io_direction: input
+platform_compatibility:
+  arduino_uno: supported
+firmware:
+  libraries: []
+  includes: []
+  codegen_adapter: generic_analog_sensor
+  var_name: WATER_LEVEL
+purchasing:
+  search_terms:
+  - water level sensor
+  - 水位传感器
+schema_version: '1'

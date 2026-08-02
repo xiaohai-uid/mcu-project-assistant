@@ -158,6 +158,24 @@ services:
     networks:
       - mcu-network
 
+
+  design-worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://mcu:${POSTGRES_PASSWORD:-mcu_secret}@postgres:5432/mcu_assistant
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-mcu_service}:${RABBITMQ_PASSWORD:-mcu_mq_secret}@rabbitmq:5672/
+      PIPELINE_VERSION: "2.0"
+    networks:
+      - mcu-network
+    restart: unless-stopped
+
   gateway:
     build:
       context: ./gateway
