@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { randomUUID } from "crypto";
 
 const STATIC_ASSET_PATTERNS = [
   /\.(png|jpg|jpeg|gif|svg|webp|ico|avif)$/i,
@@ -31,7 +30,7 @@ export function securityHeadersMiddleware(req: NextRequest): NextResponse | unde
   }
 
   // x-request-id: propagate from upstream or generate new
-  const requestId = req.headers.get("x-request-id") || randomUUID();
+  const requestId = req.headers.get("x-request-id") || crypto.randomUUID();
   response.headers.set("x-request-id", requestId);
 
   return response;
