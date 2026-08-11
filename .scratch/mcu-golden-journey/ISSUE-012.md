@@ -1,8 +1,20 @@
 # ISSUE-012 — S10 Golden Journey Hardening + Legacy Cleanup
 
-**Status:** ready-for-agent
+**Status:** resolved
 **Blocked by:** ISSUE-011（Flash Confirmation + Serial e2e）
 **Priority:** P0-hardening
+**Resolved:** 2026-08-12 · commit `24aa555` · DETERMINISTIC acceptance
+
+## 15. Delivery Record
+
+- **旧目录删除（引用核查先行）**：`git rm` gateway/（136）+ shared/（30）+ worker/（78）+ catalog/ + docker/ + trial-output/ + docker-compose.yml + trial_run.py + verify-token.js + design-preview.html/design-tokens.json/ui-preview.* + ARCHITECTURE/DESIGN/DEPLOYMENT.md + pytest.ini + cd.yml；`rm -rf services/`（仅剩被忽略的 __pycache__）。删除前 grep 核查：无 import/fs/脚本引用（src/app/tests 全无）。共 282 个文件删除。
+- **CI 更新**：`.github/workflows/ci.yml` 重写为模块化单体门禁（typecheck / lint / unit+contract / e2e:golden / build）；删除 V2 docker CD（无容器部署目标）。
+- **Mock 生产路径清除**：`app/mock/engine.ts` 精简为仅 UI 常量（TEMPLATES/DEFAULT_PROMPT/sleep）——历史脚本（INITIAL_PROJECTS/DISCOVERY_PROPOSALS/autoAssignPins/buildFirmwareCode/makeFirmwareProposal/BUILD_*/runBuildScript 等）删除；AppContext 不再用 mock 候选/外设占位（真实 /recommend-mcu 在视图挂载时填充）；TopNavBar "mock" 徽章移除；导出 PDF `alert(mock)` → 禁用（M1 范围外，无假成功）；i18n 中 mock 标记文案清理（exportPdf/calibration/deleteConfirm）。
+- **文档**：CONTEXT.md 重写为新词汇表（删除 DesignDraft/Pipeline/Stage/Orchestrator；新增 Artifact/ArtifactVersion/Proposal/StaleMark/BuildRecord/ValidationRecord/Capability/DeviceSession/DebugEvidence/Preferences）；README.md 新建（架构/运行/测试/验收标注）；.env.example 更新为本地单进程配置；implementation-spec 头部标注 S10 完成。
+- **冒烟**：`npm run build` OK（typecheck + vite）；新端口启动 → /api/v1/health 200、POST /device/detect 返回设备、/projects 200；浏览器刷新干净（无 mock 徽章、无 console 错误、项目/artifacts/偏好持久化）。
+- **回归**：304 unit+contract + 18 e2e golden 全绿；ui-acceptance-report §8 27 项基线由 S1-S9 各切片浏览器验收覆盖（S9 走查 detect/flash confirm/progress/serial/GET_STATUS/disconnect）。
+- **声明**：本票未首次实现任何业务能力（仅清理 + 文档）。
+- **验收标注**：DETERMINISTIC（无真实硬件/arduino-cli；build/flash 经 mock compiler/companion-local 适配器 + 真实 Port 契约与 workspace 证据断言）。
 
 ## 1. User-visible outcome
 
