@@ -153,6 +153,17 @@ CREATE TABLE build_records (
 CREATE INDEX idx_builds_version ON build_records(artifact_version_id);
 `,
   },
+  {
+    version: 8,
+    name: "create_preferences",
+    sql: `
+CREATE TABLE preferences (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+`,
+  },
 ];
 
 export function migrate(db: SqliteDb): void {

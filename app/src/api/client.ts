@@ -224,6 +224,27 @@ export const api = {
       };
       proposal: ProposalDto;
     }>(`/api/v1/builds/${buildId}/diagnose`, { method: "POST" }),
+  // ---------- S9 Device / Flash / Serial ----------
+  detectDevice: () => request<{ id: string; model: string; port: string; baudRate: number }>("/api/v1/device/detect", { method: "POST" }),
+  issueFlashToken: (deviceId: string) =>
+    request<{ token: string; expiresAt: string }>("/api/v1/device/flash-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceId }),
+    }),
+  flashDevice: (deviceId: string, confirmationToken: string, firmwareVersionId: string) =>
+    request<{ sessionId: string }>("/api/v1/device/flash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceId, confirmationToken, firmwareVersionId }),
+    }),
+  disconnectDevice: () => request<{ status: string }>("/api/v1/device/disconnect", { method: "POST" }),
+  sendSerial: (command: string) =>
+    request<{ echo: string; response: string }>("/api/v1/device/serial/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command }),
+    }),
 };
 
 export interface StaleMarkDto {

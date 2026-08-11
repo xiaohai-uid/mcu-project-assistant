@@ -272,6 +272,10 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
   const selectBuilds = db.prepare(
     "SELECT * FROM build_records WHERE artifact_version_id = ? ORDER BY started_at ASC, rowid ASC",
   );
+  const upsertPreference = db.prepare(
+    "INSERT INTO preferences (key, value, updated_at) VALUES (@key, @value, @updated_at) ON CONFLICT(key) DO UPDATE SET value = @value, updated_at = @updated_at",
+  );
+  const selectPreference = db.prepare("SELECT value FROM preferences WHERE key = ?");
   const selectLatestValidation = db.prepare(
     "SELECT * FROM validation_records WHERE artifact_version_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
   );
@@ -416,6 +420,9 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
         diagnostics: JSON.stringify(b.diagnostics),
       });
     },
+    setPreference(key: string, value: string, updatedAt: string): void {
+      upsertPreference.run({ key, value, updated_at: updatedAt });
+    },
     createValidationRecord(v: ValidationRecordDto): void {
       insertValidation.run({
         id: v.id,
@@ -532,5 +539,9 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     },
     listBuilds: async (versionId: string) =>
       (selectBuilds.all(versionId) as BuildRow[]).map(toBuild),
+    getPreference: async (key: string) => {
+      const row = selectPreference.get(key) as { value: string } | undefined;
+      return row?.value ?? null;
+    },
   };
 }

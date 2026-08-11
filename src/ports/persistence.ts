@@ -37,6 +37,8 @@ export interface UnitOfWork {
   // S7
   createBuildRecord(b: BuildRecord): void;
   updateBuildRecord(b: BuildRecord): void;
+  // S9
+  setPreference(key: string, value: string, updatedAt: string): void;
 }
 
 export interface PersistencePort {
@@ -65,4 +67,6 @@ export interface PersistencePort {
   // S7
   getBuildRecord(id: string): Promise<BuildRecord | null>;
   listBuilds(versionId: string): Promise<BuildRecord[]>;
+  // S9
+  getPreference(key: string): Promise<string | null>;
 }

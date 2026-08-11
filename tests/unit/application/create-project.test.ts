@@ -38,6 +38,7 @@ function fakePersistence(): PersistencePort & { rows: Map<string, import("@/src/
         resolveStaleMarks: () => {},
         createBuildRecord: () => {},
         updateBuildRecord: () => {},
+        setPreference: () => {},
       };
       return fn(uow);
     },
@@ -55,6 +56,7 @@ function fakePersistence(): PersistencePort & { rows: Map<string, import("@/src/
     activeStaleMarks: async () => [],
     getBuildRecord: async () => null,
     listBuilds: async () => [],
+    getPreference: async () => null,
     getProposal: async () => null,
     listProposals: async () => [],
   };

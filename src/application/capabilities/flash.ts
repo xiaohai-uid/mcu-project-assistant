@@ -1,0 +1,217 @@
+// application/capabilities/flash.ts — flash_device / detect_device / send_serial（application-contract 2.15-2.17；ISSUE-011 §3/§6）
+// Safety（Tier 0）：Flash 必须显式用户确认——一次性令牌（60s 时效、单次使用、绑定设备）；
+// AI/Companion/重试不得绕过（无令牌被拒）；L3 Stale 门禁（I-8）；设备断开中止（不留半成品证据）。
+// DeviceSession = 运行时状态（适配器内存态；持久化仅 last_device → preferences）。
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { randomUUID } from "node:crypto";
+import type { DevicePort, DeviceInfo } from "@/src/ports/device";
+import type { EventPort } from "@/src/ports/events";
+import type { PersistencePort } from "@/src/ports/persistence";
+import type { TaskExecutionPort } from "@/src/ports/task-execution";
+
+export class ConfirmationMissingError extends Error {
+  constructor() {
+    super("Flash confirmation token required (no bypass)");
+    this.name = "ConfirmationMissingError";
+  }
+}
+
+export class ConfirmationExpiredError extends Error {
+  constructor() {
+    super("Flash confirmation token expired — reconfirm");
+    this.name = "ConfirmationExpiredError";
+  }
+}
+
+export class TokenReusedError extends Error {
+  constructor() {
+    super("Flash confirmation token already used — reconfirm");
+    this.name = "TokenReusedError";
+  }
+}
+
+export class DeviceMismatchError extends Error {
+  constructor() {
+    super("Flash confirmation token is bound to a different device");
+    this.name = "DeviceMismatchError";
+  }
+}
+
+export class DeviceDisconnectedError extends Error {
+  constructor() {
+    super("Device is not connected");
+    this.name = "DeviceDisconnectedError";
+  }
+}
+
+export class FirmwareVersionNotFoundError extends Error {
+  constructor() {
+    super("Firmware version not found");
+    this.name = "FirmwareVersionNotFoundError";
+  }
+}
+
+// ---------- Flash 确认令牌（一次性/短时效/绑定设备；安全验收组） ----------
+
+export interface FlashToken {
+  token: string;
+  deviceId: string;
+  expiresAt: string;
+  used: boolean;
+}
+
+export interface FlashTokenStore {
+  issue(deviceId: string, now: Date): FlashToken;
+  consume(token: string, deviceId: string, now: Date): "ok" | "missing" | "expired" | "reused" | "device_mismatch";
+}
+
+export function createFlashTokenStore(ttlMs = 60_000): FlashTokenStore {
+  const tokens = new Map<string, FlashToken>();
+  return {
+    issue(deviceId: string, now: Date): FlashToken {
+      const token: FlashToken = {
+        token: randomUUID(),
+        deviceId,
+        expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
+        used: false,
+      };
+      tokens.set(token.token, token);
+      return token;
+    },
+    consume(token: string, deviceId: string, now: Date): "ok" | "missing" | "expired" | "reused" | "device_mismatch" {
+      const t = tokens.get(token);
+      if (!t) return "missing";
+      if (t.used) return "reused";
+      if (new Date(t.expiresAt).getTime() < now.getTime()) return "expired";
+      if (t.deviceId !== deviceId) return "device_mismatch";
+      t.used = true; // 单次使用
+      return "ok";
+    },
+  };
+}
+
+// ---------- 能力 ----------
+
+export interface FlashCapabilityDeps {
+  persistence: PersistencePort;
+  tasks: TaskExecutionPort;
+  events: EventPort;
+  device: DevicePort;
+  tokens: FlashTokenStore;
+  workspaceDir: string;
+  now?: () => Date;
+}
+
+export async function detectDevice(
+  _input: Record<string, never>,
+  deps: Pick<FlashCapabilityDeps, "device" | "persistence" | "now">,
+): Promise<DeviceInfo> {
+  const now = deps.now ?? (() => new Date());
+  const device = await deps.device.detectBoard();
+  // 持久化仅 last_device（会话不建表）
+  await deps.persistence.withTransaction((uow) =>
+    uow.setPreference("last_device", JSON.stringify(device), now().toISOString()),
+  );
+  return device;
+}
+
+export async function issueFlashToken(
+  input: { deviceId: string },
+  deps: Pick<FlashCapabilityDeps, "tokens" | "now">,
+): Promise<{ token: string; expiresAt: string }> {
+  const now = deps.now ?? (() => new Date());
+  const t = deps.tokens.issue(input.deviceId, now());
+  return { token: t.token, expiresAt: t.expiresAt };
+}
+
+/**
+ * flash_device：确认令牌校验（403 族）→ L3 门禁（409）→ 设备连接（409）→
+ * 烧录执行（进度事件流）→ 完成写 .evidence/<sessionId>.log；中断不留半成品证据。
+ */
+export async function flashDevice(
+  input: { deviceId: string; confirmationToken: string; firmwareVersionId: string },
+  deps: FlashCapabilityDeps,
+): Promise<{ sessionId: string }> {
+  const now = deps.now ?? (() => new Date());
+
+  // 1. 令牌校验（一次性；AI/Companion/重试无令牌一律拒绝）
+  const verdict = deps.tokens.consume(input.confirmationToken, input.deviceId, now());
+  if (verdict === "missing") throw new ConfirmationMissingError();
+  if (verdict === "expired") throw new ConfirmationExpiredError();
+  if (verdict === "reused") throw new TokenReusedError();
+  if (verdict === "device_mismatch") throw new DeviceMismatchError();
+
+  // 2. L3 Stale 门禁（I-8：L3 禁 Flash）
+  const version = await deps.persistence.getVersion(input.firmwareVersionId);
+  if (!version) throw new FirmwareVersionNotFoundError();
+  const artifact = await deps.persistence.getArtifact(version.artifactId);
+  const projectId = artifact?.projectId ?? "";
+  const { assertNotBlocking } = await import("@/src/application/capabilities/revalidate");
+  await assertNotBlocking({ projectId, action: "flash" }, deps);
+
+  // 3. 设备连接（运行时状态）
+  if (deps.device.session().stage !== "connected") throw new DeviceDisconnectedError();
+
+  // 4. 烧录执行（in-process 任务；进度事件 → SSE；deferred 等待任务终态以返回 sessionId）
+  let sessionId = "";
+  const lines: string[] = [];
+  let resolveDone!: (v: { sessionId: string }) => void;
+  const done = new Promise<{ sessionId: string }>((r) => (resolveDone = r));
+  await deps.tasks.submit(
+    { capability: "flash_device", input: JSON.stringify({ deviceId: input.deviceId, firmwareVersionId: input.firmwareVersionId }) },
+    async (ctx) => {
+      try {
+        const result = await deps.device.flash(
+          { deviceId: input.deviceId },
+          (e) => {
+            if (e.type === "progress") {
+              ctx.emit({ type: "device.flashing", projectId, deviceId: input.deviceId, percent: e.percent, message: e.message });
+            } else if (e.type === "line") {
+              lines.push(e.line);
+            }
+          },
+          ctx.signal,
+        );
+        sessionId = result.sessionId;
+        if (ctx.signal.aborted || result.exitCode !== 0) {
+          // 中断/失败：不留半成品证据（不写 .evidence）
+          ctx.emit({ type: "device.flash_failed", projectId, deviceId: input.deviceId, message: "Flash aborted" });
+          resolveDone({ sessionId: "" });
+          return;
+        }
+        // 完成 → Debug 证据（.evidence/<sessionId>.log；大体积证据进 workspace）
+        if (sessionId) {
+          const evidencePath = join(deps.workspaceDir, ".evidence", `${sessionId}.log`);
+          mkdirSync(join(deps.workspaceDir, ".evidence"), { recursive: true });
+          appendFileSync(evidencePath, lines.join("\n") + "\n", "utf8");
+        }
+        ctx.emit({ type: "device.flashed", projectId, deviceId: input.deviceId, sessionId });
+        resolveDone({ sessionId });
+      } catch (err) {
+        ctx.emit({
+          type: "device.flash_failed",
+          projectId,
+          deviceId: input.deviceId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        resolveDone({ sessionId: "" });
+      }
+    },
+  );
+
+  return done;
+}
+
+export async function disconnectDevice(deps: Pick<FlashCapabilityDeps, "device">): Promise<void> {
+  deps.device.disconnect();
+}
+
+export async function sendSerial(
+  input: { command: string },
+  deps: Pick<FlashCapabilityDeps, "device">,
+): Promise<{ echo: string; response: string }> {
+  const echo = `> ${input.command.trim()}`;
+  const response = deps.device.sendSerial(input.command);
+  return { echo, response };
+}

@@ -80,6 +80,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
         resolveStaleMarks: () => {},
         createBuildRecord: (b) => void mem.builds.set(b.id, b),
         updateBuildRecord: (b) => void mem.builds.set(b.id, b),
+        setPreference: () => {},
       };
       return fn(uow);
     },
@@ -100,6 +101,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
     activeStaleMarks: async () => [],
     getBuildRecord: async (id) => mem.builds.get(id) ?? null,
     listBuilds: async (versionId) => [...mem.builds.values()].filter((b) => b.artifactVersionId === versionId),
+    getPreference: async () => null,
   };
   return { ...port, mem };
 }

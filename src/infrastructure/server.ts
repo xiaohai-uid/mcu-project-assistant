@@ -7,6 +7,7 @@ import { createSseEvents } from "@/src/adapters/events/sse";
 import { createInProcessTasks } from "@/src/adapters/task/in-process";
 import { createMockAiProvider } from "@/src/adapters/ai/mock";
 import { createEsp32ArduinoCompiler } from "@/src/adapters/compiler/esp32-arduino";
+import { createCompanionLocalDevice } from "@/src/adapters/device/companion-local";
 import { openDatabase } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
@@ -29,6 +30,7 @@ const app = createApp({
   events,
   tasks: createInProcessTasks({ persistence, events }),
   compiler: createEsp32ArduinoCompiler(),
+  device: createCompanionLocalDevice(),
   ai: createMockAiProvider(),
 });
 

@@ -15,6 +15,9 @@ export type SseEventType =
   | "build.succeeded"
   | "build.failed"
   | "build.cancelled"
+  | "device.flashing"
+  | "device.flashed"
+  | "device.flash_failed"
   | "provider.unavailable";
 
 const KNOWN_TYPES: SseEventType[] = [
@@ -31,6 +34,9 @@ const KNOWN_TYPES: SseEventType[] = [
   "build.succeeded",
   "build.failed",
   "build.cancelled",
+  "device.flashing",
+  "device.flashed",
+  "device.flash_failed",
   "provider.unavailable",
 ];
 

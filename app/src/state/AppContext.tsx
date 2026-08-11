@@ -29,7 +29,6 @@ import type {
 } from "../types";
 import {
   DEFAULT_PROMPT,
-  makeSerialLine,
   MCU_CANDIDATES,
   PERIPHERALS,
   sleep,
@@ -173,7 +172,7 @@ type Action =
   | { type: "RUNTIME"; patch: Partial<AppState["runtime"]> }
   | { type: "COMPANION_STAGE"; stage: AppState["companion"]["stage"] }
   | { type: "COMPANION_SERIAL"; line: string }
-  | { type: "COMPANION_TELEMETRY"; moisture?: number; temperature?: number; pumpActive?: boolean }
+  | { type: "COMPANION_TELEMETRY"; moisture?: number; temperature?: number; pumpActive?: boolean; flashProgress?: number }
   | { type: "FLASH_PROGRESS"; pct: number }
   | { type: "COPILOT_PUSH"; msg: CopilotChatMessage }
   | { type: "COPILOT_UPDATE"; id: string; patch: Partial<CopilotChatMessage> };
@@ -396,6 +395,7 @@ interface AppApi {
   simulateMoisture: (v: number) => void;
   togglePump: () => void;
   flashDevice: () => void;
+  flashWithConfirmation: () => void;
   revalidateAll: () => void;
   checkToolchain: () => Promise<void>;
   decideRevalidateProposal: (proposalId: string, decision: "accept" | "reject") => void;
@@ -412,6 +412,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const cancelRef = useRef<{ discovery?: boolean; build?: boolean; flash?: boolean }>({});
   const buildRef = useRef<{ buildId: string | null; close?: () => void }>({ buildId: null });
+  const deviceRef = useRef<{ close?: () => void }>({});
+  const serialRef = useRef<{ close?: () => void }>({});
   const s = state;
 
   // ---------- Copilot 帮助 ----------
@@ -476,6 +478,57 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (/\[OK\]|success/i.test(line)) return "ok";
     if (/warning/i.test(line)) return "warn";
     return "info";
+  }, []);
+
+  /** S9：设备事件订阅（flash 进度/完成/失败 → 阶段 + 进度 + 串口遥测开始） */
+  const subscribeDeviceEvents = useCallback(
+    (projectId: string) =>
+      subscribeProjectEvents(projectId, {
+        onEvent: (type, data) => {
+          switch (type) {
+            case "device.flashing": {
+              const { percent } = data as { percent: number };
+              dispatch({ type: "FLASH_PROGRESS", pct: percent });
+              break;
+            }
+            case "device.flashed": {
+              dispatch({ type: "RUNTIME", patch: { deviceStage: "connected" } });
+              dispatch({ type: "COMPANION_STAGE", stage: "serial" });
+              dispatch({ type: "COMPANION_TELEMETRY", flashProgress: 100 });
+              dispatch({ type: "ARTIFACT", kind: "debug", status: "validated", version: (s.artifacts.debug.version || 0) + 1 });
+              pushCopilot({ sender: "copilot", text: "Flash complete — firmware written to ESP32-S3. Telemetry stream active." });
+              break;
+            }
+            case "device.flash_failed": {
+              dispatch({ type: "RUNTIME", patch: { deviceStage: "connected" } });
+              dispatch({ type: "COMPANION_STAGE", stage: "serial" });
+              pushSystem("Flash failed — no half-written evidence.");
+              break;
+            }
+            default:
+              break;
+          }
+        },
+      }),
+    [s.artifacts.debug.version, pushCopilot, pushSystem],
+  );
+
+  /** 串口遥测流订阅（EventSource /device/serial/stream → serial.line 帧） */
+  const subscribeSerialStream = useCallback(() => {
+    const es = new EventSource("/api/v1/device/serial/stream");
+    es.addEventListener("serial.line", (ev) => {
+      try {
+        const { line } = JSON.parse((ev as MessageEvent).data) as { line: string };
+        dispatch({ type: "COMPANION_SERIAL", line });
+      } catch {
+        // 帧解析失败忽略
+      }
+    });
+    es.addEventListener("device.disconnected", () => {
+      dispatch({ type: "RUNTIME", patch: { deviceStage: "disconnected" } });
+      es.close();
+    });
+    return () => es.close();
   }, []);
 
   /** S7：构建事件订阅（build.output 逐行 → 日志流；终态 → 徽标/状态） */
@@ -543,11 +596,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       void checkToolchain();
       buildRef.current.close?.();
       buildRef.current.close = subscribeBuildEvents(id);
+      // S9：设备事件 + 串口遥测流订阅
+      deviceRef.current.close?.();
+      deviceRef.current.close = subscribeDeviceEvents(id);
+      serialRef.current.close?.();
+      serialRef.current.close = subscribeSerialStream();
       return true;
     } catch {
       return false;
     }
-  }, [refreshStaleMarks, checkToolchain, subscribeBuildEvents]);
+  }, [refreshStaleMarks, checkToolchain, subscribeBuildEvents, subscribeDeviceEvents, subscribeSerialStream]);
 
   /** 归档（D6 语义）：取一次性令牌 → 确认 → 归档（令牌一次性；S9 复用同一机制） */
   const archiveProject = useCallback(
@@ -1151,44 +1209,81 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })();
   }, [s.build.diagnosis, s.project?.id, s.artifacts.firmware.version, refreshStaleMarks, pushSystem]);
 
-  // ---------- Companion ----------
+  // ---------- Companion（S9：真实 DevicePort——检测/烧录/串口） ----------
 
   const detectBoard = useCallback(() => {
     dispatch({ type: "COMPANION_STAGE", stage: "detecting" });
+    // Progressive Swap（ISSUE-011 §5）：内存模拟 → 真实 /device/detect（DevicePort 检测 + last_device → preferences）
     void (async () => {
-      await sleep(s.runtime.slowMode ? 1800 : 800);
-      dispatch({ type: "RUNTIME", patch: { deviceStage: "connected" } });
-      dispatch({ type: "COMPANION_STAGE", stage: "serial" });
-      pushCopilot({ sender: "copilot", text: `Board detected: ${s.project?.name ?? "Smart Greenhouse"} target (ESP32-S3) on COM6 @ 115200 baud.` });
-    })();
-  }, [s.runtime.slowMode, s.project?.name, pushCopilot]);
-
-  const flashDevice = useCallback(() => {
-    if (s.runtime.deviceStage !== "connected") return;
-    cancelRef.current.flash = false;
-    dispatch({ type: "RUNTIME", patch: { deviceStage: "flashing" } });
-    dispatch({ type: "COMPANION_STAGE", stage: "flashing" });
-    void (async () => {
-      for (let pct = 0; pct <= 100; pct += 20) {
-        if (cancelRef.current.flash) return;
-        dispatch({ type: "FLASH_PROGRESS", pct });
-        await sleep(s.runtime.slowMode ? 600 : 300);
+      try {
+        const device = await clientApi.detectDevice();
+        dispatch({ type: "RUNTIME", patch: { deviceStage: "connected" } });
+        dispatch({ type: "COMPANION_STAGE", stage: "serial" });
+        pushCopilot({ sender: "copilot", text: `Board detected: ${device.model} on ${device.port} @ ${device.baudRate} baud.` });
+      } catch (err) {
+        dispatch({ type: "COMPANION_STAGE", stage: "idle" });
+        pushSystem(err instanceof ApiError ? `Detect failed: ${err.code}` : "Detect failed");
       }
-      dispatch({ type: "RUNTIME", patch: { deviceStage: "connected" } });
-      dispatch({ type: "COMPANION_STAGE", stage: "serial" });
-      dispatch({ type: "ARTIFACT", kind: "debug", status: "validated", version: (s.artifacts.debug.version || 0) + 1 });
-      pushCopilot({ sender: "copilot", text: "Flash complete. Serial terminal open — live telemetry streaming." });
     })();
-  }, [s.runtime.deviceStage, s.runtime.slowMode, s.artifacts.debug, pushCopilot]);
+  }, [pushCopilot, pushSystem]);
+
+  const flashDevice = useCallback(
+    (token?: string) => {
+      if (s.runtime.deviceStage !== "connected") return;
+      const projectId = s.project?.id;
+      if (!projectId || !token) return; // 无令牌不执行（Safety Tier 0：AI/Companion/重试不得绕过）
+      cancelRef.current.flash = false;
+      dispatch({ type: "RUNTIME", patch: { deviceStage: "flashing" } });
+      dispatch({ type: "COMPANION_STAGE", stage: "flashing" });
+      // Progressive Swap（ISSUE-011 §5）：内存进度 → 真实 /device/flash（一次性令牌 + L3 门禁；进度由 SSE 驱动）
+      void (async () => {
+        try {
+          const fw = await clientApi.ensureArtifact(projectId, "firmware");
+          const versions = await clientApi.listVersions(fw.id);
+          const current = versions[versions.length - 1];
+          if (!current) throw new ApiError(409, "no_firmware_version", "No firmware version");
+          await clientApi.flashDevice("esp32s3-com6", token, current.id);
+          // 完成态由 SSE device.flashed 驱动（见 subscribeDeviceEvents）
+        } catch (err) {
+          dispatch({ type: "RUNTIME", patch: { deviceStage: "connected" } });
+          dispatch({ type: "COMPANION_STAGE", stage: "serial" });
+          pushSystem(err instanceof ApiError ? `Flash failed: ${err.code}` : "Flash failed");
+        }
+      })();
+    },
+    [s.runtime.deviceStage, s.project?.id, pushSystem],
+  );
+
+  /** 烧录确认（高风险对话框确认后）：签发一次性令牌 → 真实 flash（Safety Tier 0：令牌来自用户动作） */
+  const flashWithConfirmation = useCallback(() => {
+    const projectId = s.project?.id;
+    if (!projectId) return;
+    if (s.runtime.deviceStage !== "connected") return;
+    void (async () => {
+      try {
+        const { token } = await clientApi.issueFlashToken("esp32s3-com6");
+        flashDevice(token);
+      } catch (err) {
+        pushSystem(err instanceof ApiError ? `Flash token failed: ${err.code}` : "Flash token failed");
+      }
+    })();
+  }, [s.project?.id, s.runtime.deviceStage, flashDevice, pushSystem]);
 
   const sendSerial = useCallback(
     (cmd: string) => {
-      dispatch({ type: "COMPANION_SERIAL", line: `> ${cmd}` });
-      const c = s.companion;
-      const line = makeSerialLine(c.moisture, c.pumpActive, c.temperature);
-      dispatch({ type: "COMPANION_SERIAL", line: `[ACK] ${cmd} -> ${line}` });
+      // Progressive Swap（ISSUE-011 §5）：内存回显 → 真实 /device/serial/send（回显 + 遥测响应）
+      void (async () => {
+        try {
+          const { echo, response } = await clientApi.sendSerial(cmd);
+          dispatch({ type: "COMPANION_SERIAL", line: echo });
+          dispatch({ type: "COMPANION_SERIAL", line: response });
+        } catch (err) {
+          dispatch({ type: "COMPANION_SERIAL", line: `> ${cmd}` });
+          pushSystem(err instanceof ApiError ? `Serial failed: ${err.code}` : "Serial failed");
+        }
+      })();
     },
-    [s.companion]
+    [pushSystem],
   );
 
   const simulateMoisture = useCallback((v: number) => {
@@ -1369,6 +1464,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       simulateMoisture,
       togglePump,
       flashDevice,
+      flashWithConfirmation,
       revalidateAll,
       checkToolchain,
       decideRevalidateProposal,
@@ -1381,7 +1477,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setProposalDecision, proceedToHardware, selectMcu, refreshMcuCandidates, generatePins, verifyRules,
       editPin, refreshPinmapVersions, generateFirmware, acceptFirmwareProposal, rejectFirmwareProposal,
       startBuild, cancelBuild, retryBuild, runDiagnosis, applyFix, detectBoard,
-      sendSerial, simulateMoisture, togglePump, flashDevice, revalidateAll, checkToolchain, decideRevalidateProposal,
+      sendSerial, simulateMoisture, togglePump, flashDevice, flashWithConfirmation, revalidateAll, checkToolchain, decideRevalidateProposal,
       sendCopilotMessage, runScenario,
     ]
   );

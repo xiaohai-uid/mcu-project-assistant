@@ -55,6 +55,10 @@ export type LogicalEvent =
   | { type: "build.cancelled"; projectId: string; buildId: string }
   // ---------- S8 Diagnosis ----------
   | { type: "diagnosis.completed"; projectId: string; buildId: string; cause: string }
+  // ---------- S9 Device / Flash ----------
+  | { type: "device.flashing"; projectId: string; deviceId: string; percent: number; message?: string }
+  | { type: "device.flashed"; projectId: string; deviceId: string; sessionId: string }
+  | { type: "device.flash_failed"; projectId: string; deviceId: string; message?: string }
   | { type: "provider.unavailable"; provider: string; reason: string };
 
 export interface EventPort {

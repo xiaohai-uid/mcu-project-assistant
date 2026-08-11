@@ -57,6 +57,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
         resolveStaleMarks: () => {},
         createBuildRecord: () => {},
         updateBuildRecord: () => {},
+        setPreference: () => {},
         createValidationRecord: (v) => {
           const key = `validation:${v.artifactVersionId}`;
           (mem as FakeMem & { validations: Map<string, unknown> }).validations.set(key, v);
@@ -80,6 +81,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
     activeStaleMarks: async () => [],
     getBuildRecord: async () => null,
     listBuilds: async () => [],
+    getPreference: async () => null,
     latestValidation: async (versionId) =>
       ((mem as FakeMem & { validations: Map<string, unknown> }).validations.get(`validation:${versionId}`) as
         import("@/src/shared-contracts/types").ValidationRecordDto | undefined) ?? null,

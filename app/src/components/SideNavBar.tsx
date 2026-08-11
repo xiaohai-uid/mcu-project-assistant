@@ -12,7 +12,7 @@ const TAB_ARTIFACT: Partial<Record<SidebarTab, ArtifactKind>> = {
 };
 
 export const SideNavBar: React.FC = () => {
-  const { state, setSidebar, flashDevice } = useApp();
+  const { state, setSidebar } = useApp();
   const { lang, sidebar, project, artifacts, runtime, firmware, build } = state;
 
   const mainTabs: { id: SidebarTab; label: string; icon: string }[] = [
@@ -85,7 +85,7 @@ export const SideNavBar: React.FC = () => {
         </div>
 
         <button
-          onClick={flashDevice}
+          onClick={() => setSidebar("Build")}
           disabled={!canFlash}
           title={!deviceOk ? t(lang, "deviceNotConnected") : undefined}
           className="w-full mac-button-primary text-xs font-medium py-1.5 px-3 rounded-lg flex items-center justify-center gap-1.5 disabled:opacity-40"

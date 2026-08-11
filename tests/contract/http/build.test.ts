@@ -13,6 +13,7 @@ import { createSseEvents } from "@/src/adapters/events/sse";
 import { createInProcessTasks } from "@/src/adapters/task/in-process";
 import { createMockAiProvider } from "@/src/adapters/ai/mock";
 import { createMockCompiler, createUnavailableMockCompiler } from "@/src/adapters/compiler/mock";
+import { createCompanionLocalDevice } from "@/src/adapters/device/companion-local";
 import { openDatabase, type SqliteDb } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
@@ -37,6 +38,7 @@ function boot(compiler = createMockCompiler(), sse = false) {
     events,
     tasks: createInProcessTasks({ persistence, events }),
     compiler,
+    device: createCompanionLocalDevice(),
     ai: createMockAiProvider({ slow: false }),
     now: () => new Date("2026-08-11T12:00:00.000Z"),
   };

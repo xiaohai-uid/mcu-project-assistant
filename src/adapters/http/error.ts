@@ -24,6 +24,10 @@ export type ErrorCode =
   | "not_found"
   | "confirmation_missing"
   | "confirmation_invalid"
+  | "confirmation_expired"
+  | "token_reused"
+  | "device_mismatch"
+  | "device_disconnected"
   | "already_archived"
   | "archived_read_only"
   | "internal";

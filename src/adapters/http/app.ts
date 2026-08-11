@@ -70,6 +70,7 @@ import { ProviderUnavailableError } from "@/src/ports/ai-provider";
 import type { ArtifactContentPort } from "@/src/ports/artifact-content";
 import type { CompilerPort } from "@/src/ports/compiler";
 import { ToolchainUnavailableError } from "@/src/ports/compiler";
+import type { DevicePort } from "@/src/ports/device";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort } from "@/src/ports/task-execution";
@@ -90,6 +91,20 @@ import {
   BuildNotFoundError as DiagnosisBuildNotFoundError,
   diagnoseBuild as diagnoseBuildCapability,
 } from "@/src/application/capabilities/diagnosis";
+import {
+  ConfirmationExpiredError,
+  ConfirmationMissingError,
+  DeviceDisconnectedError,
+  DeviceMismatchError,
+  detectDevice as detectDeviceCapability,
+  disconnectDevice as disconnectDeviceCapability,
+  FirmwareVersionNotFoundError,
+  flashDevice as flashDeviceCapability,
+  issueFlashToken as issueFlashTokenCapability,
+  sendSerial as sendSerialCapability,
+  TokenReusedError,
+} from "@/src/application/capabilities/flash";
+import { createFlashTokenStore } from "@/src/application/capabilities/flash";
 
 export interface AppDeps {
   persistence: PersistencePort;
@@ -98,6 +113,7 @@ export interface AppDeps {
   events: EventPort;
   tasks: TaskExecutionPort;
   compiler: CompilerPort;
+  device: DevicePort;
   ai: AIProviderPort;
   now?: () => Date;
 }
@@ -135,6 +151,16 @@ export function createApp(deps: AppDeps): Express {
     now,
   };
   const diagnosisDeps = { persistence: deps.persistence, content: deps.content, events: deps.events, ai: deps.ai, now };
+  const flashTokens = createFlashTokenStore();
+  const flashDeps = {
+    persistence: deps.persistence,
+    tasks: deps.tasks,
+    events: deps.events,
+    device: deps.device,
+    tokens: flashTokens,
+    workspaceDir: deps.workspaceDir,
+    now,
+  };
 
   // Idempotency-Key：内存映射（transport 层；重启即失，S1 记录在案——持久化幂等存储随需要引入）
   const idempotency = new Map<string, { project?: Project; version?: ArtifactVersionDto }>();
@@ -539,6 +565,80 @@ export function createApp(deps: AppDeps): Express {
     res.json(info);
   };
 
+  // ---------- S9 Device / Flash / Serial ----------
+
+  const handleDetectDevice = async (_req: Request, res: Response) => {
+    const device = await detectDeviceCapability({}, flashDeps);
+    res.json(device);
+  };
+
+  const handleFlashToken = async (req: Request, res: Response) => {
+    const deviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId : "";
+    if (!deviceId) throw new ApiError(400, "invalid_capability", "deviceId required");
+    res.json(await issueFlashTokenCapability({ deviceId }, flashDeps));
+  };
+
+  const handleFlash = async (req: Request, res: Response) => {
+    const deviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId : "";
+    const confirmationToken = typeof req.body?.confirmationToken === "string" ? req.body.confirmationToken : "";
+    const firmwareVersionId = typeof req.body?.firmwareVersionId === "string" ? req.body.firmwareVersionId : "";
+    try {
+      const result = await flashDeviceCapability({ deviceId, confirmationToken, firmwareVersionId }, flashDeps);
+      res.status(202).json(result);
+    } catch (err) {
+      if (err instanceof ConfirmationMissingError) throw new ApiError(403, "confirmation_missing", err.message);
+      if (err instanceof ConfirmationExpiredError) throw new ApiError(403, "confirmation_expired", err.message);
+      if (err instanceof TokenReusedError) throw new ApiError(403, "token_reused", err.message);
+      if (err instanceof DeviceMismatchError) throw new ApiError(403, "device_mismatch", err.message);
+      if (err instanceof DeviceDisconnectedError) throw new ApiError(409, "device_disconnected", err.message);
+      if (err instanceof BlockingStaleError) throw new ApiError(409, "blocking_stale", err.message);
+      if (err instanceof FirmwareVersionNotFoundError) throw new ApiError(404, "not_found", err.message);
+      throw err;
+    }
+  };
+
+  const handleDisconnect = async (_req: Request, res: Response) => {
+    await disconnectDeviceCapability(flashDeps);
+    res.json({ status: "disconnected" });
+  };
+
+  const handleSendSerial = async (req: Request, res: Response) => {
+    const command = typeof req.body?.command === "string" ? req.body.command : "";
+    if (!command.trim()) throw new ApiError(400, "invalid_capability", "command required");
+    if (deps.device.session().stage !== "connected") throw new ApiError(409, "device_disconnected", "Device is not connected");
+    res.json(await sendSerialCapability({ command }, flashDeps));
+  };
+
+  // 串口遥测流（SSE：轮询会话缓冲 → 行事件；连接断开后终止）
+  const handleSerialStream = (req: Request, res: Response) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.write(": connected\n\n");
+    let cursor = 0;
+    const timer = setInterval(() => {
+      const session = deps.device.session();
+      if (session.stage === "disconnected") {
+        clearInterval(timer);
+        res.write("event: device.disconnected\ndata: {}\n\n");
+        res.end();
+        return;
+      }
+      deps.device.tickSerial(); // 遥测生成（连接后）
+      const lines = session.serialLines;
+      while (cursor < lines.length) {
+        const line = lines[cursor];
+        cursor += 1;
+        res.write(`event: serial.line\ndata: ${JSON.stringify({ line })}\n\n`);
+      }
+    }, 800);
+    req.on("close", () => clearInterval(timer));
+    void req;
+  };
+
   // S8：诊断（Build FAILED → 原因/建议/Fix 提案；不写版本）
   const handleDiagnoseBuild = async (req: Request, res: Response) => {
     try {
@@ -580,6 +680,12 @@ export function createApp(deps: AppDeps): Express {
   app.post("/api/v1/builds/:buildId/cancel", withErrorHandler(handleCancelBuild));
   app.get("/api/v1/versions/:versionId/builds", withErrorHandler(handleListBuilds));
   app.get("/api/v1/toolchain", withErrorHandler(handleToolchain));
+  app.post("/api/v1/device/detect", withErrorHandler(handleDetectDevice));
+  app.post("/api/v1/device/flash-token", withErrorHandler(handleFlashToken));
+  app.post("/api/v1/device/flash", withErrorHandler(handleFlash));
+  app.post("/api/v1/device/disconnect", withErrorHandler(handleDisconnect));
+  app.post("/api/v1/device/serial/send", withErrorHandler(handleSendSerial));
+  app.get("/api/v1/device/serial/stream", handleSerialStream);
   app.get("/api/v1/projects/:projectId/events", handleEvents);
 
   return app;

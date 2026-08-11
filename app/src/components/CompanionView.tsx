@@ -4,7 +4,7 @@ import { useApp } from "../state/AppContext";
 import { ConfirmDialog, EmptyState } from "./ui";
 
 export const CompanionView: React.FC = () => {
-  const { state, detectBoard, flashDevice, simulateMoisture, togglePump } = useApp();
+  const { state, detectBoard, flashWithConfirmation, simulateMoisture, togglePump } = useApp();
   const { lang, companion, runtime, project, artifacts } = state;
   const [confirmFlash, setConfirmFlash] = useState(false);
   const [calibrating, setCalibrating] = useState(false);
@@ -195,7 +195,7 @@ export const CompanionView: React.FC = () => {
         cancelLabel={t(lang, "flashConfirmNo")}
         onConfirm={() => {
           setConfirmFlash(false);
-          flashDevice();
+          flashWithConfirmation();
         }}
         onCancel={() => setConfirmFlash(false)}
         lang={lang}

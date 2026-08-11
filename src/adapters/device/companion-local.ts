@@ -1,0 +1,82 @@
+// adapters/device/companion-local.ts — DevicePort companion-local 适配器（ADR-0009；ISSUE-011 §3）
+// M1 最小五能力中的设备侧：检测/烧录/串口——确定性模拟（无真实硬件；ticket §14 允许 mock/模拟验收）。
+// DeviceSession 为运行时内存态（不建表）；断线/烧录中断不留半成品证据（烧录证据由 capability 写 .evidence/）。
+import type { DeviceInfo, DevicePort, DeviceSession, FlashEvent, FlashResult } from "@/src/ports/device";
+
+export function createCompanionLocalDevice(opts?: { device?: DeviceInfo }): DevicePort {
+  const session: DeviceSession = {
+    device: null,
+    stage: "none",
+    serialLines: [],
+  };
+  let tick = 0;
+
+  return {
+    async detectBoard(): Promise<DeviceInfo> {
+      // 确定性模拟设备（M1 固定：ESP32-S3 @ COM6 @ 115200；真实检测为后续项）
+      const device: DeviceInfo = opts?.device ?? { id: "esp32s3-com6", model: "ESP32-S3 WROOM-1", port: "COM6", baudRate: 115200 };
+      session.device = device;
+      session.stage = "connected";
+      session.serialLines.push(`[system] Board detected: ${device.model} on ${device.port} @ ${device.baudRate} baud`);
+      tick = 0;
+      return device;
+    },
+    disconnect(): void {
+      session.stage = "disconnected";
+      session.serialLines.push("[system] Device disconnected");
+    },
+    async flash(input: { deviceId: string }, onEvent: (e: FlashEvent) => void, signal: AbortSignal): Promise<FlashResult> {
+      const steps = [
+        { p: 10, m: "Opening serial port..." },
+        { p: 25, m: "Erasing flash..." },
+        { p: 45, m: "Uploading firmware binary..." },
+        { p: 70, m: "Verifying..." },
+        { p: 85, m: "Resetting board..." },
+        { p: 100, m: "Flash complete" },
+      ];
+      session.stage = "flashing";
+      for (const s of steps) {
+        if (signal.aborted) {
+          // 中断：不留半成品证据（capability 不写 .evidence）
+          session.stage = "connected";
+          return { exitCode: 1, sessionId: "" };
+        }
+        onEvent({ type: "progress", percent: s.p, message: s.m });
+        onEvent({ type: "line", line: `[flash] ${s.m}` });
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      session.stage = "connected";
+      session.serialLines.push("[system] Firmware flashed successfully — telemetry stream starting");
+      return { exitCode: 0, sessionId: `session-${Date.now().toString(36)}` };
+    },
+    session() {
+      return session;
+    },
+    sendSerial(command: string): string {
+      const trimmed = command.trim();
+      if (!trimmed) return "";
+      const echo = `> ${trimmed}`;
+      const upper = trimmed.toUpperCase();
+      let response: string;
+      if (upper.includes("GET_STATUS")) {
+        response = `STATUS moisture=${Math.round((40 + ((tick * 7) % 40)) / 4095 * 100)}% pump=${(tick % 3) === 0 ? "ON" : "OFF"} temp=24.5C`;
+      } else if (upper.includes("SET_THRESHOLD")) {
+        response = "OK threshold updated";
+      } else {
+        response = `ACK ${trimmed}`;
+      }
+      session.serialLines.push(echo, response);
+      tick += 1;
+      return response;
+    },
+    tickSerial(): void {
+      tick += 1;
+      if (session.stage !== "connected" || !session.device) return;
+      const moisture = 40 + ((tick * 7) % 40);
+      const pumpOn = tick % 3 === 0;
+      session.serialLines.push(
+        `Moisture Raw: ${moisture} (${Math.round((moisture / 4095) * 100)}%) | Pump State: ${pumpOn ? "ON" : "OFF"} | Temp: 24.5C`,
+      );
+    },
+  };
+}

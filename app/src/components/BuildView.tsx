@@ -12,7 +12,7 @@ export const BuildView: React.FC = () => {
     runDiagnosis,
     applyFix,
     sendSerial,
-    flashDevice,
+    flashWithConfirmation,
     checkToolchain,
   } = useApp();
   const { lang, build, runtime, artifacts, firmware } = state;
@@ -250,7 +250,8 @@ export const BuildView: React.FC = () => {
         cancelLabel={t(lang, "flashConfirmNo")}
         onConfirm={() => {
           setConfirmFlash(false);
-          flashDevice();
+          // S9：确认对话框 = 用户动作 → 签发一次性令牌 → 真实烧录（无令牌不执行）
+          flashWithConfirmation();
         }}
         onCancel={() => setConfirmFlash(false)}
         lang={lang}
