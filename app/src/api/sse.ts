@@ -7,6 +7,14 @@ export type SseEventType =
   | "requirement.analysis.completed"
   | "requirement.analysis.failed"
   | "requirement.analysis.cancelled"
+  // S5B Revalidate / S7 Build
+  | "artifact.revalidating"
+  | "artifact.revalidated"
+  | "proposal.created"
+  | "build.output"
+  | "build.succeeded"
+  | "build.failed"
+  | "build.cancelled"
   | "provider.unavailable";
 
 const KNOWN_TYPES: SseEventType[] = [
@@ -16,6 +24,13 @@ const KNOWN_TYPES: SseEventType[] = [
   "requirement.analysis.completed",
   "requirement.analysis.failed",
   "requirement.analysis.cancelled",
+  "artifact.revalidating",
+  "artifact.revalidated",
+  "proposal.created",
+  "build.output",
+  "build.succeeded",
+  "build.failed",
+  "build.cancelled",
   "provider.unavailable",
 ];
 

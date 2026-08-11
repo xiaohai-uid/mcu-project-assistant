@@ -1,5 +1,6 @@
 // adapters/persistence/sqlite/project-store.ts — PersistencePort 的 SQLite 实现（S1 projects + S2 artifacts/versions + S3A tasks）
 import type { Artifact, ArtifactVersion } from "@/src/domain/models/artifact";
+import type { BuildRecord } from "@/src/domain/models/build-record";
 import type { Project } from "@/src/domain/models/project";
 import type { TaskRecord } from "@/src/ports/task-execution";
 import type { Proposal } from "@/src/domain/models/proposal";
@@ -70,6 +71,23 @@ interface ValidationRow {
   diagnostics: string;
   started_at: string;
   completed_at: string | null;
+}
+
+interface BuildRow {
+  id: string;
+  artifact_version_id: string;
+  task_id: string | null;
+  target: string;
+  toolchain: string;
+  toolchain_version: string | null;
+  options: string;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+  stdout_ref: string | null;
+  stderr_ref: string | null;
+  exit_code: number | null;
+  diagnostics: string;
 }
 
 interface ProposalRow {
@@ -158,6 +176,25 @@ function toProposal(row: ProposalRow): Proposal {
   };
 }
 
+function toBuild(row: BuildRow): BuildRecord {
+  return {
+    id: row.id,
+    artifactVersionId: row.artifact_version_id,
+    taskId: row.task_id,
+    target: row.target,
+    toolchain: row.toolchain,
+    toolchainVersion: row.toolchain_version,
+    options: JSON.parse(row.options) as Record<string, unknown>,
+    status: row.status as BuildRecord["status"],
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    stdoutRef: row.stdout_ref,
+    stderrRef: row.stderr_ref,
+    exitCode: row.exit_code,
+    diagnostics: JSON.parse(row.diagnostics) as BuildRecord["diagnostics"],
+  };
+}
+
 export function createProjectStore(db: SqliteDb): PersistencePort {
   const insert = db.prepare(
     "INSERT INTO projects (id, name, created_at, archived_at, archived_reason) VALUES (@id, @name, @created_at, @archived_at, @archived_reason)",
@@ -223,6 +260,17 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
   const deleteStaleStmt = db.prepare("DELETE FROM stale_marks WHERE id = ?");
   const selectActiveStale = db.prepare(
     "SELECT * FROM stale_marks WHERE project_id = ? AND resolved_at IS NULL ORDER BY created_at ASC",
+  );
+  const insertBuild = db.prepare(
+    `INSERT INTO build_records (id, artifact_version_id, task_id, target, toolchain, toolchain_version, options, status, started_at, completed_at, stdout_ref, stderr_ref, exit_code, diagnostics)
+     VALUES (@id, @artifact_version_id, @task_id, @target, @toolchain, @toolchain_version, @options, @status, @started_at, @completed_at, @stdout_ref, @stderr_ref, @exit_code, @diagnostics)`,
+  );
+  const updateBuild = db.prepare(
+    `UPDATE build_records SET task_id = @task_id, status = @status, completed_at = @completed_at, stdout_ref = @stdout_ref, stderr_ref = @stderr_ref, exit_code = @exit_code, diagnostics = @diagnostics WHERE id = @id`,
+  );
+  const selectBuild = db.prepare("SELECT * FROM build_records WHERE id = ?");
+  const selectBuilds = db.prepare(
+    "SELECT * FROM build_records WHERE artifact_version_id = ? ORDER BY started_at ASC, rowid ASC",
   );
   const selectLatestValidation = db.prepare(
     "SELECT * FROM validation_records WHERE artifact_version_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
@@ -338,6 +386,36 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     resolveStaleMarks(artifactId: string, versionId: string): void {
       resolveStaleStmt.run(versionId, artifactId);
     },
+    createBuildRecord(b: BuildRecord): void {
+      insertBuild.run({
+        id: b.id,
+        artifact_version_id: b.artifactVersionId,
+        task_id: b.taskId,
+        target: b.target,
+        toolchain: b.toolchain,
+        toolchain_version: b.toolchainVersion,
+        options: JSON.stringify(b.options),
+        status: b.status,
+        started_at: b.startedAt,
+        completed_at: b.completedAt,
+        stdout_ref: b.stdoutRef,
+        stderr_ref: b.stderrRef,
+        exit_code: b.exitCode,
+        diagnostics: JSON.stringify(b.diagnostics),
+      });
+    },
+    updateBuildRecord(b: BuildRecord): void {
+      updateBuild.run({
+        id: b.id,
+        task_id: b.taskId,
+        status: b.status,
+        completed_at: b.completedAt,
+        stdout_ref: b.stdoutRef,
+        stderr_ref: b.stderrRef,
+        exit_code: b.exitCode,
+        diagnostics: JSON.stringify(b.diagnostics),
+      });
+    },
     createValidationRecord(v: ValidationRecordDto): void {
       insertValidation.run({
         id: v.id,
@@ -448,5 +526,11 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     },
     listProposals: async (projectId: string) =>
       (selectProposals.all(projectId) as ProposalRow[]).map(toProposal),
+    getBuildRecord: async (id: string) => {
+      const row = selectBuild.get(id) as BuildRow | undefined;
+      return row ? toBuild(row) : null;
+    },
+    listBuilds: async (versionId: string) =>
+      (selectBuilds.all(versionId) as BuildRow[]).map(toBuild),
   };
 }

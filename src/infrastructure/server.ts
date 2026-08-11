@@ -6,6 +6,7 @@ import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/wor
 import { createSseEvents } from "@/src/adapters/events/sse";
 import { createInProcessTasks } from "@/src/adapters/task/in-process";
 import { createMockAiProvider } from "@/src/adapters/ai/mock";
+import { createEsp32ArduinoCompiler } from "@/src/adapters/compiler/esp32-arduino";
 import { openDatabase } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
@@ -27,6 +28,7 @@ const app = createApp({
   content: createWorkspaceFilesContent(config.workspaceDir),
   events,
   tasks: createInProcessTasks({ persistence, events }),
+  compiler: createEsp32ArduinoCompiler(),
   ai: createMockAiProvider(),
 });
 

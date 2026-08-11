@@ -33,7 +33,6 @@ import {
   makeSerialLine,
   MCU_CANDIDATES,
   PERIPHERALS,
-  runBuildScript,
   sleep,
 } from "../mock/engine";
 import { format, getInitialLanguage, getInitialTheme } from "../lib/i18n";
@@ -399,6 +398,7 @@ interface AppApi {
   togglePump: () => void;
   flashDevice: () => void;
   revalidateAll: () => void;
+  checkToolchain: () => Promise<void>;
   decideRevalidateProposal: (proposalId: string, decision: "accept" | "reject") => void;
   sendCopilotMessage: (text: string) => void;
   runScenario: (id: string) => void;
@@ -412,6 +412,7 @@ const nextId = (p: string) => `${p}-${Date.now()}-${msgSeq++}`;
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, initialState);
   const cancelRef = useRef<{ discovery?: boolean; build?: boolean; flash?: boolean }>({});
+  const buildRef = useRef<{ buildId: string | null; close?: () => void }>({ buildId: null });
   const s = state;
 
   // ---------- Copilot 帮助 ----------
@@ -453,6 +454,69 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // ---------- S7 Build：工具链真实检测 + SSE 构建事件 ----------
+
+  const checkToolchain = useCallback(async () => {
+    try {
+      const info = await clientApi.checkToolchain();
+      dispatch({ type: "RUNTIME", patch: { toolchainAvailable: info.available } });
+      if (info.available) {
+        pushSystem(`Toolchain ready: ${info.toolchain}${info.version ? ` (${info.version})` : ""}.`);
+      } else {
+        pushSystem(`Toolchain unavailable: ${info.reason ?? "unknown"}.`);
+      }
+    } catch {
+      // 检测失败保持当前呈现
+    }
+  }, [pushSystem]);
+
+  /** 编译输出行着色（真实输出无 mock 标记；按内容启发式） */
+  const lineKindOf = useCallback((line: string): BuildLogLine["kind"] => {
+    if (/^\$ /.test(line)) return "cmd";
+    if (/\[ERR\]|error:|fatal error/i.test(line)) return "err";
+    if (/\[OK\]|success/i.test(line)) return "ok";
+    if (/warning/i.test(line)) return "warn";
+    return "info";
+  }, []);
+
+  /** S7：构建事件订阅（build.output 逐行 → 日志流；终态 → 徽标/状态） */
+  const subscribeBuildEvents = useCallback(
+    (projectId: string) =>
+      subscribeProjectEvents(projectId, {
+        onEvent: (type, data) => {
+          switch (type) {
+            case "build.output": {
+              const { line } = data as { line: string };
+              dispatch({ type: "BUILD_LOG", line: { kind: lineKindOf(line), text: line } });
+              break;
+            }
+            case "build.succeeded": {
+              dispatch({ type: "BUILD_STAGE", stage: "succeeded" });
+              dispatch({
+                type: "ARTIFACT",
+                kind: "build",
+                status: "validated",
+                version: (s.artifacts.build.version || 0) + 1,
+              });
+              break;
+            }
+            case "build.failed": {
+              dispatch({ type: "BUILD_STAGE", stage: "failed" });
+              dispatch({ type: "ARTIFACT", kind: "build", status: "error", version: (s.artifacts.build.version || 0) + 1 });
+              break;
+            }
+            case "build.cancelled": {
+              dispatch({ type: "BUILD_STAGE", stage: "cancelled" });
+              break;
+            }
+            default:
+              break;
+          }
+        },
+      }),
+    [lineKindOf, s.artifacts.build.version],
+  );
+
   const createProject = useCallback(
     async (name?: string): Promise<boolean> => {
       const final = name?.trim() || (s.lang === "zh" ? "新建 MCU 项目" : "New MCU Project");
@@ -476,11 +540,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "OPEN_PROJECT", id: p.id, name: p.name });
       // S5B：打开项目 → 拉取真实 stale marks（侧栏点/横幅/门禁与服务端一致）
       await refreshStaleMarks(id);
+      // S7：真实工具链检测 + 构建事件订阅（日志流/终态）
+      void checkToolchain();
+      buildRef.current.close?.();
+      buildRef.current.close = subscribeBuildEvents(id);
       return true;
     } catch {
       return false;
     }
-  }, [refreshStaleMarks]);
+  }, [refreshStaleMarks, checkToolchain, subscribeBuildEvents]);
 
   /** 归档（D6 语义）：取一次性令牌 → 确认 → 归档（令牌一次性；S9 复用同一机制） */
   const archiveProject = useCallback(
@@ -1000,35 +1068,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ---------- Build ----------
 
   const startBuild = useCallback(() => {
+    const projectId = s.project?.id;
+    if (!projectId) return;
     if (!s.runtime.toolchainAvailable) return;
     const firmwareOk = s.artifacts.firmware.version > 0 && s.artifacts.firmware.status !== "stale";
     if (!firmwareOk) return; // Stale 拦截（视图层提示）
     cancelRef.current.build = false;
     dispatch({ type: "BUILD_LOGS", logs: [] });
     dispatch({ type: "BUILD_STAGE", stage: "building" });
-    void runBuildScript(
-      s.build.nextFails,
-      {
-        onLog: (line) => dispatch({ type: "BUILD_LOG", line }),
-        onDone: (logs, ok) => {
-          dispatch({ type: "BUILD_STAGE", stage: ok ? "succeeded" : "failed" });
-          dispatch({
-            type: "ARTIFACT",
-            kind: "build",
-            status: ok ? "validated" : "error",
-            version: (s.artifacts.build.version || 0) + 1,
-          });
-        },
-        isCancelled: () => cancelRef.current.build ?? false,
-      },
-      { slow: s.runtime.slowMode }
-    );
-  }, [s.runtime.toolchainAvailable, s.runtime.slowMode, s.artifacts.firmware, s.artifacts.build, s.build.nextFails]);
+    // Progressive Swap（ISSUE-009 §5）：内存日志脚本 → 真实 run_build（CompilerPort + BuildRecord）
+    void (async () => {
+      try {
+        const fw = await clientApi.ensureArtifact(projectId, "firmware");
+        const versions = await clientApi.listVersions(fw.id);
+        const current = versions[versions.length - 1];
+        if (!current) {
+          throw new ApiError(409, "no_firmware_version", "No firmware version to build");
+        }
+        const { buildId } = await clientApi.runBuild(projectId, current.id);
+        buildRef.current.buildId = buildId;
+        // 日志流/终态由 SSE build.* 事件驱动（subscribeBuildEvents）
+      } catch (err) {
+        dispatch({ type: "BUILD_STAGE", stage: "failed" });
+        dispatch({
+          type: "BUILD_LOG",
+          line: { kind: "err", text: err instanceof ApiError ? `Build failed: ${err.code}` : "Build failed" },
+        });
+        pushSystem(err instanceof ApiError ? `Build failed: ${err.code}` : "Build failed");
+        if (err instanceof ApiError && err.code === "toolchain_unavailable") {
+          void checkToolchain(); // 工具链横幅 + 重检测
+        }
+      }
+    })();
+  }, [s.project?.id, s.runtime.toolchainAvailable, s.artifacts.firmware, checkToolchain, pushSystem]);
 
   const cancelBuild = useCallback(() => {
+    const buildId = buildRef.current.buildId;
+    if (!buildId) return;
     cancelRef.current.build = true;
+    void clientApi.cancelBuild(buildId).catch((err) => {
+      pushSystem(err instanceof ApiError ? `Cancel failed: ${err.code}` : "Cancel failed");
+    });
+    // 终态由 SSE build.cancelled 驱动；先本地置 cancelled 保证即时反馈
     dispatch({ type: "BUILD_STAGE", stage: "cancelled" });
-    pushSystem("Build cancelled — no build artifact written.");
+    pushSystem("Build cancelled — no half-written build artifact.");
   }, [pushSystem]);
 
   const retryBuild = useCallback(() => startBuild(), [startBuild]);
@@ -1268,6 +1351,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       togglePump,
       flashDevice,
       revalidateAll,
+      checkToolchain,
       decideRevalidateProposal,
       sendCopilotMessage,
       runScenario,
@@ -1278,7 +1362,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setProposalDecision, proceedToHardware, selectMcu, refreshMcuCandidates, generatePins, verifyRules,
       editPin, refreshPinmapVersions, generateFirmware, acceptFirmwareProposal, rejectFirmwareProposal,
       startBuild, cancelBuild, retryBuild, runDiagnosis, applyFix, detectBoard,
-      sendSerial, simulateMoisture, togglePump, flashDevice, revalidateAll, decideRevalidateProposal,
+      sendSerial, simulateMoisture, togglePump, flashDevice, revalidateAll, checkToolchain, decideRevalidateProposal,
       sendCopilotMessage, runScenario,
     ]
   );

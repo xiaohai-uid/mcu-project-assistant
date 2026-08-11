@@ -85,6 +85,28 @@ export interface ValidationRecordDto {
   completedAt: string | null;
 }
 
+// ---------- S7 Build ----------
+
+export type BuildStatusDto = "running" | "succeeded" | "failed" | "cancelled";
+
+/** BuildRecord（D2：Build 证据独立于版本；同版本可多次构建；Build 不产生 Firmware 版本） */
+export interface BuildRecordDto {
+  id: string;
+  artifactVersionId: string;
+  taskId: string | null;
+  target: string;
+  toolchain: string;
+  toolchainVersion: string | null;
+  options: Record<string, unknown>;
+  status: BuildStatusDto;
+  startedAt: string;
+  completedAt: string | null;
+  stdoutRef: string | null; // workspace .build/<buildId>.log（大体积证据；DB 只存 ref）
+  stderrRef: string | null;
+  exitCode: number | null;
+  diagnostics: Array<{ code: string; severity: string; message: string; details?: Record<string, unknown> }>;
+}
+
 export type StaleLevel = "L1" | "L2" | "L3";
 
 export interface StaleMarkDto {

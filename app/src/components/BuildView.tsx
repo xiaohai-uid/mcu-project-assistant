@@ -13,6 +13,7 @@ export const BuildView: React.FC = () => {
     applyFix,
     sendSerial,
     flashDevice,
+    checkToolchain,
   } = useApp();
   const { lang, build, runtime, artifacts, firmware } = state;
   const [commandInput, setCommandInput] = useState("");
@@ -81,15 +82,23 @@ export const BuildView: React.FC = () => {
         </div>
       </header>
 
-      {/* 工具链缺失 */}
+      {/* 工具链缺失（S7：真实 discoverToolchain；重检测入口） */}
       {!toolchainOk && (
-        <InfoBanner
-          icon="build"
-          title={t(lang, "toolchainUnavailable")}
-          desc={t(lang, "toolchainUnavailableDesc")}
-          lang={lang}
-          tone="amber"
-        />
+        <div className="flex items-center justify-between gap-3">
+          <InfoBanner
+            icon="build"
+            title={t(lang, "toolchainUnavailable")}
+            desc={t(lang, "toolchainUnavailableDesc")}
+            lang={lang}
+            tone="amber"
+          />
+          <button
+            onClick={() => void checkToolchain()}
+            className="shrink-0 px-3 py-1.5 mac-button-secondary rounded-md text-xs"
+          >
+            {t(lang, "toolchainRescan")}
+          </button>
+        </div>
       )}
 
       {/* 设备未连接 */}

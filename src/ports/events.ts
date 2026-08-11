@@ -48,6 +48,11 @@ export type LogicalEvent =
       outcome: "validated" | "proposal_created" | "error";
     }
   | { type: "proposal.created"; projectId: string; proposalId: string; kind: ArtifactKind }
+  // ---------- S7 Build ----------
+  | { type: "build.output"; projectId: string; buildId: string; line: string }
+  | { type: "build.succeeded"; projectId: string; buildId: string; exitCode: number }
+  | { type: "build.failed"; projectId: string; buildId: string; exitCode: number }
+  | { type: "build.cancelled"; projectId: string; buildId: string }
   | { type: "provider.unavailable"; provider: string; reason: string };
 
 export interface EventPort {

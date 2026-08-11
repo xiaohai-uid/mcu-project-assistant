@@ -4,6 +4,7 @@
 // 未来 Cloud 适配器按需演进接口（禁止现在投机异步化）。
 
 import type { Artifact, ArtifactVersion } from "@/src/domain/models/artifact";
+import type { BuildRecord } from "@/src/domain/models/build-record";
 import type { Project } from "@/src/domain/models/project";
 import type { Proposal } from "@/src/domain/models/proposal";
 import type { TaskRecord } from "@/src/ports/task-execution";
@@ -33,6 +34,9 @@ export interface UnitOfWork {
   // S5B
   saveStaleMarks(marks: StaleMarkDto[]): void;
   resolveStaleMarks(artifactId: string, versionId: string): void;
+  // S7
+  createBuildRecord(b: BuildRecord): void;
+  updateBuildRecord(b: BuildRecord): void;
 }
 
 export interface PersistencePort {
@@ -58,4 +62,7 @@ export interface PersistencePort {
   latestValidation(versionId: string): Promise<ValidationRecordDto | null>;
   // S5B
   activeStaleMarks(projectId: string): Promise<StaleMarkDto[]>;
+  // S7
+  getBuildRecord(id: string): Promise<BuildRecord | null>;
+  listBuilds(versionId: string): Promise<BuildRecord[]>;
 }

@@ -130,6 +130,29 @@ CREATE INDEX idx_stale_project ON stale_marks(project_id, resolved_at);
 CREATE UNIQUE INDEX idx_stale_active_unique ON stale_marks(artifact_id, affected_version_id) WHERE resolved_at IS NULL;
 `,
   },
+  {
+    version: 7,
+    name: "create_build_records",
+    sql: `
+CREATE TABLE build_records (
+  id TEXT PRIMARY KEY,
+  artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(id),
+  task_id TEXT NULL,
+  target TEXT NOT NULL,
+  toolchain TEXT NOT NULL,
+  toolchain_version TEXT NULL,
+  options TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL CHECK (status IN ('running','succeeded','failed','cancelled')),
+  started_at TEXT NOT NULL,
+  completed_at TEXT NULL,
+  stdout_ref TEXT NULL,
+  stderr_ref TEXT NULL,
+  exit_code INTEGER NULL,
+  diagnostics TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX idx_builds_version ON build_records(artifact_version_id);
+`,
+  },
 ];
 
 export function migrate(db: SqliteDb): void {

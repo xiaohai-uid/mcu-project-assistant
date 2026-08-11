@@ -68,12 +68,23 @@ import {
 import type { AIProviderPort } from "@/src/ports/ai-provider";
 import { ProviderUnavailableError } from "@/src/ports/ai-provider";
 import type { ArtifactContentPort } from "@/src/ports/artifact-content";
+import type { CompilerPort } from "@/src/ports/compiler";
+import { ToolchainUnavailableError } from "@/src/ports/compiler";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort } from "@/src/ports/task-execution";
 import type { ArtifactKind, ArtifactVersionDto } from "@/src/shared-contracts/types";
 import { ApiError, withErrorHandler } from "./error";
 import { writeProjectMirror } from "@/src/infrastructure/workspace";
+import {
+  BuildNotCancellableError,
+  BuildNotFoundError,
+  cancelBuild as cancelBuildCapability,
+  getBuildRecord as getBuildRecordCapability,
+  listBuilds as listBuildsCapability,
+  runBuild as runBuildCapability,
+  VersionNotFoundError as BuildVersionNotFoundError,
+} from "@/src/application/capabilities/build";
 
 export interface AppDeps {
   persistence: PersistencePort;
@@ -81,6 +92,7 @@ export interface AppDeps {
   content: ArtifactContentPort;
   events: EventPort;
   tasks: TaskExecutionPort;
+  compiler: CompilerPort;
   ai: AIProviderPort;
   now?: () => Date;
 }
@@ -109,6 +121,14 @@ export function createApp(deps: AppDeps): Express {
     now,
   };
   const proposalDeps = { persistence: deps.persistence, content: deps.content, events: deps.events, now };
+  const buildDeps = {
+    persistence: deps.persistence,
+    tasks: deps.tasks,
+    events: deps.events,
+    compiler: deps.compiler,
+    workspaceDir: deps.workspaceDir,
+    now,
+  };
 
   // Idempotency-Key：内存映射（transport 层；重启即失，S1 记录在案——持久化幂等存储随需要引入）
   const idempotency = new Map<string, { project?: Project; version?: ArtifactVersionDto }>();
@@ -460,6 +480,59 @@ export function createApp(deps: AppDeps): Express {
     res.json({ marks: enriched });
   };
 
+  // ---------- S7 Build ----------
+
+  const handleRunBuild = async (req: Request, res: Response) => {
+    try {
+      const { buildId } = await runBuildCapability(
+        {
+          projectId: req.params.projectId as string,
+          versionId: typeof req.body?.versionId === "string" ? req.body.versionId : "",
+          target: typeof req.body?.target === "string" ? req.body.target : undefined,
+          toolchain: typeof req.body?.toolchain === "string" ? req.body.toolchain : undefined,
+          options: req.body?.options,
+          now,
+        },
+        buildDeps,
+      );
+      res.status(202).json({ buildId });
+    } catch (err) {
+      if (err instanceof BuildVersionNotFoundError || err instanceof BuildNotFoundError)
+        throw new ApiError(404, "not_found", err.message);
+      if (err instanceof ToolchainUnavailableError) throw new ApiError(503, "toolchain_unavailable", err.message);
+      if (err instanceof BlockingStaleError) throw new ApiError(409, "blocking_stale", err.message);
+      if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
+      throw err;
+    }
+  };
+
+  const handleGetBuild = async (req: Request, res: Response) => {
+    const record = await getBuildRecordCapability({ buildId: req.params.buildId as string }, buildDeps);
+    if (!record) throw new ApiError(404, "not_found", "Build record not found");
+    res.json(record);
+  };
+
+  const handleCancelBuild = async (req: Request, res: Response) => {
+    try {
+      const result = await cancelBuildCapability({ buildId: req.params.buildId as string }, buildDeps);
+      res.status(202).json(result);
+    } catch (err) {
+      if (err instanceof BuildNotFoundError) throw new ApiError(404, "not_found", err.message);
+      if (err instanceof BuildNotCancellableError) throw new ApiError(409, "invalid_build_state", err.message);
+      throw err;
+    }
+  };
+
+  const handleListBuilds = async (req: Request, res: Response) => {
+    res.json(await listBuildsCapability({ versionId: req.params.versionId as string }, buildDeps));
+  };
+
+  // 工具链发现（真实检测；UI 横幅 + 重检测）
+  const handleToolchain = async (_req: Request, res: Response) => {
+    const info = await deps.compiler.discoverToolchain();
+    res.json(info);
+  };
+
   app.get("/api/v1/health", (_req, res) => res.json({ status: "ok" }));
   app.post("/api/v1/projects", withErrorHandler(handleCreate));
   app.get("/api/v1/projects", withErrorHandler(handleList));
@@ -481,6 +554,11 @@ export function createApp(deps: AppDeps): Express {
   app.post("/api/v1/commands/:taskId/cancel", withErrorHandler(handleCancel));
   app.get("/api/v1/commands/:taskId", withErrorHandler(handleGetTask));
   app.get("/api/v1/projects/:projectId/stale-marks", withErrorHandler(handleStaleMarks));
+  app.post("/api/v1/projects/:projectId/builds", withErrorHandler(handleRunBuild));
+  app.get("/api/v1/builds/:buildId", withErrorHandler(handleGetBuild));
+  app.post("/api/v1/builds/:buildId/cancel", withErrorHandler(handleCancelBuild));
+  app.get("/api/v1/versions/:versionId/builds", withErrorHandler(handleListBuilds));
+  app.get("/api/v1/toolchain", withErrorHandler(handleToolchain));
   app.get("/api/v1/projects/:projectId/events", handleEvents);
 
   return app;

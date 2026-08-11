@@ -18,6 +18,8 @@ export type ErrorCode =
   | "no_pin_map"
   | "no_stale"
   | "blocking_stale"
+  | "toolchain_unavailable"
+  | "invalid_build_state"
   | "not_found"
   | "confirmation_missing"
   | "confirmation_invalid"

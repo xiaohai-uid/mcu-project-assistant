@@ -201,6 +201,18 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ capability: "generate_firmware", payload: {} }),
     }),
+  // ---------- S7 Build ----------
+  runBuild: (projectId: string, versionId: string) =>
+    request<{ buildId: string }>(`/api/v1/projects/${projectId}/builds`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ versionId }),
+    }),
+  cancelBuild: (buildId: string) =>
+    request<{ buildId: string; status: string }>(`/api/v1/builds/${buildId}/cancel`, { method: "POST" }),
+  getBuilds: (versionId: string) => request<BuildRecordDto[]>(`/api/v1/versions/${versionId}/builds`),
+  checkToolchain: () =>
+    request<{ available: boolean; toolchain: string; version: string | null; reason?: string }>("/api/v1/toolchain"),
 };
 
 export interface StaleMarkDto {
@@ -214,6 +226,23 @@ export interface StaleMarkDto {
   triggeredBy: string;
   createdAt: string;
   resolvedAt: string | null;
+}
+
+export interface BuildRecordDto {
+  id: string;
+  artifactVersionId: string;
+  taskId: string | null;
+  target: string;
+  toolchain: string;
+  toolchainVersion: string | null;
+  options: Record<string, unknown>;
+  status: "running" | "succeeded" | "failed" | "cancelled";
+  startedAt: string;
+  completedAt: string | null;
+  stdoutRef: string | null;
+  stderrRef: string | null;
+  exitCode: number | null;
+  diagnostics: Array<{ code: string; severity: string; message: string; details?: Record<string, unknown> }>;
 }
 
 export interface McuCandidateDto {

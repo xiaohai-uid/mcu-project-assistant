@@ -10,6 +10,7 @@ import { createApp } from "@/src/adapters/http/app";
 import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
 import { createInProcessTasks } from "@/src/adapters/task/in-process";
 import { createMockAiProvider } from "@/src/adapters/ai/mock";
+import { createMockCompiler } from "@/src/adapters/compiler/mock";
 import { createSseEvents } from "@/src/adapters/events/sse";
 import { openDatabase, type SqliteDb } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
@@ -36,6 +37,7 @@ beforeAll(async () => {
     content: createWorkspaceFilesContent(join(dir, "ws")),
     events,
     tasks: createInProcessTasks({ persistence, events }),
+    compiler: createMockCompiler(),
     ai: createMockAiProvider({ slow: false }),
     now: () => new Date("2026-08-11T12:00:00.000Z"),
   });

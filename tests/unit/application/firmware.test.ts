@@ -86,6 +86,8 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
         saveStaleMarks: (marks) => {
           for (const m of marks) mem.stale.set(m.id, m);
         },
+        createBuildRecord: () => {},
+        updateBuildRecord: () => {},
         resolveStaleMarks: (artifactId, versionId) => {
           for (const m of mem.stale.values()) {
             if (m.artifactId === artifactId && m.resolvedAt === null) {
@@ -110,6 +112,8 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
     getProposal: async (id) => mem.proposals.get(id) ?? null,
     listProposals: async (projectId) => [...mem.proposals.values()].filter((p) => p.projectId === projectId),
     latestValidation: async () => null,
+    getBuildRecord: async () => null,
+    listBuilds: async () => [],
     activeStaleMarks: async (projectId) =>
       [...mem.stale.values()].filter((m) => m.projectId === projectId && m.resolvedAt === null),
   };
