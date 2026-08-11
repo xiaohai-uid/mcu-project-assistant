@@ -15,6 +15,8 @@ export type ErrorCode =
   | "invalid_decision"
   | "no_accepted_proposals"
   | "no_hardware_selected"
+  | "no_stale"
+  | "blocking_stale"
   | "not_found"
   | "confirmation_missing"
   | "confirmation_invalid"

@@ -57,6 +57,9 @@ const en = {
   staleBlocked: "This action requires the firmware to be revalidated first.",
   revalidate: "Revalidate",
   revalidated: "Revalidated",
+  revalidateProposalCard: "Revalidation detected semantic changes in {kind} — review and decide (no auto-accept).",
+  revalidateProposalAccept: "Accept",
+  revalidateProposalReject: "Reject",
   impact: "Impact",
 
   // Requirements View
@@ -403,6 +406,9 @@ const zh: Record<TranslationKey, string> = {
   staleBlocked: "该操作要求固件先重新验证。",
   revalidate: "重新验证",
   revalidated: "已重新验证",
+  revalidateProposalCard: "重新验证发现 {kind} 存在语义变化——请审阅并决策（不会自动接受）。",
+  revalidateProposalAccept: "接受",
+  revalidateProposalReject: "拒绝",
   impact: "影响",
   reqCategory: "需求探索",
   reqTitle: "你想构建什么硬件项目？",

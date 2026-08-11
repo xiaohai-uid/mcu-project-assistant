@@ -86,7 +86,15 @@ export async function resolveProposal(
     assertProposalCurrent(proposal, artifact?.currentVersionId ?? null);
   }
   const decided = decideProposal(proposal, input.decision, now);
-  await deps.persistence.withTransaction((uow) => uow.resolveProposal(decided));
+  const currentVersionId = (await deps.persistence.getArtifact(proposal.artifactId))?.currentVersionId ?? null;
+  await deps.persistence.withTransaction((uow) => {
+    uow.resolveProposal(decided);
+    // S5B：接受提案 = 所有者对 artifact 内容的新决策 → 该 artifact 的 Stale 标记解除
+    // （stale-semantics §5：Accept → 新决策 → 继续下游 Revalidate；被标记的旧版本被新决策覆盖）
+    if (input.decision === "accept") {
+      uow.resolveStaleMarks(proposal.artifactId, currentVersionId ?? "");
+    }
+  });
   return decided;
 }
 

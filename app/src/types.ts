@@ -44,6 +44,7 @@ export interface ArtifactState {
   kind: ArtifactKind;
   status: ArtifactStatus;
   version: number; // 1 = 首版；AI 修改必须产生新版本，不静默覆盖
+  baseStatus?: ArtifactStatus; // S5B：进入 stale 前的状态（marks 解除时恢复）
 }
 
 // ---------- 项目 ----------
@@ -347,6 +348,12 @@ export interface AppState {
 
   // Copilot
   copilotMessages: CopilotChatMessage[];
+
+  // S5B Revalidate（真实 revalidate_artifact 结果；提案卡等待决策——D1 不自动接受）
+  revalidate: {
+    running: boolean; // 逐项重算中
+    proposals: Array<{ proposalId: string; kind: ArtifactKind }>;
+  };
 
   // 运行时
   runtime: RuntimeFlags;

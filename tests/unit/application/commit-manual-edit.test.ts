@@ -59,6 +59,8 @@ function fakePersistence(): PersistencePort & { mem: FakeMemory } {
         createProposal: () => {},
         resolveProposal: () => {},
         createValidationRecord: () => {},
+        saveStaleMarks: () => {},
+        resolveStaleMarks: () => {},
       };
       return fn(uow);
     },
@@ -77,6 +79,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMemory } {
     getTask: async () => null,
     latestTaskOutput: async () => null,
     latestValidation: async () => null,
+    activeStaleMarks: async () => [],
     getProposal: async () => null,
     listProposals: async () => [],
   };

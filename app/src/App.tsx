@@ -16,11 +16,11 @@ import { AppProvider, useApp } from "./state/AppContext";
 import { t } from "./lib/i18n";
 
 function Workspace() {
-  const { state, revalidateAll } = useApp();
+  const { state, revalidateAll, decideRevalidateProposal } = useApp();
   const { lang, sidebar } = state;
 
   const staleKinds = staleKindsFor(state.artifacts, ["pinmap", "wiring", "firmware", "build"]);
-  const revalidating = staleKinds.length > 0 && state.build.stage === "building";
+  const revalidating = state.revalidate.running;
   const kindLabel = (k: string) => t(lang, `kind${(k[0] ?? "").toUpperCase()}${k.slice(1)}` as never);
 
   return (
@@ -38,6 +38,44 @@ function Workspace() {
               onRevalidate={revalidateAll}
               revalidating={revalidating}
             />
+          </div>
+        )}
+
+        {/* S5B：Revalidate 产生的提案卡（D1 不自动接受——等待用户决策） */}
+        {state.revalidate.proposals.length > 0 && (
+          <div className="px-6 pt-4 flex flex-col gap-2">
+            {state.revalidate.proposals.map((p) => (
+              <div
+                key={p.proposalId}
+                className="mac-card p-3.5 flex items-center justify-between gap-3"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="material-symbols-outlined text-amber-500 text-[16px]">engineering</span>
+                    <span className="text-xs font-semibold text-[var(--text-primary)]">
+                      {t(lang, "proposalTitle")}
+                    </span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed text-[var(--text-secondary)]">
+                    {t(lang, "revalidateProposalCard").replace("{kind}", kindLabel(p.kind))}
+                  </p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => decideRevalidateProposal(p.proposalId, "reject")}
+                    className="px-3 py-1.5 mac-button-secondary rounded-md text-xs text-rose-500"
+                  >
+                    {t(lang, "revalidateProposalReject")}
+                  </button>
+                  <button
+                    onClick={() => decideRevalidateProposal(p.proposalId, "accept")}
+                    className="px-3 py-1.5 mac-button-primary rounded-md text-xs font-medium shadow-sm"
+                  >
+                    {t(lang, "revalidateProposalAccept")}
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

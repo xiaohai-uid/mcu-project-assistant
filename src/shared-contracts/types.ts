@@ -85,6 +85,21 @@ export interface ValidationRecordDto {
   completedAt: string | null;
 }
 
+export type StaleLevel = "L1" | "L2" | "L3";
+
+export interface StaleMarkDto {
+  id: string;
+  projectId: string;
+  artifactId: string;
+  affectedVersionId: string | null;
+  level: StaleLevel;
+  reason: string;
+  sourceVersionId: string | null;
+  triggeredBy: string;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
 export type ProposalType = "requirement" | "firmware" | "dependency";
 export type ProposalStatus = "pending" | "accepted" | "rejected";
 

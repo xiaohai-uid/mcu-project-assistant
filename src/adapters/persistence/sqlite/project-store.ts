@@ -3,7 +3,7 @@ import type { Artifact, ArtifactVersion } from "@/src/domain/models/artifact";
 import type { Project } from "@/src/domain/models/project";
 import type { TaskRecord } from "@/src/ports/task-execution";
 import type { Proposal } from "@/src/domain/models/proposal";
-import type { ArtifactKind, ArtifactVersionStatus, TaskStatusDto, ValidationRecordDto } from "@/src/shared-contracts/types";
+import type { ArtifactKind, ArtifactVersionStatus, StaleMarkDto, TaskStatusDto, ValidationRecordDto } from "@/src/shared-contracts/types";
 import type { PersistencePort, UnitOfWork } from "@/src/ports/persistence";
 import type { SqliteDb } from "./connection";
 
@@ -46,6 +46,19 @@ interface TaskRow {
   completed_at: string | null;
   error: string | null;
   output: string | null;
+}
+
+interface StaleRow {
+  id: string;
+  project_id: string;
+  artifact_id: string;
+  affected_version_id: string | null;
+  level: string;
+  reason: string;
+  source_version_id: string | null;
+  triggered_by: string;
+  created_at: string;
+  resolved_at: string | null;
 }
 
 interface ValidationRow {
@@ -197,6 +210,20 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     `INSERT INTO validation_records (id, artifact_version_id, kind, rules, result, diagnostics, started_at, completed_at)
      VALUES (@id, @artifact_version_id, @kind, @rules, @result, @diagnostics, @started_at, @completed_at)`,
   );
+  const insertStale = db.prepare(
+    `INSERT INTO stale_marks (id, project_id, artifact_id, affected_version_id, level, reason, source_version_id, triggered_by, created_at, resolved_at)
+     VALUES (@id, @project_id, @artifact_id, @affected_version_id, @level, @reason, @source_version_id, @triggered_by, @created_at, @resolved_at)`,
+  );
+  const resolveStaleStmt = db.prepare(
+    "UPDATE stale_marks SET resolved_at = ? WHERE artifact_id = ? AND resolved_at IS NULL",
+  );
+  const findActiveStale = db.prepare(
+    "SELECT id, level FROM stale_marks WHERE artifact_id = ? AND affected_version_id = ? AND resolved_at IS NULL",
+  );
+  const deleteStaleStmt = db.prepare("DELETE FROM stale_marks WHERE id = ?");
+  const selectActiveStale = db.prepare(
+    "SELECT * FROM stale_marks WHERE project_id = ? AND resolved_at IS NULL ORDER BY created_at ASC",
+  );
   const selectLatestValidation = db.prepare(
     "SELECT * FROM validation_records WHERE artifact_version_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
   );
@@ -283,6 +310,34 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
         output: t.output,
       });
     },
+    saveStaleMarks(marks: StaleMarkDto[]): void {
+      for (const m of marks) {
+        // 合并语义（stale-semantics §3：一个下游可同时多个上游 Stale 源 → 级别取最高）：
+        // 同 (artifact_id, affected_version_id) 未解决 mark 已存在且级别 >= 新级别 → 跳过；更高 → 替换
+        const existing = findActiveStale.get(m.artifactId, m.affectedVersionId) as
+          | { id: string; level: string }
+          | undefined;
+        if (existing) {
+          if (existing.level >= m.level) continue;
+          deleteStaleStmt.run(existing.id);
+        }
+        insertStale.run({
+          id: m.id,
+          project_id: m.projectId,
+          artifact_id: m.artifactId,
+          affected_version_id: m.affectedVersionId,
+          level: m.level,
+          reason: m.reason,
+          source_version_id: m.sourceVersionId,
+          triggered_by: m.triggeredBy,
+          created_at: m.createdAt,
+          resolved_at: m.resolvedAt,
+        });
+      }
+    },
+    resolveStaleMarks(artifactId: string, versionId: string): void {
+      resolveStaleStmt.run(versionId, artifactId);
+    },
     createValidationRecord(v: ValidationRecordDto): void {
       insertValidation.run({
         id: v.id,
@@ -364,6 +419,19 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
       const row = selectProposal.get(id) as ProposalRow | undefined;
       return row ? toProposal(row) : null;
     },
+    activeStaleMarks: async (projectId: string) =>
+      (selectActiveStale.all(projectId) as StaleRow[]).map((row) => ({
+        id: row.id,
+        projectId: row.project_id,
+        artifactId: row.artifact_id,
+        affectedVersionId: row.affected_version_id,
+        level: row.level as StaleMarkDto["level"],
+        reason: row.reason,
+        sourceVersionId: row.source_version_id,
+        triggeredBy: row.triggered_by,
+        createdAt: row.created_at,
+        resolvedAt: row.resolved_at,
+      })),
     latestValidation: async (versionId: string) => {
       const row = selectLatestValidation.get(versionId) as ValidationRow | undefined;
       if (!row) return null;

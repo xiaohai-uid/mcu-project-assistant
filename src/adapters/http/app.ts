@@ -55,6 +55,12 @@ import {
   ProposalNotFoundError,
   resolveProposal as resolveProposalCapability,
 } from "@/src/application/capabilities/proposals";
+import {
+  activeStaleMarks as activeStaleMarksCapability,
+  BlockingStaleError,
+  NoStaleError,
+  revalidateScope as revalidateScopeCapability,
+} from "@/src/application/capabilities/revalidate";
 import type { AIProviderPort } from "@/src/ports/ai-provider";
 import { ProviderUnavailableError } from "@/src/ports/ai-provider";
 import type { ArtifactContentPort } from "@/src/ports/artifact-content";
@@ -292,6 +298,21 @@ export function createApp(deps: AppDeps): Express {
       return;
     }
 
+    if (capability === "revalidate_artifact") {
+      const kind = typeof payload?.kind === "string" && payload.kind ? payload.kind : undefined;
+      try {
+        // kind 缺省 → 全部（contract 2.14 stale 范围 or all）；逐项结果（validated/proposal_created/error）
+        const results = await revalidateScopeCapability({ projectId, kind }, proposalDeps);
+        res.json({ results });
+      } catch (err) {
+        if (err instanceof NoStaleError) throw new ApiError(409, "no_stale", err.message);
+        if (err instanceof BlockingStaleError) throw new ApiError(409, "blocking_stale", err.message);
+        if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
+        throw err;
+      }
+      return;
+    }
+
     throw new ApiError(400, "invalid_capability", "Unknown capability");
   };
 
@@ -396,6 +417,7 @@ export function createApp(deps: AppDeps): Express {
       res.status(201).json(record);
     } catch (err) {
       if (err instanceof McuProjectNotFoundError) throw new ApiError(404, "not_found", err.message);
+      if (err instanceof BlockingStaleError) throw new ApiError(409, "blocking_stale", err.message);
       throw err;
     }
   };
@@ -404,6 +426,20 @@ export function createApp(deps: AppDeps): Express {
     const record = await latestValidationCapability({ versionId: req.params.versionId as string }, proposalDeps);
     if (!record) throw new ApiError(404, "not_found", "No validation for this version");
     res.json(record);
+  };
+
+  // get_stale_scope（contract 2.19 查询族）：当前活动 StaleMark + 解析后的 artifact kind
+  const handleStaleMarks = async (req: Request, res: Response) => {
+    const project = await getProjectCapability({ id: req.params.projectId as string }, capDeps);
+    if (!project) throw new ApiError(404, "not_found", "Project not found");
+    const marks = await activeStaleMarksCapability({ projectId: project.id }, capDeps);
+    const enriched = await Promise.all(
+      marks.map(async (m) => {
+        const artifact = await deps.persistence.getArtifact(m.artifactId);
+        return { ...m, kind: artifact?.kind ?? null };
+      }),
+    );
+    res.json({ marks: enriched });
   };
 
   app.get("/api/v1/health", (_req, res) => res.json({ status: "ok" }));
@@ -426,6 +462,7 @@ export function createApp(deps: AppDeps): Express {
   app.post("/api/v1/commands/:taskId/clarification", withErrorHandler(handleClarification));
   app.post("/api/v1/commands/:taskId/cancel", withErrorHandler(handleCancel));
   app.get("/api/v1/commands/:taskId", withErrorHandler(handleGetTask));
+  app.get("/api/v1/projects/:projectId/stale-marks", withErrorHandler(handleStaleMarks));
   app.get("/api/v1/projects/:projectId/events", handleEvents);
 
   return app;

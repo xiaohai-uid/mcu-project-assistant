@@ -38,6 +38,16 @@ export type LogicalEvent =
     }
   | { type: "requirement.analysis.failed"; projectId: string; analysisId: string; reason: string }
   | { type: "requirement.analysis.cancelled"; projectId: string; analysisId: string }
+  // ---------- S5B Revalidate ----------
+  | { type: "artifact.revalidating"; projectId: string; artifactId: string; kind: ArtifactKind }
+  | {
+      type: "artifact.revalidated";
+      projectId: string;
+      artifactId: string;
+      kind: ArtifactKind;
+      outcome: "validated" | "proposal_created" | "error";
+    }
+  | { type: "proposal.created"; projectId: string; proposalId: string; kind: ArtifactKind }
   | { type: "provider.unavailable"; provider: string; reason: string };
 
 export interface EventPort {

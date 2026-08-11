@@ -14,6 +14,7 @@ import type { ArtifactContentPort } from "@/src/ports/artifact-content";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { ArtifactKind } from "@/src/shared-contracts/types";
+import { computeDownstreamMarks } from "@/src/application/capabilities/revalidate";
 
 export class ArtifactNotFoundError extends Error {
   constructor() {
@@ -92,10 +93,31 @@ export async function commitManualEdit(
       now: input.now,
     });
 
+    // S5B：手动编辑仍触发依赖求值（D4——stale-semantics §6.2）；只读计算，随版本提交同事务写 marks（T1/T2 同事务）
+    const prevVersion = versions[versions.length - 1] ?? null;
+    const prevContent =
+      prevVersion && versionNo > 1 ? await deps.content.load(prevVersion.contentRef).catch(() => "") : "";
+    const downstreamMarks =
+      versionNo > 1
+        ? await computeDownstreamMarks(
+            {
+              projectId: artifact.projectId,
+              kind: artifact.kind,
+              fromContent: prevContent,
+              toContent: content,
+              sourceVersionId: version.id,
+              triggeredBy: "commit_manual_edit",
+              now: input.now,
+            },
+            deps,
+          )
+        : [];
+
     try {
       await deps.persistence.withTransaction((uow) => {
         uow.createVersion(version);
         uow.setCurrentVersion(artifact.id, version.id);
+        if (downstreamMarks.length) uow.saveStaleMarks(downstreamMarks);
       });
     } catch (err) {
       const isVersionNoCollision =

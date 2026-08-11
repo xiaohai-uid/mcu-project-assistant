@@ -8,6 +8,7 @@ import { createComponentRegistry } from "@/src/domain/knowledge/components";
 import { createArtifact as domainCreateArtifact } from "@/src/domain/models/artifact";
 import { createArtifactVersion, type Artifact, type ArtifactVersion } from "@/src/domain/models/artifact";
 import { assertNotArchived } from "@/src/domain/models/project";
+import { computeDownstreamMarks } from "@/src/application/capabilities/revalidate";
 import type { ArtifactContentPort } from "@/src/ports/artifact-content";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
@@ -209,6 +210,21 @@ export async function selectMcu(
   });
 
   let committedArtifact: Artifact | null = artifact;
+  // S5B：依赖求值（只读计算，随版本提交同事务写 marks——T1/T2 同事务；I-4 不删除下游）
+  const downstreamMarks = changed
+    ? await computeDownstreamMarks(
+        {
+          projectId: input.projectId,
+          kind: "hardware",
+          fromContent: prevContent,
+          toContent: content,
+          sourceVersionId: version.id,
+          triggeredBy: "select_mcu",
+          now,
+        },
+        deps,
+      )
+    : [];
   await deps.persistence.withTransaction((uow) => {
     if (!committedArtifact) {
       committedArtifact = domainCreateArtifact({ projectId: input.projectId, kind: "hardware", now });
@@ -216,6 +232,7 @@ export async function selectMcu(
     }
     uow.createVersion({ ...version, artifactId: committedArtifact.id });
     uow.setCurrentVersion(committedArtifact.id, version.id);
+    if (downstreamMarks.length) uow.saveStaleMarks(downstreamMarks);
   });
   if (!committedArtifact) throw new Error("selectMcu: artifact not materialized");
   const fresh = await deps.persistence.getArtifactByKind(input.projectId, "hardware");

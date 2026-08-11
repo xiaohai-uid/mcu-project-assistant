@@ -109,6 +109,27 @@ CREATE TABLE validation_records (
 CREATE INDEX idx_validations_version ON validation_records(artifact_version_id);
 `,
   },
+  {
+    version: 6,
+    name: "create_stale_marks",
+    sql: `
+CREATE TABLE stale_marks (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+  affected_version_id TEXT NULL,
+  level TEXT NOT NULL CHECK (level IN ('L1','L2','L3')),
+  reason TEXT NOT NULL,
+  source_version_id TEXT NULL,
+  triggered_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT NULL
+);
+CREATE INDEX idx_stale_project ON stale_marks(project_id, resolved_at);
+-- ISSUE-007 §8：未解决时同一下游只保留一条 mark（部分唯一索引）；级别取最高由 saveStaleMarks 合并
+CREATE UNIQUE INDEX idx_stale_active_unique ON stale_marks(artifact_id, affected_version_id) WHERE resolved_at IS NULL;
+`,
+  },
 ];
 
 export function migrate(db: SqliteDb): void {

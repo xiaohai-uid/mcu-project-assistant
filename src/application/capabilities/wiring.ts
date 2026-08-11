@@ -9,6 +9,7 @@ import { createComponentRegistry, type ComponentDefinition } from "@/src/domain/
 import { createArtifact as domainCreateArtifact } from "@/src/domain/models/artifact";
 import { createArtifactVersion, type Artifact, type ArtifactVersion } from "@/src/domain/models/artifact";
 import { assertNotArchived } from "@/src/domain/models/project";
+import { computeDownstreamMarks } from "@/src/application/capabilities/revalidate";
 import type { ArtifactContentPort } from "@/src/ports/artifact-content";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
@@ -126,20 +127,19 @@ async function resolveComponents(
   return result;
 }
 
-export async function generatePinMap(
-  input: { projectId: string },
-  deps: WiringCapabilityDeps,
-): Promise<GeneratePinMapResult> {
-  const now = deps.now ?? (() => new Date());
-  const project = await deps.persistence.getProject(input.projectId);
-  if (!project) throw new ProjectNotFoundError();
-  assertNotArchived(project);
-
+/**
+ * 纯计算（不落库）：硬件当前版本 + 需求能力 → 引脚表 + issues + 内容。
+ * generate_pin_map 与 revalidate 共用（决策同源——revalidate 重算不得产生版本副作用）。
+ */
+export async function computePinMapContent(
+  projectId: string,
+  deps: Pick<WiringCapabilityDeps, "persistence" | "content">,
+): Promise<{ pinMap: PinMapEntry[]; issues: PinIssue[]; content: string } | null> {
   // MCU（hardware current version）
-  const hwArtifact = await deps.persistence.getArtifactByKind(input.projectId, "hardware");
-  if (!hwArtifact?.currentVersionId) throw new NoHardwareSelectedError();
+  const hwArtifact = await deps.persistence.getArtifactByKind(projectId, "hardware");
+  if (!hwArtifact?.currentVersionId) return null;
   const hwVersion = await deps.persistence.getVersion(hwArtifact.currentVersionId);
-  if (!hwVersion) throw new NoHardwareSelectedError();
+  if (!hwVersion) return null;
   const hwContent = await deps.content.load(hwVersion.contentRef).catch(() => "");
   let mcuId = "";
   try {
@@ -148,9 +148,9 @@ export async function generatePinMap(
     mcuId = "";
   }
   const platform = createPlatformRegistry().getOrNone(mcuId);
-  if (!platform) throw new NoHardwareSelectedError();
+  if (!platform) return null;
 
-  const components = await resolveComponents(input.projectId, deps);
+  const components = await resolveComponents(projectId, deps);
   const engine = new ConstraintEngine(platform, components);
   const result = engine.validate();
   const allocation = result.pinAllocation;
@@ -179,10 +179,24 @@ export async function generatePinMap(
     }
   }
   const issues = issuesFromDiagnostics(result.diagnostics);
+  return { pinMap, issues, content: JSON.stringify({ pinMap, issues }) };
+}
+
+export async function generatePinMap(
+  input: { projectId: string },
+  deps: WiringCapabilityDeps,
+): Promise<GeneratePinMapResult> {
+  const now = deps.now ?? (() => new Date());
+  const project = await deps.persistence.getProject(input.projectId);
+  if (!project) throw new ProjectNotFoundError();
+  assertNotArchived(project);
+
+  const computed = await computePinMapContent(input.projectId, deps);
+  if (!computed) throw new NoHardwareSelectedError();
+  const { pinMap, issues, content } = computed;
 
   // Pin Map artifact v1（有冲突=warning；内容=分配+诊断）
   const artifact = await deps.persistence.getArtifactByKind(input.projectId, "pinmap");
-  const content = JSON.stringify({ pinMap, issues });
   const versionNo = artifact ? (await deps.persistence.listVersions(artifact.id)).length + 1 : 1;
   const { contentRef, contentHash } = await deps.content.store(
     { projectId: input.projectId, kind: "pinmap", versionNo },
@@ -201,6 +215,29 @@ export async function generatePinMap(
   });
 
   let committedArtifact: Artifact | null = artifact;
+  // S5B：依赖求值（只读计算，随版本提交同事务写 marks——T1/T2 同事务；I-4 不删除下游）
+  // fromContent = 当前 pinmap 内容（重生成分类正确：分配变化 → hard-constraint-break → L3）
+  const prevContent =
+    artifact?.currentVersionId && versionNo > 1
+      ? await deps.persistence.getVersion(artifact.currentVersionId).then((v) =>
+          v ? deps.content.load(v.contentRef).catch(() => "") : "",
+        )
+      : "";
+  const downstreamMarks =
+    versionNo > 1
+      ? await computeDownstreamMarks(
+          {
+            projectId: input.projectId,
+            kind: "pinmap",
+            fromContent: prevContent,
+            toContent: content,
+            sourceVersionId: version.id,
+            triggeredBy: "generate_pin_map",
+            now,
+          },
+          deps,
+        )
+      : [];
   await deps.persistence.withTransaction((uow) => {
     if (!committedArtifact) {
       committedArtifact = domainCreateArtifact({ projectId: input.projectId, kind: "pinmap", now });
@@ -208,6 +245,7 @@ export async function generatePinMap(
     }
     uow.createVersion({ ...version, artifactId: committedArtifact.id });
     uow.setCurrentVersion(committedArtifact.id, version.id);
+    if (downstreamMarks.length) uow.saveStaleMarks(downstreamMarks);
   });
   if (!committedArtifact) throw new Error("generatePinMap: artifact not materialized");
   const fresh = await deps.persistence.getArtifactByKind(input.projectId, "pinmap");
@@ -234,6 +272,16 @@ export async function validateWiring(
   const now = deps.now ?? (() => new Date());
   const version = await deps.persistence.getVersion(input.versionId);
   if (!version) throw new ProjectNotFoundError();
+
+  // I-8 / 门禁矩阵：L3 stale 下禁止标记 Validation 成功（mark_validated）
+  const { assertNotBlocking } = await import("@/src/application/capabilities/revalidate");
+  const artifact = await deps.persistence.getArtifact(version.artifactId);
+  if (artifact) {
+    await assertNotBlocking(
+      { projectId: artifact.projectId, action: "mark_validated", artifactId: artifact.id },
+      deps,
+    );
+  }
 
   const content = await deps.content.load(version.contentRef).catch(() => "");
   let pinMap: PinMapEntry[] = [];

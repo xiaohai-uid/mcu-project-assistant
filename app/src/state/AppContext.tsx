@@ -28,7 +28,6 @@ import type {
   ThemeMode,
 } from "../types";
 import {
-  autoAssignPins,
   buildFirmwareCode,
   BUILD_DIAGNOSIS,
   DEFAULT_PROMPT,
@@ -45,14 +44,6 @@ import { subscribeProjectEvents } from "../api/sse";
 import type { AnalysisCapabilityDto, McuCandidateDto, PeripheralDto } from "../api/client";
 
 // ---------- 初始状态 ----------
-
-const DOWNSTREAM: Record<string, ArtifactKind[]> = {
-  hardware: ["pinmap", "wiring", "firmware", "build"],
-  requirements: ["hardware", "pinmap", "wiring", "firmware", "build"],
-  pinmap: ["wiring", "firmware", "build"],
-  wiring: ["firmware", "build"],
-  firmware: ["build"],
-};
 
 const freshArtifacts = (): Record<ArtifactKind, ArtifactState> => ({
   requirements: { kind: "requirements", status: "draft", version: 0 },
@@ -124,6 +115,7 @@ function initialState(): AppState {
         text: "Workspace ready. Describe your idea in Requirements to start discovery.",
       },
     ],
+    revalidate: { running: false, proposals: [] },
     runtime: {
       online: true,
       providerAvailable: true,
@@ -159,7 +151,10 @@ type Action =
   | { type: "DISC_NEXT_FAIL"; v: boolean }
   | { type: "DISC_PARTIAL"; v: boolean }
   | { type: "ARTIFACT"; kind: ArtifactKind; status: ArtifactState["status"]; version?: number }
-  | { type: "STALE_FROM"; from: ArtifactKind }
+  | { type: "STALE_MARKS"; marks: Array<{ kind: string; level: string }> }
+  | { type: "REVAL_RUNNING"; running: boolean }
+  | { type: "REVAL_PROPOSALS"; proposals: Array<{ proposalId: string; kind: ArtifactKind }> }
+  | { type: "REVAL_REMOVE_PROPOSAL"; proposalId: string }
   | { type: "SELECT_MCU"; mcu: string }
   | { type: "MCU_CANDIDATES"; candidates: McuCandidateDto[]; peripherals: PeripheralDto[] }
   | { type: "WIRING_GENERATED"; pins: AppState["wiring"]["pinMappings"]; issues: AppState["wiring"]["issues"] }
@@ -257,17 +252,31 @@ function reducer(state: AppState, a: Action): AppState {
           },
         },
       };
-    case "STALE_FROM": {
+    case "STALE_MARKS": {
+      // 真实服务端 marks（get_stale_scope）——mark 即事实（服务端仅对存在内容的 artifact 打标）
+      const marked = new Set(a.marks.filter((m) => m.kind in state.artifacts).map((m) => m.kind));
       const next = { ...state.artifacts };
-      const targets = DOWNSTREAM[a.from] ?? [];
-      for (const k of targets) {
+      for (const k of Object.keys(next) as ArtifactKind[]) {
         const cur = next[k];
-        if (cur.version > 0 && cur.status !== "stale" && cur.status !== "error") {
-          next[k] = { ...cur, status: "stale" };
+        if (marked.has(k)) {
+          if (cur.status !== "stale" && cur.status !== "error") {
+            next[k] = { ...cur, status: "stale", baseStatus: cur.status };
+          }
+        } else if (cur.status === "stale") {
+          next[k] = { ...cur, status: cur.baseStatus ?? "accepted", baseStatus: undefined };
         }
       }
       return { ...state, artifacts: next };
     }
+    case "REVAL_RUNNING":
+      return { ...state, revalidate: { ...state.revalidate, running: a.running } };
+    case "REVAL_PROPOSALS":
+      return { ...state, revalidate: { ...state.revalidate, proposals: a.proposals } };
+    case "REVAL_REMOVE_PROPOSAL":
+      return {
+        ...state,
+        revalidate: { ...state.revalidate, proposals: state.revalidate.proposals.filter((p) => p.proposalId !== a.proposalId) },
+      };
     case "SELECT_MCU":
       return { ...state, selectedMcu: a.mcu };
     case "MCU_CANDIDATES":
@@ -390,6 +399,7 @@ interface AppApi {
   togglePump: () => void;
   flashDevice: () => void;
   revalidateAll: () => void;
+  decideRevalidateProposal: (proposalId: string, decision: "accept" | "reject") => void;
   sendCopilotMessage: (text: string) => void;
   runScenario: (id: string) => void;
 }
@@ -432,6 +442,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ---------- 项目 ----------
 
+  // ---------- Stale 重新验证（S5B：真实 stale-marks 拉取；上游动作后刷新呈现） ----------
+
+  const refreshStaleMarks = useCallback(async (projectId: string) => {
+    try {
+      const { marks } = await clientApi.getStaleMarks(projectId);
+      dispatch({ type: "STALE_MARKS", marks: marks.map((m) => ({ kind: m.kind ?? "", level: m.level })) });
+    } catch {
+      // marks 拉取失败保持当前呈现（transport 错误由下一动作呈现）
+    }
+  }, []);
+
   const createProject = useCallback(
     async (name?: string): Promise<boolean> => {
       const final = name?.trim() || (s.lang === "zh" ? "新建 MCU 项目" : "New MCU Project");
@@ -453,11 +474,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const p = await clientApi.getProject(id);
       if (!p) throw new ApiError(404, "not_found", "Project not found");
       dispatch({ type: "OPEN_PROJECT", id: p.id, name: p.name });
+      // S5B：打开项目 → 拉取真实 stale marks（侧栏点/横幅/门禁与服务端一致）
+      await refreshStaleMarks(id);
       return true;
     } catch {
       return false;
     }
-  }, []);
+  }, [refreshStaleMarks]);
 
   /** 归档（D6 语义）：取一次性令牌 → 确认 → 归档（令牌一次性；S9 复用同一机制） */
   const archiveProject = useCallback(
@@ -655,6 +678,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
               ? `Proposal #${prop?.number ?? ""} "${prop?.title ?? ""}" accepted into design.`
               : `Proposal #${prop?.number ?? ""} "${prop?.title ?? ""}" rejected — excluded from design.`
           );
+          // S5B：接受提案解除该 artifact 的 Stale marks（stale-semantics §5）→ 刷新呈现
+          const projectId = s.project?.id;
+          if (projectId && decided.status === "accepted") await refreshStaleMarks(projectId);
         } catch (err) {
           pushSystem(
             err instanceof ApiError && err.code === "outdated_proposal"
@@ -666,7 +692,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       })();
     },
-    [s.discovery.proposals, pushSystem]
+    [s.discovery.proposals, s.project?.id, refreshStaleMarks, pushSystem]
   );
 
   const proceedToHardware = useCallback(() => {
@@ -717,8 +743,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const { version, changed } = await clientApi.selectMcu(projectId, mcu);
           dispatch({ type: "SELECT_MCU", mcu });
           dispatch({ type: "ARTIFACT", kind: "hardware", status: "accepted", version: version.versionNo });
+          // S5B：服务端事务内已写 stale marks（T1/T2 同事务）→ 拉取真实 marks 驱动侧栏/横幅/门禁
+          await refreshStaleMarks(projectId);
           if (changed) {
-            // 更换下游失效提示（Stale 标记在 S5B；本票只发提示）
             pushCopilot({
               sender: "copilot",
               text: `MCU changed to ${mcu} — downstream artifacts (pin map, wiring, firmware, build) are now stale. Revalidate before proceeding.`,
@@ -735,7 +762,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       })();
     },
-    [s.project?.id, s.selectedMcu, pushCopilot, pushSystem]
+    [s.project?.id, s.selectedMcu, refreshStaleMarks, pushCopilot, pushSystem]
   );
 
   // ---------- Wiring ----------
@@ -770,6 +797,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           version: result.version.versionNo,
         });
         dispatch({ type: "PINMAP_VERSIONS", versions: [] }); // 刷新历史由列表接口承担
+        // S5B：重生成（v2+）→ 服务端已打下游 marks → 拉取真实 marks
+        await refreshStaleMarks(projectId);
         if (result.issues.length) {
           dispatch({ type: "ARTIFACT", kind: "wiring", status: "draft", version: 0 });
           pushCopilot({
@@ -785,7 +814,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         pushSystem(err instanceof ApiError ? `Pin map failed: ${err.code}` : "Pin map failed");
       }
     })();
-  }, [s.project?.id, s.selectedMcu, pushCopilot, pushSystem]);
+  }, [s.project?.id, s.selectedMcu, refreshStaleMarks, pushCopilot, pushSystem]);
 
   const verifyRules = useCallback(() => {
     const projectId = s.project?.id;
@@ -854,13 +883,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const version = await clientApi.commitVersion(artifact.id, JSON.stringify(nextMappings, null, 2));
           dispatch({ type: "ARTIFACT", kind: "pinmap", status: "accepted", version: version.versionNo });
           pushSystem(`Manual pin edit committed: ${component} → ${pinId}. Pin Map v${version.versionNo}.`);
+          // S5B：手动编辑仍触发依赖求值（D4）→ 拉取真实 marks
+          void refreshStaleMarks(projectId);
           void refreshPinmapVersions();
         } catch (err) {
           pushSystem(err instanceof ApiError ? `Commit failed: ${err.code}` : "Commit failed");
         }
       })();
     },
-    [s.project?.id, s.wiring.pinMappings, pushSystem, refreshPinmapVersions]
+    [s.project?.id, s.wiring.pinMappings, refreshStaleMarks, refreshPinmapVersions, pushSystem]
   );
 
   // ---------- Firmware ----------
@@ -1018,32 +1049,72 @@ export function AppProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "COMPANION_TELEMETRY", pumpActive: !s.companion.pumpActive });
   }, [s.companion.pumpActive]);
 
-  // ---------- Stale 重新验证 ----------
+  // ---------- Stale 重新验证（S5B：真实 stale-marks + revalidate_artifact） ----------
 
   const revalidateAll = useCallback(() => {
+    const projectId = s.project?.id;
+    if (!projectId) return;
+    // Progressive Swap（ISSUE-007 §5）：内存链式重置 → 真实 revalidate_artifact（逐项重算，D1 不自动接受）
+    dispatch({ type: "REVAL_RUNNING", running: true });
     void (async () => {
-      const kinds: ArtifactKind[] = ["pinmap", "wiring", "firmware", "build"];
-      for (const k of kinds) {
-        if (s.artifacts[k].status !== "stale") continue;
-        if (k === "pinmap") {
-          await sleep(s.runtime.slowMode ? 1500 : 500);
-          const { pins, issues } = autoAssignPins(s.selectedMcu);
-          dispatch({ type: "WIRING_GENERATED", pins, issues });
-          dispatch({ type: "ARTIFACT", kind: "pinmap", status: issues.length ? "warning" : "accepted", version: (s.artifacts.pinmap.version || 0) + 1 });
-        } else if (k === "wiring") {
-          await sleep(s.runtime.slowMode ? 1200 : 450);
-          dispatch({ type: "ARTIFACT", kind: "wiring", status: "validated", version: (s.artifacts.wiring.version || 0) + 1 });
-        } else if (k === "firmware") {
-          await sleep(s.runtime.slowMode ? 1500 : 600);
-          dispatch({ type: "ARTIFACT", kind: "firmware", status: "accepted", version: (s.artifacts.firmware.version || 0) + 1 });
-        } else if (k === "build") {
-          await sleep(s.runtime.slowMode ? 1200 : 500);
-          dispatch({ type: "ARTIFACT", kind: "build", status: "validated", version: (s.artifacts.build.version || 0) + 1 });
+      try {
+        const { results } = await clientApi.revalidateArtifact(projectId);
+        const created = results.filter((r) => r.outcome === "proposal_created" && r.proposalId);
+        const failed = results.filter((r) => r.outcome === "error");
+        if (created.length) {
+          dispatch({
+            type: "REVAL_PROPOSALS",
+            proposals: created.map((r) => ({
+              proposalId: r.proposalId!,
+              kind: r.kind as ArtifactKind,
+            })),
+          });
         }
+        await refreshStaleMarks(projectId);
+        if (created.length) {
+          pushCopilot({
+            sender: "copilot",
+            text: `Revalidation: ${created.map((r) => r.kind).join(", ")} has semantic changes — proposal(s) created, awaiting your decision (no auto-accept).`,
+            warningNote: "Proposal Required",
+          });
+        } else if (failed.length) {
+          pushCopilot({
+            sender: "copilot",
+            text: `Revalidation: ${failed.map((r) => r.kind).join(", ")} failed to recompute — retryable.`,
+            warningNote: "Recompute Failed",
+          });
+        } else {
+          pushCopilot({ sender: "copilot", text: "Revalidation complete — all downstream artifacts are up to date." });
+        }
+      } catch (err) {
+        pushSystem(err instanceof ApiError ? `Revalidate failed: ${err.code}` : "Revalidate failed");
+      } finally {
+        dispatch({ type: "REVAL_RUNNING", running: false });
       }
-      pushCopilot({ sender: "copilot", text: "Revalidation complete — all downstream artifacts are up to date." });
     })();
-  }, [s.artifacts, s.runtime.slowMode, s.selectedMcu, pushCopilot]);
+  }, [s.project?.id, refreshStaleMarks, pushCopilot, pushSystem]);
+
+  const decideRevalidateProposal = useCallback(
+    (proposalId: string, decision: "accept" | "reject") => {
+      const projectId = s.project?.id;
+      if (!projectId) return;
+      void (async () => {
+        try {
+          await clientApi.resolveProposal(proposalId, decision);
+          dispatch({ type: "REVAL_REMOVE_PROPOSAL", proposalId });
+          await refreshStaleMarks(projectId);
+          pushSystem(
+            decision === "accept"
+              ? "Revalidation proposal accepted — stale mark cleared, downstream continues."
+              : "Revalidation proposal rejected — stale remains (recompute or decide later).",
+          );
+        } catch (err) {
+          pushSystem(err instanceof ApiError ? `Decision failed: ${err.code}` : "Decision failed");
+        }
+      })();
+    },
+    [s.project?.id, refreshStaleMarks, pushSystem],
+  );
 
   // ---------- Copilot 对话（脚本回复） ----------
 
@@ -1096,15 +1167,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         case "discFail": dispatch({ type: "DISC_NEXT_FAIL", v: true }); break;
         case "discOk": dispatch({ type: "DISC_NEXT_FAIL", v: false }); break;
         case "slow": dispatch({ type: "RUNTIME", patch: { slowMode: !r.slowMode } }); break;
-        case "stale":
-          dispatch({ type: "STALE_FROM", from: "hardware" });
-          pushSystem("Lab: downstream artifacts forced stale.");
+        case "stale": {
+          // S5B：强制下游过期 = 真实上游变更（select_mcu 切换 → 事务内依赖求值 → 真实 L3 marks；门禁再次生效）
+          if (!s.selectedMcu) {
+            pushSystem("Lab: select an MCU first — stale scenario needs a downstream chain.");
+            break;
+          }
+          const toggle = s.selectedMcu === "RP2040" ? "ESP32-S3" : "RP2040";
+          selectMcu(toggle);
+          pushSystem(`Lab: downstream forced stale via MCU change → ${toggle}.`);
           break;
+        }
         case "partial": dispatch({ type: "DISC_PARTIAL", v: true }); break;
         case "partialOk": dispatch({ type: "DISC_PARTIAL", v: false }); break;
       }
     },
-    [s.runtime, s.lang, pushSystem, createProject]
+    [s.runtime, s.lang, s.selectedMcu, selectMcu, pushSystem, createProject]
   );
 
   const api = useMemo<AppApi>(
@@ -1142,6 +1220,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       togglePump,
       flashDevice,
       revalidateAll,
+      decideRevalidateProposal,
       sendCopilotMessage,
       runScenario,
     }),
@@ -1151,7 +1230,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setProposalDecision, proceedToHardware, selectMcu, refreshMcuCandidates, generatePins, verifyRules,
       editPin, refreshPinmapVersions, generateFirmware, acceptFirmwareProposal, rejectFirmwareProposal,
       startBuild, cancelBuild, retryBuild, runDiagnosis, applyFix, detectBoard,
-      sendSerial, simulateMoisture, togglePump, flashDevice, revalidateAll,
+      sendSerial, simulateMoisture, togglePump, flashDevice, revalidateAll, decideRevalidateProposal,
       sendCopilotMessage, runScenario,
     ]
   );

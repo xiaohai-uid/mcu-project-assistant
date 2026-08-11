@@ -50,6 +50,8 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
         createProposal: () => {},
         resolveProposal: () => {},
         createValidationRecord: () => {},
+        saveStaleMarks: () => {},
+        resolveStaleMarks: () => {},
         claimNextTask: () => {
           const t = [...mem.tasks.values()].find((x) => x.status === "queued");
           if (t) mem.tasks.set(t.id, { ...t, status: "running", startedAt: NOW });
@@ -68,6 +70,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
     getTask: async (id) => mem.tasks.get(id) ?? null,
     latestTaskOutput: async () => null,
     latestValidation: async () => null,
+    activeStaleMarks: async () => [],
     getProposal: async () => null,
     listProposals: async () => [],
   };

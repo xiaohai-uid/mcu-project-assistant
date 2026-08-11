@@ -178,7 +178,36 @@ export const api = {
         body: JSON.stringify({ capability: "select_mcu", payload: { mcuId } }),
       },
     ),
+  // ---------- S5B Stale / Revalidate ----------
+  getStaleMarks: (projectId: string) =>
+    request<{ marks: Array<StaleMarkDto & { kind: string | null }> }>(`/api/v1/projects/${projectId}/stale-marks`),
+  revalidateArtifact: (projectId: string, kind?: string) =>
+    request<{
+      results: Array<{
+        outcome: "validated" | "proposal_created" | "error";
+        kind: string;
+        proposalId?: string;
+        error?: string;
+      }>;
+    }>(`/api/v1/projects/${projectId}/commands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ capability: "revalidate_artifact", payload: kind ? { kind } : {} }),
+    }),
 };
+
+export interface StaleMarkDto {
+  id: string;
+  projectId: string;
+  artifactId: string;
+  affectedVersionId: string | null;
+  level: "L1" | "L2" | "L3";
+  reason: string;
+  sourceVersionId: string | null;
+  triggeredBy: string;
+  createdAt: string;
+  resolvedAt: string | null;
+}
 
 export interface McuCandidateDto {
   id: string;
