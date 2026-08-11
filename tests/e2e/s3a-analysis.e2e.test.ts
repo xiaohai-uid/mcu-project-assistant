@@ -172,9 +172,14 @@ describe("S3A Golden Journey — Requirement Analysis end-to-end（真实 HTTP +
     expect(data.capabilities.length).toBeGreaterThan(0);
     expect(data.capabilities.every((c) => c.status === "complete")).toBe(true);
 
-    // 6. 分析期间零 artifact 写入（S3A 边界）
-    const artifacts = (await (await fetch(`${base}/api/v1/projects/${project.id}/artifacts`)).json()) as unknown[];
-    expect(artifacts).toHaveLength(0);
+    // 6. 分析期间零内容版本写入（S3A 边界：不写 artifact 版本；S3B 起分析完成后创建
+    //    requirements 聚合容器 + proposals，但版本内容仍为零——版本只由 accept/proceed 产生）
+    const artifacts = (await (await fetch(`${base}/api/v1/projects/${project.id}/artifacts`)).json()) as Array<{
+      kind: string;
+      currentVersionId: string | null;
+    }>;
+    const req = artifacts.find((a) => a.kind === "requirements");
+    expect(req?.currentVersionId).toBeNull(); // 零版本（内容未提交）
 
     // 7. 任务终态 completed
     const task = await waitTaskStatus(taskId, ["completed"]);

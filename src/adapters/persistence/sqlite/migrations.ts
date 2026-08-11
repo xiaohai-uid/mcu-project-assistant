@@ -35,7 +35,7 @@ CREATE TABLE artifact_versions (
   content_ref TEXT NOT NULL,
   content_hash TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('draft','accepted')),
-  source_kind TEXT NOT NULL CHECK (source_kind IN ('manual','ai')),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('manual','ai','proposal')),
   source_proposal_id TEXT NULL,
   created_at TEXT NOT NULL,
   created_by TEXT NOT NULL,
@@ -65,6 +65,31 @@ CREATE TABLE tasks (
   error TEXT NULL
 );
 CREATE INDEX idx_tasks_status ON tasks(status, created_at);
+`,
+  },
+  {
+    version: 4,
+    name: "create_proposals",
+    sql: `
+ALTER TABLE tasks ADD COLUMN output TEXT NULL;
+CREATE TABLE proposals (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+  base_version_id TEXT NULL REFERENCES artifact_versions(id),
+  type TEXT NOT NULL CHECK (type IN ('requirement','firmware','dependency')),
+  payload TEXT NOT NULL,
+  diff TEXT NULL,
+  impacts TEXT NOT NULL DEFAULT '[]',
+  reason TEXT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending','accepted','rejected')),
+  created_by TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  decided_at TEXT NULL,
+  decision_history TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX idx_proposals_project ON proposals(project_id);
+CREATE INDEX idx_proposals_base ON proposals(base_version_id);
 `,
   },
 ];

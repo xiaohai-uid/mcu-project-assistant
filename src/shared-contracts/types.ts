@@ -21,7 +21,7 @@ export interface ArtifactDto {
 }
 
 export type ArtifactVersionStatus = "draft" | "accepted";
-export type ArtifactVersionSource = "manual" | "ai";
+export type ArtifactVersionSource = "manual" | "ai" | "proposal";
 
 export interface ArtifactVersionDto {
   id: string;
@@ -49,6 +49,8 @@ export interface TaskDto {
   startedAt: string | null;
   completedAt: string | null;
   error: string | null;
+  /** 任务结果（如分析输出 capabilities） */
+  output: string | null;
 }
 
 /** 需求分析能力卡（logical-events：analysis.completed 载荷） */
@@ -68,4 +70,39 @@ export interface AnalysisCapabilityDto {
 export interface RequirementAnalysisOutput {
   capabilities: AnalysisCapabilityDto[];
   clarification: { question: string; detail?: string } | null;
+  /** 形式化提案（S3B：create_proposal 的输入来源） */
+  proposals: AnalysisProposalDto[];
+}
+
+export type ProposalType = "requirement" | "firmware" | "dependency";
+export type ProposalStatus = "pending" | "accepted" | "rejected";
+
+export interface ProposalDto {
+  id: string;
+  projectId: string;
+  artifactId: string;
+  baseVersionId: string | null;
+  type: ProposalType;
+  /** formalized 内容（JSON 文本） */
+  payload: string;
+  diff: Record<string, unknown> | null;
+  impacts: string[];
+  reason: string | null;
+  status: ProposalStatus;
+  createdBy: string;
+  createdAt: string;
+  decidedAt: string | null;
+  /** 决策历史（可逆且保留，审计） */
+  decisionHistory: Array<{ status: ProposalStatus; at: string }>;
+  /** UI 展示序号（#01…） */
+  number: number;
+}
+
+/** 分析产出的形式化提案（mock 行为契约源：DISCOVERY_PROPOSALS 形状） */
+export interface AnalysisProposalDto {
+  title: string;
+  initialIdea: string;
+  formalizedRequirement: string;
+  impacts: string[];
+  isNew?: boolean;
 }

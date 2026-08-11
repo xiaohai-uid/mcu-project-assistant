@@ -47,6 +47,8 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
         },
         saveTask: (t) => void mem.tasks.set(t.id, t),
         updateTask: (t) => void mem.tasks.set(t.id, t),
+        createProposal: () => {},
+        resolveProposal: () => {},
         claimNextTask: () => {
           const t = [...mem.tasks.values()].find((x) => x.status === "queued");
           if (t) mem.tasks.set(t.id, { ...t, status: "running", startedAt: NOW });
@@ -63,6 +65,8 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
     getVersion: async () => null,
     listVersions: async () => [],
     getTask: async (id) => mem.tasks.get(id) ?? null,
+    getProposal: async () => null,
+    listProposals: async () => [],
   };
   return { ...port, mem };
 }
@@ -84,6 +88,7 @@ function fakeTasks(): TaskExecutionPort & { tasks: Map<string, TaskRecord> } {
         startedAt: null,
         completedAt: null,
         error: null,
+        output: null,
       };
       tasks.set(id, record);
       // 立即执行（fake 同步语义，取消信号可中止）

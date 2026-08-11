@@ -1,10 +1,11 @@
-// ports/persistence.ts — PersistencePort（S1 projects + S2 artifacts/versions + S3A tasks）
-// 按事务边界聚合访问；只放当前 Slice 需要的操作（禁止提前加入 saveProposal 等）。
+// ports/persistence.ts — PersistencePort（S1 projects + S2 artifacts/versions + S3A tasks + S3B proposals）
+// 按事务边界聚合访问；只放当前 Slice 需要的操作。
 // UnitOfWork 方法为同步：M1 唯一真实适配器是 better-sqlite3（同步驱动），接口对适配器诚实；
 // 未来 Cloud 适配器按需演进接口（禁止现在投机异步化）。
 
 import type { Artifact, ArtifactVersion } from "@/src/domain/models/artifact";
 import type { Project } from "@/src/domain/models/project";
+import type { Proposal } from "@/src/domain/models/proposal";
 import type { TaskRecord } from "@/src/ports/task-execution";
 import type { ArtifactKind, ArtifactVersionStatus } from "@/src/shared-contracts/types";
 
@@ -24,6 +25,9 @@ export interface UnitOfWork {
   updateTask(t: TaskRecord): void;
   /** 取最早 queued（或崩溃遗留 running）→ 置 running（崩溃恢复：running 无执行者即视为可重新 claim） */
   claimNextTask(): TaskRecord | null;
+  // S3B
+  createProposal(p: Proposal): void;
+  resolveProposal(p: Proposal): void;
 }
 
 export interface PersistencePort {
@@ -40,4 +44,7 @@ export interface PersistencePort {
   listVersions(artifactId: string): Promise<ArtifactVersion[]>;
   // S3A
   getTask(id: string): Promise<TaskRecord | null>;
+  // S3B
+  getProposal(id: string): Promise<Proposal | null>;
+  listProposals(projectId: string): Promise<Proposal[]>;
 }

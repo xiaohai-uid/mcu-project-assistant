@@ -35,6 +35,14 @@ import {
   NotAwaitingClarificationError,
   submitClarification as submitClarificationCapability,
 } from "@/src/application/capabilities/analysis";
+import {
+  commitRequirements as commitRequirementsCapability,
+  listProposals as listProposalsCapability,
+  NoAcceptedProposalsError,
+  OutdatedProposalError,
+  ProposalNotFoundError,
+  resolveProposal as resolveProposalCapability,
+} from "@/src/application/capabilities/proposals";
 import type { AIProviderPort } from "@/src/ports/ai-provider";
 import { ProviderUnavailableError } from "@/src/ports/ai-provider";
 import type { ArtifactContentPort } from "@/src/ports/artifact-content";
@@ -78,6 +86,7 @@ export function createApp(deps: AppDeps): Express {
     events: deps.events,
     now,
   };
+  const proposalDeps = { persistence: deps.persistence, content: deps.content, events: deps.events, now };
 
   // Idempotency-Key：内存映射（transport 层；重启即失，S1 记录在案——持久化幂等存储随需要引入）
   const idempotency = new Map<string, { project?: Project; version?: ArtifactVersionDto }>();
@@ -284,6 +293,54 @@ export function createApp(deps: AppDeps): Express {
     sse.subscribe(req.params.projectId as string, res);
   };
 
+  // ---------- S3B Proposals ----------
+
+  const handleListProposals = async (req: Request, res: Response) => {
+    const project = await getProjectCapability({ id: req.params.projectId as string }, capDeps);
+    if (!project) throw new ApiError(404, "not_found", "Project not found");
+    res.json(await listProposalsCapability({ projectId: req.params.projectId as string }, capDeps));
+  };
+
+  const handleResolveProposal = async (req: Request, res: Response) => {
+    const { decision } = req.body ?? {};
+    if (decision !== "accept" && decision !== "reject") {
+      throw new ApiError(400, "invalid_decision", "decision must be accept|reject");
+    }
+    try {
+      const decided = await resolveProposalCapability(
+        { proposalId: req.params.proposalId as string, decision, now },
+        proposalDeps,
+      );
+      res.json(decided);
+    } catch (err) {
+      if (err instanceof ProposalNotFoundError) throw new ApiError(404, "not_found", err.message);
+      if (err instanceof OutdatedProposalError) {
+        throw new ApiError(409, "outdated_proposal", err.message, {
+          proposalId: err.proposalId,
+          baseVersionId: err.baseVersionId,
+          currentVersionId: err.currentVersionId,
+        });
+      }
+      throw err;
+    }
+  };
+
+  const handleCommitRequirements = async (req: Request, res: Response) => {
+    const project = await getProjectCapability({ id: req.params.projectId as string }, capDeps);
+    if (!project) throw new ApiError(404, "not_found", "Project not found");
+    try {
+      const result = await commitRequirementsCapability(
+        { projectId: req.params.projectId as string, capabilities: req.body?.capabilities, now },
+        proposalDeps,
+      );
+      res.json(result);
+    } catch (err) {
+      if (err instanceof NoAcceptedProposalsError) throw new ApiError(409, "no_accepted_proposals", err.message);
+      if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
+      throw err;
+    }
+  };
+
   app.get("/api/v1/health", (_req, res) => res.json({ status: "ok" }));
   app.post("/api/v1/projects", withErrorHandler(handleCreate));
   app.get("/api/v1/projects", withErrorHandler(handleList));
@@ -296,6 +353,9 @@ export function createApp(deps: AppDeps): Express {
   app.get("/api/v1/artifacts/:artifactId/versions", withErrorHandler(handleListVersions));
   app.get("/api/v1/versions/:versionId", withErrorHandler(handleGetVersion));
   app.post("/api/v1/projects/:projectId/commands", withErrorHandler(handleCommands));
+  app.get("/api/v1/projects/:projectId/proposals", withErrorHandler(handleListProposals));
+  app.post("/api/v1/projects/:projectId/requirements/commit", withErrorHandler(handleCommitRequirements));
+  app.post("/api/v1/proposals/:proposalId/decision", withErrorHandler(handleResolveProposal));
   app.post("/api/v1/commands/:taskId/clarification", withErrorHandler(handleClarification));
   app.post("/api/v1/commands/:taskId/cancel", withErrorHandler(handleCancel));
   app.get("/api/v1/commands/:taskId", withErrorHandler(handleGetTask));

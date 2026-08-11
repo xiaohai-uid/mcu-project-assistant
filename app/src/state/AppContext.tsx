@@ -19,6 +19,7 @@ import type {
   CopilotChatMessage,
   DiscoveredRequirement,
   Language,
+  RequirementProposal,
   NavigationTab,
   ProposalDecision,
   SidebarTab,
@@ -468,6 +469,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     details: c.details,
   });
 
+  const toProposalItem = (p: import("../api/client").ProposalDto): RequirementProposal => {
+    let title = p.id;
+    let initialIdea = "";
+    let formalizedRequirement = "";
+    try {
+      const parsed = JSON.parse(p.payload) as { title?: string; initialIdea?: string; formalizedRequirement?: string };
+      title = parsed.title ?? p.id;
+      initialIdea = parsed.initialIdea ?? "";
+      formalizedRequirement = parsed.formalizedRequirement ?? "";
+    } catch {
+      // payload 非 JSON 时退化为 id 展示
+    }
+    return {
+      id: p.id,
+      number: String(p.number).padStart(2, "0"),
+      title,
+      accepted: p.status === "accepted",
+      initialIdea,
+      formalizedRequirement,
+      impacts: p.impacts,
+      decision: p.status,
+    };
+  };
+
   const startDiscovery = useCallback(() => {
     if (!s.runtime.online) return;
     if (!s.runtime.providerAvailable) return;
@@ -505,8 +530,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
           dispatch({
             type: "DISC_DONE",
             caps: d.capabilities.map(toCapability),
-            props: [], // S3B 引入提案；本票能力卡即终点（ISSUE-003 §1）
+            props: [], // 提案随后经 GET /proposals 载入（S3B）
           });
+          // S3B：分析完成后提案已由 create_proposal 落库 → 拉取渲染提案卡
+          void (async () => {
+            try {
+              const proposals = await clientApi.listProposals(projectId);
+              dispatch({
+                type: "DISC_DONE",
+                caps: d.capabilities.map(toCapability),
+                props: proposals.map(toProposalItem),
+              });
+            } catch {
+              // 提案拉取失败保持能力卡呈现
+            }
+          })();
           break;
         }
         case "requirement.analysis.failed": {
@@ -577,17 +615,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const setProposalDecision = useCallback(
     (id: string, d: ProposalDecision) => {
-      dispatch({ type: "DISC_DECISION", id, decision: d });
-      const prop = s.discovery.proposals.find((p) => p.id === id);
-      if (prop) {
-        pushSystem(
-          d === "accepted"
-            ? `Proposal #${prop.number} "${prop.title}" accepted into design.`
-            : d === "rejected"
-            ? `Proposal #${prop.number} "${prop.title}" rejected — excluded from design.`
-            : `Proposal #${prop.number} back to pending.`
-        );
-      }
+      // Progressive Swap（ISSUE-004 §5）：内存决策 → 真实 resolve_proposal
+      if (d === "pending") return; // 三态 UI 仅 accept/reject 走服务端；撤销=反向决策
+      void (async () => {
+        try {
+          const decided = await clientApi.resolveProposal(id, d === "accepted" ? "accept" : "reject");
+          dispatch({ type: "DISC_DECISION", id, decision: decided.status });
+          const prop = s.discovery.proposals.find((p) => p.id === id);
+          pushSystem(
+            decided.status === "accepted"
+              ? `Proposal #${prop?.number ?? ""} "${prop?.title ?? ""}" accepted into design.`
+              : `Proposal #${prop?.number ?? ""} "${prop?.title ?? ""}" rejected — excluded from design.`
+          );
+        } catch (err) {
+          pushSystem(
+            err instanceof ApiError && err.code === "outdated_proposal"
+              ? "Proposal is based on an outdated version — regenerate required."
+              : err instanceof ApiError
+              ? `Decision failed: ${err.code}`
+              : "Decision failed"
+          );
+        }
+      })();
     },
     [s.discovery.proposals, pushSystem]
   );
@@ -595,10 +644,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const proceedToHardware = useCallback(() => {
     const accepted = s.discovery.proposals.filter((p) => p.decision === "accepted");
     if (accepted.length === 0) return;
-    dispatch({ type: "ARTIFACT", kind: "requirements", status: "accepted", version: 1 });
-    dispatch({ type: "SIDEBAR", sidebar: "Hardware" });
-    pushSystem(`Requirements locked in (${accepted.length} proposals accepted). Requirements artifact v1 committed.`);
-  }, [s.discovery.proposals, pushSystem]);
+    const projectId = s.project?.id;
+    if (!projectId) return;
+    // Progressive Swap（ISSUE-004 §5）：内存版本 +1 → 真实 requirements 聚合提交（事务 T2）
+    void (async () => {
+      try {
+        const { artifact, version } = await clientApi.commitRequirements(
+          projectId,
+          s.discovery.capabilities.map((c) => ({ id: c.id, title: c.title, status: c.status })),
+        );
+        dispatch({ type: "ARTIFACT", kind: "requirements", status: "accepted", version: version.versionNo });
+        dispatch({ type: "SIDEBAR", sidebar: "Hardware" });
+        pushSystem(
+          `Requirements locked in (${accepted.length} proposals accepted). Requirements artifact v${version.versionNo} committed.`
+        );
+        void artifact;
+      } catch (err) {
+        pushSystem(err instanceof ApiError ? `Requirements commit failed: ${err.code}` : "Requirements commit failed");
+      }
+    })();
+  }, [s.discovery.proposals, s.discovery.capabilities, s.project?.id, pushSystem]);
 
   // ---------- Hardware ----------
 

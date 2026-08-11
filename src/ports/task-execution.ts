@@ -14,6 +14,8 @@ export interface TaskRecord {
   startedAt: string | null;
   completedAt: string | null;
   error: string | null;
+  /** 任务结果（S3B：分析输出 capabilities JSON，供 requirements 聚合提交） */
+  output: string | null;
 }
 
 export interface TaskContext {

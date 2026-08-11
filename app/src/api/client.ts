@@ -120,7 +120,44 @@ export const api = {
   cancelTask: (taskId: string) =>
     request<{ taskId: string; status: string }>(`/api/v1/commands/${taskId}/cancel`, { method: "POST" }),
   getTask: (taskId: string) => request<TaskDto>(`/api/v1/commands/${taskId}`),
+  // ---------- S3B Proposals ----------
+  listProposals: (projectId: string) => request<ProposalDto[]>(`/api/v1/projects/${projectId}/proposals`),
+  resolveProposal: (proposalId: string, decision: "accept" | "reject") =>
+    request<ProposalDto>(`/api/v1/proposals/${proposalId}/decision`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision }),
+    }),
+  commitRequirements: (projectId: string, capabilities?: Array<{ id: string; title: string; status: string }>) =>
+    request<{ artifact: ArtifactDto; version: ArtifactVersionDto }>(
+      `/api/v1/projects/${projectId}/requirements/commit`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capabilities }),
+      },
+    ),
 };
+
+export type ProposalStatus = "pending" | "accepted" | "rejected";
+
+export interface ProposalDto {
+  id: string;
+  projectId: string;
+  artifactId: string;
+  baseVersionId: string | null;
+  type: "requirement" | "firmware" | "dependency";
+  payload: string;
+  diff: Record<string, unknown> | null;
+  impacts: string[];
+  reason: string | null;
+  status: ProposalStatus;
+  createdBy: string;
+  createdAt: string;
+  decidedAt: string | null;
+  decisionHistory: Array<{ status: ProposalStatus; at: string }>;
+  number: number;
+}
 
 export interface TaskDto {
   id: string;

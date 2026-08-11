@@ -28,6 +28,7 @@ export function createInProcessTasks(deps: InProcessTaskDeps): TaskExecutionPort
         startedAt: null,
         completedAt: null,
         error: null,
+        output: null,
       };
       await deps.persistence.withTransaction((uow) => uow.saveTask(record));
 

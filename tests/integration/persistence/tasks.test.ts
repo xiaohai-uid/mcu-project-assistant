@@ -46,6 +46,7 @@ const task = (id: string, status: TaskRecord["status"] = "queued"): TaskRecord =
   startedAt: status === "queued" ? null : "2026-08-11T00:00:01Z",
   completedAt: status === "completed" ? "2026-08-11T00:00:02Z" : null,
   error: null,
+  output: null,
 });
 
 describe("tasks 表（ISSUE-003 §8）", () => {

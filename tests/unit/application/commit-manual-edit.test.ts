@@ -56,6 +56,8 @@ function fakePersistence(): PersistencePort & { mem: FakeMemory } {
         saveTask: () => {},
         updateTask: () => {},
         claimNextTask: () => null,
+        createProposal: () => {},
+        resolveProposal: () => {},
       };
       return fn(uow);
     },
@@ -72,6 +74,8 @@ function fakePersistence(): PersistencePort & { mem: FakeMemory } {
         .filter((v) => v.artifactId === artifactId)
         .sort((a, b) => a.versionNo - b.versionNo),
     getTask: async () => null,
+    getProposal: async () => null,
+    listProposals: async () => [],
   };
   return { ...port, mem };
 }

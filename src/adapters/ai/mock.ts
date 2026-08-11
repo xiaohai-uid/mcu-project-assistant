@@ -4,7 +4,7 @@
 // hint（lab 注入：slow/fail/partial/providerDown）仅供开发 harness 使用；生产适配器忽略未知字段。
 import type { AIProviderPort, ProviderStatus, StreamTextRequest, StructuredRequest } from "@/src/ports/ai-provider";
 import { ProviderUnavailableError } from "@/src/ports/ai-provider";
-import type { AnalysisCapabilityDto, RequirementAnalysisOutput } from "@/src/shared-contracts/types";
+import type { AnalysisCapabilityDto, AnalysisProposalDto, RequirementAnalysisOutput } from "@/src/shared-contracts/types";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -57,6 +57,31 @@ const CAPABILITIES: AnalysisCapabilityDto[] = [
     details: "Requires 5V USB-C power or 3.7V LiPo with TP4056 charging IC.",
     progress: 100,
     icon: "battery_charging_full",
+  },
+];
+
+const PROPOSALS: AnalysisProposalDto[] = [
+  {
+    title: "Wireless Connectivity",
+    initialIdea: "I want it to talk to my phone over wifi or bluetooth.",
+    formalizedRequirement:
+      "System must support dual-mode connectivity: 802.11 b/g/n (2.4GHz) and BLE 5.0 for concurrent local telemetry and remote configuration.",
+    impacts: ["Hardware", "Power Budget"],
+  },
+  {
+    title: "Environmental Sensing",
+    initialIdea: "Needs to read room temp and humidity accurately.",
+    formalizedRequirement:
+      "Integrate high-precision I2C sensor (e.g., SHTC3 or BME280) capable of ±0.2°C thermal accuracy and ±2% RH relative humidity tolerance.",
+    impacts: ["Wiring (I2C)", "Hardware"],
+  },
+  {
+    title: "Data Persistence",
+    initialIdea: "Should remember settings if power dies.",
+    formalizedRequirement:
+      "Allocate non-volatile storage (NVS) partition in flash memory (minimum 16KB) for retaining JSON configuration states across power cycles.",
+    impacts: ["Firmware"],
+    isNew: true,
   },
 ];
 
@@ -129,6 +154,7 @@ export function createMockAiProvider(opts: MockAiProviderOptions = {}): AIProvid
         const output: RequirementAnalysisOutput = {
           capabilities,
           clarification: roundId === 0 && !o.partialNext ? CLARIFICATION : null,
+          proposals: PROPOSALS,
         };
         return { data: output as T };
       }

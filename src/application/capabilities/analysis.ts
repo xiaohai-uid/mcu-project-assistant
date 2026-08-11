@@ -192,6 +192,15 @@ export async function analyzeRequirement(
           analysisId,
           capabilities: output.capabilities,
         });
+
+        // S3B：分析完成后为每个形式化项产出提案（引用 base 版本，零写入；I-1 Proposal Gate）
+        if (output.proposals && output.proposals.length > 0) {
+          const { createProposalsFromAnalysis } = await import("@/src/application/capabilities/proposals");
+          await createProposalsFromAnalysis(
+            { projectId: input.projectId, proposals: output.proposals, now: input.now },
+            { persistence: deps.persistence, now: input.now },
+          );
+        }
       } catch (err) {
         // 澄清门清理（取消/异常时不留 stale gate——内存泄漏防护）
         gates.delete(ctx.taskId);
