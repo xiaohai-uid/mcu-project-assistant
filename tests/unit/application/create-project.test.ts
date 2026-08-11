@@ -23,11 +23,14 @@ function fakePersistence(): PersistencePort & { rows: Map<string, import("@/src/
         },
         getProject: (id) => rows.get(id) ?? null,
         listProjects: () => [...rows.values()],
-        // S2 扩展的 UoW 方法：本测试（S1 能力）不使用，留最小 no-op
+        // S2/S3A 扩展的 UoW 方法：本测试（S1 能力）不使用，留最小 no-op
         createArtifact: () => {},
         setCurrentVersion: () => {},
         createVersion: () => {},
         setVersionStatus: () => {},
+        saveTask: () => {},
+        updateTask: () => {},
+        claimNextTask: () => null,
       };
       return fn(uow);
     },
@@ -39,6 +42,7 @@ function fakePersistence(): PersistencePort & { rows: Map<string, import("@/src/
     listArtifacts: async () => [],
     getVersion: async () => null,
     listVersions: async () => [],
+    getTask: async () => null,
   };
   return { ...port, rows };
 }

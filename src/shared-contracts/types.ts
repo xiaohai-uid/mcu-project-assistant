@@ -35,3 +35,37 @@ export interface ArtifactVersionDto {
   createdAt: string;
   createdBy: string;
 }
+
+// ---------- S3A Analysis / Tasks ----------
+
+export type TaskStatusDto = "queued" | "running" | "completed" | "failed" | "cancelled";
+
+export interface TaskDto {
+  id: string;
+  capability: string;
+  input: string;
+  status: TaskStatusDto;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  error: string | null;
+}
+
+/** 需求分析能力卡（logical-events：analysis.completed 载荷） */
+export interface AnalysisCapabilityDto {
+  id: string;
+  title: string;
+  type: string;
+  status: "complete" | "partial" | "pending";
+  details: string;
+  /** UI 呈现（冻结 UI 能力卡形状） */
+  progress: number;
+  icon: string;
+  isWarning?: boolean;
+}
+
+/** 需求分析结构化输出 schema（AIProviderPort.generateStructured schema="requirement-analysis"） */
+export interface RequirementAnalysisOutput {
+  capabilities: AnalysisCapabilityDto[];
+  clarification: { question: string; detail?: string } | null;
+}

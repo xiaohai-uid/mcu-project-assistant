@@ -1,7 +1,8 @@
-// adapters/persistence/sqlite/project-store.ts — PersistencePort 的 SQLite 实现（S1 projects + S2 artifacts/versions）
+// adapters/persistence/sqlite/project-store.ts — PersistencePort 的 SQLite 实现（S1 projects + S2 artifacts/versions + S3A tasks）
 import type { Artifact, ArtifactVersion } from "@/src/domain/models/artifact";
 import type { Project } from "@/src/domain/models/project";
-import type { ArtifactKind, ArtifactVersionStatus } from "@/src/shared-contracts/types";
+import type { TaskRecord } from "@/src/ports/task-execution";
+import type { ArtifactKind, ArtifactVersionStatus, TaskStatusDto } from "@/src/shared-contracts/types";
 import type { PersistencePort, UnitOfWork } from "@/src/ports/persistence";
 import type { SqliteDb } from "./connection";
 
@@ -32,6 +33,17 @@ interface ArtifactVersionRow {
   source_proposal_id: string | null;
   created_at: string;
   created_by: string;
+}
+
+interface TaskRow {
+  id: string;
+  capability: string;
+  input: string;
+  status: string;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error: string | null;
 }
 
 function toProject(row: ProjectRow): Project {
@@ -69,6 +81,19 @@ function toArtifactVersion(row: ArtifactVersionRow): ArtifactVersion {
   };
 }
 
+function toTask(row: TaskRow): TaskRecord {
+  return {
+    id: row.id,
+    capability: row.capability,
+    input: row.input,
+    status: row.status as TaskStatusDto,
+    createdAt: row.created_at,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
+    error: row.error,
+  };
+}
+
 export function createProjectStore(db: SqliteDb): PersistencePort {
   const insert = db.prepare(
     "INSERT INTO projects (id, name, created_at, archived_at, archived_reason) VALUES (@id, @name, @created_at, @archived_at, @archived_reason)",
@@ -101,6 +126,20 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
   const selectVersions = db.prepare(
     "SELECT * FROM artifact_versions WHERE artifact_id = ? ORDER BY version_no ASC",
   );
+
+  const insertTask = db.prepare(
+    `INSERT INTO tasks (id, capability, input, status, created_at, started_at, completed_at, error)
+     VALUES (@id, @capability, @input, @status, @created_at, @started_at, @completed_at, @error)`,
+  );
+  const updateTaskStmt = db.prepare(
+    `UPDATE tasks SET status = @status, started_at = @started_at, completed_at = @completed_at, error = @error WHERE id = @id`,
+  );
+  const selectTask = db.prepare("SELECT * FROM tasks WHERE id = ?");
+  // 崩溃恢复：running 无执行者即视为可重新 claim（本地单进程）；FIFO（created_at + 插入序 rowid）
+  const claimNext = db.prepare(
+    `SELECT * FROM tasks WHERE status IN ('queued','running') ORDER BY created_at ASC, rowid ASC LIMIT 1`,
+  );
+  const markRunning = db.prepare("UPDATE tasks SET status = 'running', started_at = ? WHERE id = ?");
 
   const uow: UnitOfWork = {
     createProject(p: Project): void {
@@ -151,6 +190,33 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     setVersionStatus(id: string, status: ArtifactVersionStatus): void {
       updateVersionStatus.run(status, id);
     },
+    saveTask(t: TaskRecord): void {
+      insertTask.run({
+        id: t.id,
+        capability: t.capability,
+        input: t.input,
+        status: t.status,
+        created_at: t.createdAt,
+        started_at: t.startedAt,
+        completed_at: t.completedAt,
+        error: t.error,
+      });
+    },
+    updateTask(t: TaskRecord): void {
+      updateTaskStmt.run({
+        id: t.id,
+        status: t.status,
+        started_at: t.startedAt,
+        completed_at: t.completedAt,
+        error: t.error,
+      });
+    },
+    claimNextTask(): TaskRecord | null {
+      const row = claimNext.get() as TaskRow | undefined;
+      if (!row) return null;
+      markRunning.run(new Date().toISOString(), row.id);
+      return toTask(claimNext.get() as TaskRow);
+    },
   };
 
   return {
@@ -176,5 +242,9 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     },
     listVersions: async (artifactId: string) =>
       (selectVersions.all(artifactId) as ArtifactVersionRow[]).map(toArtifactVersion),
+    getTask: async (id: string) => {
+      const row = selectTask.get(id) as TaskRow | undefined;
+      return row ? toTask(row) : null;
+    },
   };
 }

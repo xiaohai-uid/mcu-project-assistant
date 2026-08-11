@@ -6,8 +6,6 @@
 import type {
   BuildDiagnosis,
   BuildLogLine,
-  Clarification,
-  DiscoveredRequirement,
   FirmwareProposal,
   McuCandidate,
   Peripheral,
@@ -69,46 +67,6 @@ export const TEMPLATES = [
 export const DEFAULT_PROMPT =
   "I want to build an automated greenhouse monitor that measures soil moisture, drives a 5V water pump relay, displays telemetry on an OLED screen, and publishes readings over Wi-Fi.";
 
-export const DISCOVERY_CAPABILITIES: DiscoveredRequirement[] = [
-  {
-    id: "req-1",
-    title: "Soil moisture monitoring",
-    type: "Analog",
-    status: "complete",
-    progress: 100,
-    icon: "water_drop",
-    details: "Capacitive soil moisture sensor mapped to ADC pin IO4.",
-  },
-  {
-    id: "req-2",
-    title: "Water pump control",
-    type: "Relay/PWM",
-    status: "complete",
-    progress: 100,
-    icon: "valve",
-    details: "5V relay switch driven via transistor/MOSFET on IO12.",
-  },
-  {
-    id: "req-3",
-    title: "Local status display",
-    type: "OLED?",
-    status: "pending",
-    progress: 60,
-    icon: "monitor",
-    isWarning: true,
-    details: "Pending confirmation for 0.96 inch I2C OLED display (SDA: IO8, SCL: IO9).",
-  },
-  {
-    id: "req-4",
-    title: "Battery/Power management",
-    type: "Power",
-    status: "partial",
-    progress: 40,
-    icon: "battery_charging_full",
-    details: "Requires 5V USB-C power or 3.7V LiPo with TP4056 charging IC.",
-  },
-];
-
 export const DISCOVERY_PROPOSALS: ProposalItem[] = [
   {
     id: "prop-1",
@@ -140,23 +98,6 @@ export const DISCOVERY_PROPOSALS: ProposalItem[] = [
       "Allocate non-volatile storage (NVS) partition in flash memory (minimum 16KB) for retaining JSON configuration states across power cycles.",
     impacts: ["Firmware"],
   },
-];
-
-export const CLARIFICATION: Clarification = {
-  question: "Which display size do you need?",
-  detail: "0.96\" (128x64, SSD1306) is the most common. 1.3\" (SH1106) is also available.",
-  answer: "",
-  answered: false,
-};
-
-const DISCOVERY_STREAM = [
-  "Parsing project description…",
-  "Detected analog sensing requirement (soil moisture).",
-  "Detected digital output requirement (relay driver).",
-  "Checking I2C bus availability for display module…",
-  "Analyzing power budget: 5V USB vs LiPo + TP4056.",
-  "Evaluating wireless connectivity options (Wi-Fi / BLE).",
-  "Formalizing specifications…",
 ];
 
 // ---------- Hardware ----------
@@ -400,72 +341,6 @@ export function makeSerialLine(moisture: number, pumpOn: boolean, t: number): st
   return `Moisture Raw: ${moisture} (${Math.round((moisture / 4095) * 100)}%) | Pump State: ${
     pumpOn ? "ON [RELAY ACTIVE IO21]" : "OFF"
   } | Temp: ${t.toFixed(1)}C`;
-}
-
-// ---------- Discovery 流式脚本 ----------
-
-export interface DiscoveryHooks {
-  onStream: (chunk: string) => void;
-  onCapability: (cap: DiscoveredRequirement) => void;
-  onClarification: (c: Clarification) => void;
-  onDone: (caps: DiscoveredRequirement[], props: ProposalItem[]) => void;
-  onError: (msg: string) => void;
-  isCancelled: () => boolean;
-}
-
-export async function runDiscoveryScript(
-  prompt: string,
-  hooks: DiscoveryHooks,
-  opts: { slow?: boolean; fail?: boolean; partial?: boolean; providerDown?: boolean }
-): Promise<void> {
-  const delay = (ms: number) => sleep(opts.slow ? ms * 4 : ms);
-  if (opts.providerDown) {
-    await delay(600);
-    hooks.onError("AI provider unreachable: connection timeout after 10s");
-    return;
-  }
-  if (opts.fail) {
-    await delay(900);
-    hooks.onError("Discovery service returned HTTP 503 (model overloaded)");
-    return;
-  }
-
-  for (const chunk of DISCOVERY_STREAM) {
-    if (hooks.isCancelled()) return;
-    hooks.onStream(chunk + "\n");
-    await delay(650);
-  }
-
-  const caps = opts.partial ? DISCOVERY_CAPABILITIES.filter((c) => c.id !== "req-3") : DISCOVERY_CAPABILITIES;
-  for (const cap of caps) {
-    if (hooks.isCancelled()) return;
-    hooks.onCapability(cap);
-    await delay(opts.slow ? 800 : 350);
-  }
-
-  if (hooks.isCancelled()) return;
-  if (!opts.partial) {
-    hooks.onClarification(CLARIFICATION);
-    return; // 澄清后由 answerClarification 继续
-  }
-  hooks.onDone(caps, DISCOVERY_PROPOSALS);
-}
-
-export async function finishDiscoveryAfterClarification(
-  answer: string,
-  hooks: Pick<DiscoveryHooks, "onDone" | "isCancelled" | "onStream">,
-  opts: { slow?: boolean }
-): Promise<void> {
-  const delay = (ms: number) => sleep(opts.slow ? ms * 3 : ms);
-  hooks.onStream(`Clarification received: "${answer}". Finalizing requirements…\n`);
-  await delay(800);
-  if (hooks.isCancelled()) return;
-  const caps = DISCOVERY_CAPABILITIES.map((c) =>
-    c.id === "req-3"
-      ? { ...c, status: "complete" as const, progress: 100, isWarning: false, details: "0.96\" I2C OLED display (SSD1306) confirmed." }
-      : c
-  );
-  hooks.onDone(caps, DISCOVERY_PROPOSALS);
 }
 
 // ---------- Build 流式脚本 ----------

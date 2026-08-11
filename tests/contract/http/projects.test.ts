@@ -6,6 +6,8 @@ import request from "supertest";
 import { createApp, type AppDeps } from "@/src/adapters/http/app";
 import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
 import { createNoopEvents } from "@/src/adapters/events/noop";
+import { createInProcessTasks } from "@/src/adapters/task/in-process";
+import { createMockAiProvider } from "@/src/adapters/ai/mock";
 import { openDatabase, type SqliteDb } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
@@ -19,11 +21,15 @@ beforeEach(() => {
   db = openDatabase(join(dir, "test.db"));
   migrate(db);
   const ws = join(dir, "ws");
+  const persistence = createProjectStore(db);
+  const events = createNoopEvents();
   const deps: AppDeps = {
-    persistence: createProjectStore(db),
+    persistence,
     workspaceDir: ws,
     content: createWorkspaceFilesContent(ws),
-    events: createNoopEvents(),
+    events,
+    tasks: createInProcessTasks({ persistence, events }),
+    ai: createMockAiProvider(),
     now: () => new Date("2026-08-11T12:00:00.000Z"),
   };
   app = createApp(deps);

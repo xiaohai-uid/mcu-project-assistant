@@ -3,7 +3,9 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { createApp } from "@/src/adapters/http/app";
 import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
-import { createNoopEvents } from "@/src/adapters/events/noop";
+import { createSseEvents } from "@/src/adapters/events/sse";
+import { createInProcessTasks } from "@/src/adapters/task/in-process";
+import { createMockAiProvider } from "@/src/adapters/ai/mock";
 import { openDatabase } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
@@ -16,12 +18,16 @@ mkdirSync(config.workspaceDir, { recursive: true });
 
 const db = openDatabase(config.dbPath);
 migrate(db);
+const persistence = createProjectStore(db);
+const events = createSseEvents();
 
 const app = createApp({
-  persistence: createProjectStore(db),
+  persistence,
   workspaceDir: config.workspaceDir,
   content: createWorkspaceFilesContent(config.workspaceDir),
-  events: createNoopEvents(),
+  events,
+  tasks: createInProcessTasks({ persistence, events }),
+  ai: createMockAiProvider(),
 });
 
 app.listen(config.port, config.host, () => {

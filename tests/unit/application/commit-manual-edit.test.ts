@@ -52,6 +52,10 @@ function fakePersistence(): PersistencePort & { mem: FakeMemory } {
           const v = mem.versions.get(id);
           if (v) mem.versions.set(id, { ...v, status });
         },
+        // S3A 任务方法：本测试不使用
+        saveTask: () => {},
+        updateTask: () => {},
+        claimNextTask: () => null,
       };
       return fn(uow);
     },
@@ -67,6 +71,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMemory } {
       [...mem.versions.values()]
         .filter((v) => v.artifactId === artifactId)
         .sort((a, b) => a.versionNo - b.versionNo),
+    getTask: async () => null,
   };
   return { ...port, mem };
 }

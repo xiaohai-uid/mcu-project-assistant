@@ -1,5 +1,5 @@
-// adapters/http/app.ts — HTTP surface（S1 projects + S2 artifacts/versions；ISSUE-001/002）
-// /commands 未来 Slice 才引入；禁止现在建 Command 框架。
+// adapters/http/app.ts — HTTP surface（S1 projects + S2 artifacts/versions + S3A commands/SSE）
+// /commands 是 HTTP 收口；Application 内部调用明确函数（analyzeRequirement()…），禁止 CommandBus/Registry 框架。
 import { randomUUID } from "node:crypto";
 import express, { type Express, type Request, type Response } from "express";
 import {
@@ -25,9 +25,22 @@ import {
   listArtifacts as listArtifactsCapability,
   listVersions as listVersionsCapability,
 } from "@/src/application/capabilities/artifacts";
+import {
+  AnalysisNotFoundError,
+  analyzeRequirement as analyzeRequirementCapability,
+  cancelAnalysis as cancelAnalysisCapability,
+  getTask as getTaskCapability,
+  InvalidDescriptionError,
+  InvalidRoundError,
+  NotAwaitingClarificationError,
+  submitClarification as submitClarificationCapability,
+} from "@/src/application/capabilities/analysis";
+import type { AIProviderPort } from "@/src/ports/ai-provider";
+import { ProviderUnavailableError } from "@/src/ports/ai-provider";
 import type { ArtifactContentPort } from "@/src/ports/artifact-content";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
+import type { TaskExecutionPort } from "@/src/ports/task-execution";
 import type { ArtifactKind, ArtifactVersionDto } from "@/src/shared-contracts/types";
 import { ApiError, withErrorHandler } from "./error";
 import { writeProjectMirror } from "@/src/infrastructure/workspace";
@@ -37,6 +50,8 @@ export interface AppDeps {
   workspaceDir: string;
   content: ArtifactContentPort;
   events: EventPort;
+  tasks: TaskExecutionPort;
+  ai: AIProviderPort;
   now?: () => Date;
 }
 
@@ -56,6 +71,13 @@ export function createApp(deps: AppDeps): Express {
   const capDeps = { persistence: deps.persistence };
   const artifactDeps = { persistence: deps.persistence, content: deps.content, events: deps.events };
   const now = deps.now ?? (() => new Date());
+  const analysisDeps = {
+    persistence: deps.persistence,
+    tasks: deps.tasks,
+    ai: deps.ai,
+    events: deps.events,
+    now,
+  };
 
   // Idempotency-Key：内存映射（transport 层；重启即失，S1 记录在案——持久化幂等存储随需要引入）
   const idempotency = new Map<string, { project?: Project; version?: ArtifactVersionDto }>();
@@ -186,6 +208,82 @@ export function createApp(deps: AppDeps): Express {
     res.json({ version, content });
   };
 
+  // ---------- S3A Commands / Tasks / SSE ----------
+
+  const handleCommands = async (req: Request, res: Response) => {
+    const { capability, payload } = req.body ?? {};
+    const projectId = req.params.projectId as string;
+    const project = await getProjectCapability({ id: projectId }, capDeps);
+    if (!project) throw new ApiError(404, "not_found", "Project not found");
+
+    if (capability === "analyze_requirement") {
+      const description = typeof payload?.description === "string" ? payload.description : "";
+      try {
+        const { taskId } = await analyzeRequirementCapability(
+          { projectId, description, lab: payload?.lab, now },
+          analysisDeps,
+        );
+        res.status(202).json({ taskId });
+      } catch (err) {
+        if (err instanceof InvalidDescriptionError) throw new ApiError(400, "invalid_description", err.message);
+        if (err instanceof AnalysisNotFoundError) throw new ApiError(404, "not_found", err.message);
+        if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
+        if (err instanceof ProviderUnavailableError) throw new ApiError(503, "provider_unavailable", err.message);
+        throw err;
+      }
+      return;
+    }
+
+    throw new ApiError(400, "invalid_capability", "Unknown capability");
+  };
+
+  const handleClarification = async (req: Request, res: Response) => {
+    const { roundId, answer, skip } = req.body ?? {};
+    try {
+      const result = await submitClarificationCapability(
+        {
+          taskId: req.params.taskId as string,
+          roundId: typeof roundId === "number" ? roundId : Number(roundId),
+          answer: typeof answer === "string" ? answer : undefined,
+          skip: skip === true,
+        },
+        analysisDeps,
+      );
+      res.json(result);
+    } catch (err) {
+      if (err instanceof AnalysisNotFoundError) throw new ApiError(404, "not_found", err.message);
+      if (err instanceof InvalidRoundError) throw new ApiError(409, "invalid_round", err.message);
+      if (err instanceof NotAwaitingClarificationError)
+        throw new ApiError(409, "invalid_analysis_state", err.message);
+      throw err;
+    }
+  };
+
+  const handleCancel = async (req: Request, res: Response) => {
+    const ok = await cancelAnalysisCapability({ taskId: req.params.taskId as string }, analysisDeps);
+    if (!ok) throw new ApiError(409, "invalid_analysis_state", "Task is not cancellable (not running)");
+    res.status(202).json({ taskId: req.params.taskId, status: "cancelled" });
+  };
+
+  const handleGetTask = async (req: Request, res: Response) => {
+    const task = await getTaskCapability({ taskId: req.params.taskId as string }, analysisDeps);
+    if (!task) throw new ApiError(404, "not_found", "Task not found");
+    res.json(task);
+  };
+
+  const handleEvents = (req: Request, res: Response) => {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.write(": connected\n\n");
+    // SseEvents 订阅（SSE 专属能力；EventPort 基接口无 subscribe）
+    const sse = deps.events as import("@/src/adapters/events/sse").SseEvents;
+    sse.subscribe(req.params.projectId as string, res);
+  };
+
   app.get("/api/v1/health", (_req, res) => res.json({ status: "ok" }));
   app.post("/api/v1/projects", withErrorHandler(handleCreate));
   app.get("/api/v1/projects", withErrorHandler(handleList));
@@ -197,6 +295,11 @@ export function createApp(deps: AppDeps): Express {
   app.post("/api/v1/artifacts/:artifactId/versions", withErrorHandler(handleCommitVersion));
   app.get("/api/v1/artifacts/:artifactId/versions", withErrorHandler(handleListVersions));
   app.get("/api/v1/versions/:versionId", withErrorHandler(handleGetVersion));
+  app.post("/api/v1/projects/:projectId/commands", withErrorHandler(handleCommands));
+  app.post("/api/v1/commands/:taskId/clarification", withErrorHandler(handleClarification));
+  app.post("/api/v1/commands/:taskId/cancel", withErrorHandler(handleCancel));
+  app.get("/api/v1/commands/:taskId", withErrorHandler(handleGetTask));
+  app.get("/api/v1/projects/:projectId/events", handleEvents);
 
   return app;
 }

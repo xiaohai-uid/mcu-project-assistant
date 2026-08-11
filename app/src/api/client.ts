@@ -104,4 +104,43 @@ export const api = {
   listVersions: (artifactId: string) => request<ArtifactVersionDto[]>(`/api/v1/artifacts/${artifactId}/versions`),
   getVersion: (versionId: string) =>
     request<{ version: ArtifactVersionDto; content: string | null }>(`/api/v1/versions/${versionId}`),
+  // ---------- S3A Commands / Tasks ----------
+  analyzeRequirement: (projectId: string, description: string, lab?: Record<string, unknown>) =>
+    request<{ taskId: string }>(`/api/v1/projects/${projectId}/commands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ capability: "analyze_requirement", payload: { description, lab } }),
+    }),
+  submitClarification: (taskId: string, roundId: number, answer?: string, skip?: boolean) =>
+    request<{ roundId: number }>(`/api/v1/commands/${taskId}/clarification`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ roundId, answer, skip }),
+    }),
+  cancelTask: (taskId: string) =>
+    request<{ taskId: string; status: string }>(`/api/v1/commands/${taskId}/cancel`, { method: "POST" }),
+  getTask: (taskId: string) => request<TaskDto>(`/api/v1/commands/${taskId}`),
 };
+
+export interface TaskDto {
+  id: string;
+  capability: string;
+  input: string;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  error: string | null;
+}
+
+/** 需求分析能力卡（与 shared-contracts AnalysisCapabilityDto 同形；SSE 载荷） */
+export interface AnalysisCapabilityDto {
+  id: string;
+  title: string;
+  type: string;
+  status: "complete" | "partial" | "pending";
+  details: string;
+  progress: number;
+  icon: string;
+  isWarning?: boolean;
+}

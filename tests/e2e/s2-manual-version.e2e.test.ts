@@ -9,6 +9,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "@/src/adapters/http/app";
 import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
 import { createNoopEvents } from "@/src/adapters/events/noop";
+import { createInProcessTasks } from "@/src/adapters/task/in-process";
+import { createMockAiProvider } from "@/src/adapters/ai/mock";
 import { openDatabase, type SqliteDb } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
@@ -31,11 +33,15 @@ afterAll(() => {
 async function startServer(): Promise<{ server: Server; db: SqliteDb; base: string; stop: () => Promise<void> }> {
   const db = openDatabase(dbPath);
   migrate(db);
+  const persistence = createProjectStore(db);
+  const events = createNoopEvents();
   const app = createApp({
-    persistence: createProjectStore(db),
+    persistence,
     workspaceDir,
     content: createWorkspaceFilesContent(workspaceDir),
     events: createNoopEvents(),
+    tasks: createInProcessTasks({ persistence, events }),
+    ai: createMockAiProvider(),
   });
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));

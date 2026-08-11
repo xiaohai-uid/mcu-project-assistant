@@ -17,6 +17,7 @@ import type {
   ArtifactState,
   BuildLogLine,
   CopilotChatMessage,
+  DiscoveredRequirement,
   Language,
   NavigationTab,
   ProposalDecision,
@@ -28,17 +29,17 @@ import {
   buildFirmwareCode,
   BUILD_DIAGNOSIS,
   DEFAULT_PROMPT,
-  finishDiscoveryAfterClarification,
   makeFirmwareProposal,
   makeSerialLine,
   MCU_CANDIDATES,
   PERIPHERALS,
   runBuildScript,
-  runDiscoveryScript,
   sleep,
 } from "../mock/engine";
 import { format, getInitialLanguage, getInitialTheme } from "../lib/i18n";
 import { api as clientApi, ApiError } from "../api/client";
+import { subscribeProjectEvents } from "../api/sse";
+import type { AnalysisCapabilityDto } from "../api/client";
 
 // ---------- 初始状态 ----------
 
@@ -450,70 +451,129 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ---------- Discovery ----------
 
+  const taskRef = useRef<{ taskId: string; roundId: number; close: (() => void) | null }>({
+    taskId: "",
+    roundId: 0,
+    close: null,
+  });
+
+  const toCapability = (c: AnalysisCapabilityDto): DiscoveredRequirement => ({
+    id: c.id,
+    title: c.title,
+    type: c.type,
+    status: c.status,
+    progress: c.progress,
+    icon: c.icon,
+    isWarning: c.isWarning,
+    details: c.details,
+  });
+
   const startDiscovery = useCallback(() => {
     if (!s.runtime.online) return;
     if (!s.runtime.providerAvailable) return;
     const prompt = s.discoveryPrompt.trim();
     if (!prompt) return;
+    const projectId = s.project?.id;
+    if (!projectId) return;
     cancelRef.current.discovery = false;
     dispatch({ type: "DISC_CLEAR_RESULTS" });
     dispatch({ type: "DISC_SET_STAGE", stage: "analyzing" });
-    void runDiscoveryScript(
-      prompt,
-      {
-        onStream: (chunk) => dispatch({ type: "DISC_STREAM", text: chunk }),
-        onCapability: (cap) => dispatch({ type: "DISC_CAPABILITY", cap }),
-        onClarification: (c) => {
-          dispatch({ type: "DISC_CLARIFICATION", c });
+
+    const onEvent = (type: string, data: unknown) => {
+      switch (type) {
+        case "requirement.analysis.progress": {
+          const p = data as { stage: string; chunk?: string };
+          if (p.stage === "streaming" && p.chunk) dispatch({ type: "DISC_STREAM", text: p.chunk });
+          else if (p.stage === "capabilities" && p.chunk) {
+            try {
+              dispatch({ type: "DISC_CAPABILITY", cap: toCapability(JSON.parse(p.chunk) as AnalysisCapabilityDto) });
+            } catch {
+              // 解析失败忽略单卡（流式容错）
+            }
+          }
+          break;
+        }
+        case "requirement.analysis.clarification.requested": {
+          const c = data as { roundId: number; question: string; detail?: string };
+          taskRef.current.roundId = c.roundId;
+          dispatch({ type: "DISC_CLARIFICATION", c: { question: c.question, detail: c.detail ?? "", answer: "", answered: false } });
           dispatch({ type: "DISC_SET_STAGE", stage: "clarifying" });
-        },
-        onDone: (caps, props) =>
+          break;
+        }
+        case "requirement.analysis.completed": {
+          const d = data as { capabilities: AnalysisCapabilityDto[] };
           dispatch({
             type: "DISC_DONE",
-            caps,
-            props: props.map((p) => ({ ...p, decision: p.accepted ? "accepted" : "pending" })),
-          }),
-        onError: (err) => dispatch({ type: "DISC_ERROR", error: err }),
-        isCancelled: () => cancelRef.current.discovery ?? false,
-      },
-      { slow: s.runtime.slowMode, fail: s.discovery.nextFails, partial: s.discovery.partialNext, providerDown: !s.runtime.providerAvailable }
-    );
-  }, [s.runtime.online, s.runtime.providerAvailable, s.runtime.slowMode, s.discoveryPrompt, s.discovery.nextFails, s.discovery.partialNext]);
+            caps: d.capabilities.map(toCapability),
+            props: [], // S3B 引入提案；本票能力卡即终点（ISSUE-003 §1）
+          });
+          break;
+        }
+        case "requirement.analysis.failed": {
+          dispatch({ type: "DISC_ERROR", error: (data as { reason?: string }).reason ?? "Analysis failed" });
+          break;
+        }
+        case "requirement.analysis.cancelled": {
+          dispatch({ type: "DISC_SET_STAGE", stage: "cancelled" });
+          break;
+        }
+        case "provider.unavailable": {
+          dispatch({ type: "RUNTIME", patch: { providerAvailable: false } });
+          dispatch({ type: "DISC_ERROR", error: "AI provider unavailable — check connection and retry." });
+          break;
+        }
+        default:
+          break;
+      }
+    };
+
+    void (async () => {
+      try {
+        const { taskId } = await clientApi.analyzeRequirement(projectId, prompt, {
+          slow: s.runtime.slowMode,
+          failNext: s.discovery.nextFails,
+          partialNext: s.discovery.partialNext,
+        });
+        taskRef.current.taskId = taskId;
+        // 订阅 SSE（无 replay：重连后 Query 状态恢复由刷新/重试承担）
+        taskRef.current.close?.();
+        taskRef.current.close = subscribeProjectEvents(projectId, { onEvent });
+      } catch (err) {
+        dispatch({ type: "DISC_ERROR", error: err instanceof ApiError ? err.message : "Analysis failed to start" });
+      }
+    })();
+  }, [s.runtime.online, s.runtime.providerAvailable, s.runtime.slowMode, s.discoveryPrompt, s.discovery.nextFails, s.discovery.partialNext, s.project?.id]);
 
   const cancelDiscovery = useCallback(() => {
     cancelRef.current.discovery = true;
     dispatch({ type: "DISC_SET_STAGE", stage: "cancelled" });
     pushSystem("Discovery cancelled — no artifacts were modified.");
+    if (taskRef.current.taskId) {
+      void clientApi.cancelTask(taskRef.current.taskId).catch(() => undefined);
+    }
   }, [pushSystem]);
 
   const finishClarification = useCallback(
     (answer: string) => {
       cancelRef.current.discovery = false;
       dispatch({ type: "DISC_SET_STAGE", stage: "analyzing" });
-      void finishDiscoveryAfterClarification(
-        answer,
-        {
-          onStream: (chunk) => dispatch({ type: "DISC_STREAM", text: chunk }),
-          onDone: (caps, props) =>
-          dispatch({
-            type: "DISC_DONE",
-            caps,
-            props: props.map((p) => ({ ...p, decision: p.accepted ? "accepted" : "pending" })),
-          }),
-          isCancelled: () => cancelRef.current.discovery ?? false,
-        },
-        { slow: s.runtime.slowMode }
-      );
+      const { taskId, roundId } = taskRef.current;
+      if (!taskId) return;
+      void clientApi
+        .submitClarification(taskId, roundId, answer?.trim() ? answer : undefined, !answer?.trim())
+        .catch((err) =>
+          dispatch({ type: "DISC_ERROR", error: err instanceof ApiError ? err.message : "Clarification failed" })
+        );
     },
-    [s.runtime.slowMode]
+    []
   );
 
   const answerClarification = useCallback(
-    (answer: string) => finishClarification(answer || "0.96\" SSD1306"),
+    (answer: string) => finishClarification(answer || '0.96" SSD1306'),
     [finishClarification]
   );
 
-  const skipClarification = useCallback(() => finishClarification("0.96\" SSD1306 (default)"), [finishClarification]);
+  const skipClarification = useCallback(() => finishClarification(""), [finishClarification]);
 
   const setProposalDecision = useCallback(
     (id: string, d: ProposalDecision) => {

@@ -50,6 +50,23 @@ BEGIN
 END;
 `,
   },
+  {
+    version: 3,
+    name: "create_tasks",
+    sql: `
+CREATE TABLE tasks (
+  id TEXT PRIMARY KEY,
+  capability TEXT NOT NULL,
+  input TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('queued','running','completed','failed','cancelled')),
+  created_at TEXT NOT NULL,
+  started_at TEXT NULL,
+  completed_at TEXT NULL,
+  error TEXT NULL
+);
+CREATE INDEX idx_tasks_status ON tasks(status, created_at);
+`,
+  },
 ];
 
 export function migrate(db: SqliteDb): void {
