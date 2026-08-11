@@ -1,8 +1,21 @@
 # ISSUE-011 — S9 Flash Confirmation + Serial end-to-end
 
-**Status:** ready-for-agent
+**Status:** resolved
 **Blocked by:** ISSUE-010（Failure Diagnosis + Fix e2e）
 **Priority:** P0-core
+**Resolved:** 2026-08-12 · commit `ebca0d1`（docs `253fb5e`）· DETERMINISTIC acceptance
+
+## 15. Delivery Record
+
+- **DevicePort**（`src/ports/device.ts`）+ companion-local adapter（`src/adapters/device/companion-local.ts`）：ESP32-S3 WROOM-1 @ COM6 @ 115200；flash 进度 10→100% + 行事件；serialStream/sendSerial/disconnect。**DeviceSession = 运行时状态**（无 device_sessions 表；preferences 存 last_device）。
+- **flash_device**（`src/application/capabilities/flash.ts`）：一次性确认令牌（60s TTL、单次、绑定设备）→ L3 Stale 门禁（I-8）→ 连接检查 → in-process task（device.flashing 进度）→ 成功才写 `.evidence/<sessionId>.log`（中断/失败零半成品证据，测试证明）；AI/Companion/重试无令牌一律拒绝。
+- **HTTP**（app.ts）：`/device/detect`、`/device/flash-token`、`/device/flash`、`/device/disconnect`、`/device/serial/send`、`/device/serial/stream`（SSE `serial.line` + `device.disconnected`）。
+- **Persistent**：preferences 表（migration v8）；`setPreference`/`getPreference`（UoW）。
+- **UI swap（§5 全换）**：mock detectBoard/flashDevice/sendSerial 删除 → 真实 API；flash 确认对话框 → `flashWithConfirmation`（用户动作 → 签发令牌 → 真实 flash）；串口流经 EventSource；Build/SideNav bolt 均走确认对话框。
+- **Browser acceptance（§12 全过，deterministic）**：检测 → "已连接 ESP32-S3 (COM6)"；烧录 → 高风险确认 → 进度 → 完成（`[system] Firmware flashed successfully` + `.evidence/session-*.log` 6 步）；遥测流；`GET_STATUS` → 回显 `STATUS moisture=.. pump=.. temp=..`；Lab 断开 → 顶栏红点 + 串口冻结 + 输入禁用。
+- **安全组**（flash-security.test.ts，8 tests）：missing/expired/reused/device_mismatch/无令牌/L3 Stale/中断无证据/错设备 全绿。
+- **Deviations**：无（proposals.type CHECK 冻结，无新类型需求）。toolchain 缺失（无 arduino-cli）→ Build 视图 flash 按钮不可达（stage 门禁）；§12 走 Companion 视图路径（仅需 firmwareOk）——已按验收标注。
+- **验收标注**：DETERMINISTIC —— 无真实硬件/arduino-cli；真实 DevicePort 结构 + companion-local 适配器按能力实现。
 
 ## 1. User-visible outcome
 
