@@ -38,6 +38,12 @@ export function createInProcessTasks(deps: InProcessTaskDeps): TaskExecutionPort
         taskId,
         signal: ctrl.signal,
         emit: (event: LogicalEvent) => deps.events.publish(event),
+        setOutput: async (output: string) => {
+          const t = await deps.persistence.getTask(taskId);
+          if (t) {
+            await deps.persistence.withTransaction((uow) => uow.updateTask({ ...t, output }));
+          }
+        },
       };
 
       // in-process 异步执行（不阻塞请求返回 202）
@@ -47,16 +53,22 @@ export function createInProcessTasks(deps: InProcessTaskDeps): TaskExecutionPort
         );
         try {
           await fn(ctx);
+          // 终态写回用当前行（保留任务内 setOutput 的结果；勿用 submit 时的 stale record）
+          const current = await deps.persistence.getTask(taskId);
           await deps.persistence.withTransaction((uow) =>
-            uow.updateTask({ ...record, status: "completed", startedAt: record.startedAt ?? now().toISOString(), completedAt: now().toISOString() }),
+            uow.updateTask({
+              ...(current ?? record),
+              status: "completed",
+              completedAt: now().toISOString(),
+            }),
           );
         } catch (err) {
           const cancelled = ctrl.signal.aborted;
+          const current = await deps.persistence.getTask(taskId);
           await deps.persistence.withTransaction((uow) =>
             uow.updateTask({
-              ...record,
+              ...(current ?? record),
               status: cancelled ? "cancelled" : "failed",
-              startedAt: record.startedAt ?? now().toISOString(),
               completedAt: now().toISOString(),
               error: cancelled ? null : err instanceof Error ? err.message : String(err),
             }),

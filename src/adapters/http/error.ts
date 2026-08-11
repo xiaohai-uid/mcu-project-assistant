@@ -7,6 +7,7 @@ export type ErrorCode =
   | "invalid_content"
   | "invalid_description"
   | "invalid_capability"
+  | "invalid_mcu"
   | "invalid_round"
   | "invalid_analysis_state"
   | "provider_unavailable"

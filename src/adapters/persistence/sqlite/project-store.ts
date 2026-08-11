@@ -184,6 +184,9 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
   const selectProposal = db.prepare("SELECT * FROM proposals WHERE id = ?");
   const selectProposals = db.prepare("SELECT * FROM proposals WHERE project_id = ? ORDER BY created_at ASC, rowid ASC");
   const selectTask = db.prepare("SELECT * FROM tasks WHERE id = ?");
+  const selectLatestOutput = db.prepare(
+    "SELECT output FROM tasks WHERE capability = ? AND status = 'completed' ORDER BY completed_at DESC, rowid DESC LIMIT 1",
+  );
   // 崩溃恢复：running 无执行者即视为可重新 claim（本地单进程）；FIFO（created_at + 插入序 rowid）
   const claimNext = db.prepare(
     `SELECT * FROM tasks WHERE status IN ('queued','running') ORDER BY created_at ASC, rowid ASC LIMIT 1`,
@@ -322,6 +325,10 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     getTask: async (id: string) => {
       const row = selectTask.get(id) as TaskRow | undefined;
       return row ? toTask(row) : null;
+    },
+    latestTaskOutput: async (capability: string) => {
+      const row = selectLatestOutput.get(capability) as { output: string | null } | undefined;
+      return row?.output ?? null;
     },
     getProposal: async (id: string) => {
       const row = selectProposal.get(id) as ProposalRow | undefined;

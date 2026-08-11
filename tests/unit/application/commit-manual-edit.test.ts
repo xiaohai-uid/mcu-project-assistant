@@ -74,6 +74,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMemory } {
         .filter((v) => v.artifactId === artifactId)
         .sort((a, b) => a.versionNo - b.versionNo),
     getTask: async () => null,
+    latestTaskOutput: async () => null,
     getProposal: async () => null,
     listProposals: async () => [],
   };

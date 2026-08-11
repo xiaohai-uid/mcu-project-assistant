@@ -45,6 +45,7 @@ function fakePersistence(): PersistencePort & { rows: Map<string, import("@/src/
     getVersion: async () => null,
     listVersions: async () => [],
     getTask: async () => null,
+    latestTaskOutput: async () => null,
     getProposal: async () => null,
     listProposals: async () => [],
   };

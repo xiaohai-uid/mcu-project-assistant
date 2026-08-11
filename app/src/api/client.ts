@@ -137,7 +137,45 @@ export const api = {
         body: JSON.stringify({ capabilities }),
       },
     ),
+  // ---------- S4 MCU ----------
+  recommendMcu: (projectId: string) =>
+    request<{ candidates: McuCandidateDto[]; peripherals: PeripheralDto[] }>(
+      `/api/v1/projects/${projectId}/commands`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capability: "recommend_mcu", payload: {} }),
+      },
+    ),
+  selectMcu: (projectId: string, mcuId: string) =>
+    request<{ artifact: ArtifactDto; version: ArtifactVersionDto; changed: boolean }>(
+      `/api/v1/projects/${projectId}/commands`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ capability: "select_mcu", payload: { mcuId } }),
+      },
+    ),
 };
+
+export interface McuCandidateDto {
+  id: string;
+  displayName: string;
+  tier: "recommended" | "alternative" | "industrial";
+  core: string;
+  wireless: string;
+  flashSram: string;
+  ioMatrix: string;
+  reason: string;
+  constraints: string[];
+}
+
+export interface PeripheralDto {
+  id: string;
+  displayName: string;
+  interfaceType: string;
+  capability: string;
+}
 
 export type ProposalStatus = "pending" | "accepted" | "rejected";
 

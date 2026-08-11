@@ -65,6 +65,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
     getVersion: async () => null,
     listVersions: async () => [],
     getTask: async (id) => mem.tasks.get(id) ?? null,
+    latestTaskOutput: async () => null,
     getProposal: async () => null,
     listProposals: async () => [],
   };
@@ -94,7 +95,7 @@ function fakeTasks(): TaskExecutionPort & { tasks: Map<string, TaskRecord> } {
       // 立即执行（fake 同步语义，取消信号可中止）
       const ctrl = new AbortController();
       controllers.set(id, ctrl);
-      const ctx: TaskContext = { taskId: id, signal: ctrl.signal, emit: () => {} };
+      const ctx: TaskContext = { taskId: id, signal: ctrl.signal, emit: () => {}, setOutput: async () => {} };
       tasks.set(id, { ...record, status: "running", startedAt: NOW });
       fn(ctx).then(
         () => {

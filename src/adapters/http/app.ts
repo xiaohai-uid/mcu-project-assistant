@@ -36,6 +36,12 @@ import {
   submitClarification as submitClarificationCapability,
 } from "@/src/application/capabilities/analysis";
 import {
+  InvalidMcuError,
+  ProjectNotFoundError as McuProjectNotFoundError,
+  recommendMcu as recommendMcuCapability,
+  selectMcu as selectMcuCapability,
+} from "@/src/application/capabilities/mcu";
+import {
   commitRequirements as commitRequirementsCapability,
   listProposals as listProposalsCapability,
   NoAcceptedProposalsError,
@@ -238,6 +244,31 @@ export function createApp(deps: AppDeps): Express {
         if (err instanceof AnalysisNotFoundError) throw new ApiError(404, "not_found", err.message);
         if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
         if (err instanceof ProviderUnavailableError) throw new ApiError(503, "provider_unavailable", err.message);
+        throw err;
+      }
+      return;
+    }
+
+    if (capability === "recommend_mcu") {
+      try {
+        const result = await recommendMcuCapability({ projectId }, { persistence: deps.persistence, content: deps.content });
+        res.json(result); // 纯 knowledge 求值（同步；无长任务）
+      } catch (err) {
+        if (err instanceof McuProjectNotFoundError) throw new ApiError(404, "not_found", err.message);
+        throw err;
+      }
+      return;
+    }
+
+    if (capability === "select_mcu") {
+      const mcuId = typeof payload?.mcuId === "string" ? payload.mcuId : "";
+      try {
+        const result = await selectMcuCapability({ projectId, mcuId }, proposalDeps);
+        res.json(result);
+      } catch (err) {
+        if (err instanceof McuProjectNotFoundError) throw new ApiError(404, "not_found", err.message);
+        if (err instanceof InvalidMcuError) throw new ApiError(400, "invalid_mcu", err.message);
+        if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
         throw err;
       }
       return;

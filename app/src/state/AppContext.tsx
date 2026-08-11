@@ -40,7 +40,7 @@ import {
 import { format, getInitialLanguage, getInitialTheme } from "../lib/i18n";
 import { api as clientApi, ApiError } from "../api/client";
 import { subscribeProjectEvents } from "../api/sse";
-import type { AnalysisCapabilityDto } from "../api/client";
+import type { AnalysisCapabilityDto, McuCandidateDto, PeripheralDto } from "../api/client";
 
 // ---------- 初始状态 ----------
 
@@ -159,6 +159,7 @@ type Action =
   | { type: "ARTIFACT"; kind: ArtifactKind; status: ArtifactState["status"]; version?: number }
   | { type: "STALE_FROM"; from: ArtifactKind }
   | { type: "SELECT_MCU"; mcu: string }
+  | { type: "MCU_CANDIDATES"; candidates: McuCandidateDto[]; peripherals: PeripheralDto[] }
   | { type: "WIRING_GENERATED"; pins: AppState["wiring"]["pinMappings"]; issues: AppState["wiring"]["issues"] }
   | { type: "WIRING_STAGE"; stage: AppState["wiring"]["stage"] }
   | { type: "WIRING_VERIFIED" }
@@ -267,6 +268,30 @@ function reducer(state: AppState, a: Action): AppState {
     }
     case "SELECT_MCU":
       return { ...state, selectedMcu: a.mcu };
+    case "MCU_CANDIDATES":
+      return {
+        ...state,
+        candidates: a.candidates.map((c) => ({
+          id: c.id,
+          title: c.displayName,
+          badgeKey: c.tier,
+          core: c.core,
+          wireless: c.wireless,
+          gpio: c.ioMatrix,
+          flash: c.flashSram,
+          reason: c.reason,
+          constraints: c.constraints,
+        })),
+        peripherals: a.peripherals.map((p) => ({
+          id: p.id,
+          title: p.displayName,
+          type: p.capability,
+          interface: p.interfaceType,
+          pinsNeeded: "",
+          status: "已提取",
+          icon: p.interfaceType === "i2c" ? "monitor" : p.interfaceType === "analog" ? "water_drop" : "valve",
+        })),
+      };
     case "WIRING_GENERATED":
       return { ...state, wiring: { ...state.wiring, stage: "review", pinMappings: a.pins, issues: a.issues, verified: false } };
     case "WIRING_STAGE": return { ...state, wiring: { ...state.wiring, stage: a.stage } };
@@ -344,6 +369,7 @@ interface AppApi {
   setProposalDecision: (id: string, d: ProposalDecision) => void;
   proceedToHardware: () => void;
   selectMcu: (mcu: string) => void;
+  refreshMcuCandidates: () => Promise<void>;
   generatePins: () => void;
   verifyRules: () => void;
   editPin: (component: string, pinId: string) => void;
@@ -667,30 +693,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // ---------- Hardware ----------
 
+  const refreshMcuCandidates = useCallback(async () => {
+    const projectId = s.project?.id;
+    if (!projectId) return;
+    try {
+      const { candidates, peripherals } = await clientApi.recommendMcu(projectId);
+      dispatch({ type: "MCU_CANDIDATES", candidates, peripherals });
+    } catch {
+      // 候选拉取失败保持现有呈现
+    }
+  }, [s.project?.id]);
+
   const selectMcu = useCallback(
     (mcu: string) => {
-      const changed = mcu !== s.selectedMcu;
-      dispatch({ type: "SELECT_MCU", mcu });
-      if (changed) {
-        const hw = s.artifacts.hardware;
-        const version = hw.version > 0 ? hw.version + 1 : 1;
-        dispatch({ type: "ARTIFACT", kind: "hardware", status: "accepted", version });
-        if (version > 1) {
-          dispatch({ type: "STALE_FROM", from: "hardware" });
-          pushCopilot({
-            sender: "copilot",
-            text: `MCU changed to ${mcu}. Downstream artifacts (Pin Map, Wiring, Firmware, Build) are now stale.`,
-            warningNote: "Stale propagation",
-          });
-        } else {
-          pushCopilot({
-            sender: "copilot",
-            text: `${mcu} selected. Hardware artifact v1 committed. Ready for pin assignment.`,
-          });
+      const projectId = s.project?.id;
+      if (!projectId) return;
+      if (mcu === s.selectedMcu) return;
+      // Progressive Swap（ISSUE-005 §5）：内存版本 +1 → 真实 select_mcu（Hardware 版本落库）
+      void (async () => {
+        try {
+          const { version, changed } = await clientApi.selectMcu(projectId, mcu);
+          dispatch({ type: "SELECT_MCU", mcu });
+          dispatch({ type: "ARTIFACT", kind: "hardware", status: "accepted", version: version.versionNo });
+          if (changed) {
+            // 更换下游失效提示（Stale 标记在 S5B；本票只发提示）
+            pushCopilot({
+              sender: "copilot",
+              text: `MCU changed to ${mcu} — downstream artifacts (pin map, wiring, firmware, build) are now stale. Revalidate before proceeding.`,
+              warningNote: "Downstream Invalidated",
+            });
+          } else {
+            pushCopilot({
+              sender: "copilot",
+              text: `${mcu} selected. Hardware artifact v${version.versionNo} committed. Ready for pin assignment.`,
+            });
+          }
+        } catch (err) {
+          pushSystem(err instanceof ApiError ? `Select MCU failed: ${err.code}` : "Select MCU failed");
         }
-      }
+      })();
     },
-    [s.selectedMcu, s.artifacts.hardware, pushCopilot]
+    [s.project?.id, s.selectedMcu, pushCopilot, pushSystem]
   );
 
   // ---------- Wiring ----------
@@ -1043,6 +1086,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setProposalDecision,
       proceedToHardware,
       selectMcu,
+      refreshMcuCandidates,
       generatePins,
       verifyRules,
       generateFirmware,
@@ -1065,7 +1109,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [
       s, createProject, openProject, archiveProject, setNav, setSidebar,
       startDiscovery, cancelDiscovery, answerClarification, skipClarification,
-      setProposalDecision, proceedToHardware, selectMcu, generatePins, verifyRules,
+      setProposalDecision, proceedToHardware, selectMcu, refreshMcuCandidates, generatePins, verifyRules,
       editPin, refreshPinmapVersions, generateFirmware, acceptFirmwareProposal, rejectFirmwareProposal,
       startBuild, cancelBuild, retryBuild, runDiagnosis, applyFix, detectBoard,
       sendSerial, simulateMoisture, togglePump, flashDevice, revalidateAll,

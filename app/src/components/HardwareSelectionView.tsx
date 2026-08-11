@@ -1,10 +1,15 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { t } from "../lib/i18n";
 import { useApp } from "../state/AppContext";
 
 export const HardwareSelectionView: React.FC = () => {
-  const { state, selectMcu, generatePins, setSidebar } = useApp();
+  const { state, selectMcu, generatePins, setSidebar, refreshMcuCandidates } = useApp();
   const { lang, candidates, peripherals, selectedMcu, artifacts } = state;
+
+  // S4：进入 Hardware 视图加载真实候选（knowledge 求值；ISSUE-005 §5/§12）
+  useEffect(() => {
+    void refreshMcuCandidates();
+  }, [refreshMcuCandidates]);
 
   const hwAccepted = artifacts.hardware.version > 0;
   const pinmapStale = artifacts.pinmap.status === "stale";

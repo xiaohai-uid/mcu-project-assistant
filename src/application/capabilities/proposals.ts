@@ -113,8 +113,18 @@ export async function commitRequirements(
   if (accepted.length === 0) throw new NoAcceptedProposalsError();
 
   const artifact = await deps.persistence.getArtifactByKind(input.projectId, "requirements");
+  // capabilities 来源：调用方显式传入（UI 已完成事件载荷）或回退读最近 analyze 任务 output
+  const capabilities = input.capabilities?.length
+    ? input.capabilities
+    : (await deps.persistence.latestTaskOutput("analyze_requirement").then((out) => {
+        try {
+          return out ? ((JSON.parse(out) as { capabilities?: unknown[] }).capabilities ?? []) : [];
+        } catch {
+          return [];
+        }
+      }));
   const content = JSON.stringify({
-    capabilities: input.capabilities ?? [],
+    capabilities,
     acceptedProposalIds: accepted.map((p) => p.id),
     acceptedTitles: accepted.map((p) => {
       try {

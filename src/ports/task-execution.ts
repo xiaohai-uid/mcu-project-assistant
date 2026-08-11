@@ -24,6 +24,8 @@ export interface TaskContext {
   signal: AbortSignal;
   /** 任务内发布逻辑事件（经 EventPort；进度/终态） */
   emit: (event: import("@/src/ports/events").LogicalEvent) => void;
+  /** 任务结果暂存（tasks.output；如分析 capabilities，供下游聚合提交） */
+  setOutput: (output: string) => Promise<void>;
 }
 
 export interface TaskExecutionPort {

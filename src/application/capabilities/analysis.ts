@@ -193,6 +193,9 @@ export async function analyzeRequirement(
           capabilities: output.capabilities,
         });
 
+        // 任务结果暂存（tasks.output：capabilities；S3B commitRequirements 聚合输入）
+        await ctx.setOutput(JSON.stringify({ capabilities: output.capabilities }));
+
         // S3B：分析完成后为每个形式化项产出提案（引用 base 版本，零写入；I-1 Proposal Gate）
         if (output.proposals && output.proposals.length > 0) {
           const { createProposalsFromAnalysis } = await import("@/src/application/capabilities/proposals");

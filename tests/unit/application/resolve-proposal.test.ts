@@ -74,6 +74,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
     listVersions: async (artifactId) =>
       [...mem.versions.values()].filter((v) => v.artifactId === artifactId).sort((a, b) => a.versionNo - b.versionNo),
     getTask: async () => null,
+    latestTaskOutput: async () => null,
     getProposal: async (id) => mem.proposals.get(id) ?? null,
     listProposals: async (projectId) =>
       [...mem.proposals.values()].filter((p) => p.projectId === projectId),
