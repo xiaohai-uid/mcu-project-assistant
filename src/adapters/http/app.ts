@@ -61,6 +61,10 @@ import {
   NoStaleError,
   revalidateScope as revalidateScopeCapability,
 } from "@/src/application/capabilities/revalidate";
+import {
+  generateFirmwareProposal as generateFirmwareProposalCapability,
+  NoPinMapError,
+} from "@/src/application/capabilities/firmware";
 import type { AIProviderPort } from "@/src/ports/ai-provider";
 import { ProviderUnavailableError } from "@/src/ports/ai-provider";
 import type { ArtifactContentPort } from "@/src/ports/artifact-content";
@@ -306,6 +310,20 @@ export function createApp(deps: AppDeps): Express {
         res.json({ results });
       } catch (err) {
         if (err instanceof NoStaleError) throw new ApiError(409, "no_stale", err.message);
+        if (err instanceof BlockingStaleError) throw new ApiError(409, "blocking_stale", err.message);
+        if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
+        throw err;
+      }
+      return;
+    }
+
+    if (capability === "generate_firmware") {
+      try {
+        // S6：只产出 Proposal（I-1 不写版本）；Diff/接受/拒绝走提案机制
+        const result = await generateFirmwareProposalCapability({ projectId }, proposalDeps);
+        res.json(result);
+      } catch (err) {
+        if (err instanceof NoPinMapError) throw new ApiError(409, "no_pin_map", err.message);
         if (err instanceof BlockingStaleError) throw new ApiError(409, "blocking_stale", err.message);
         if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
         throw err;

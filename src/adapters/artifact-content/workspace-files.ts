@@ -1,6 +1,7 @@
 // adapters/artifact-content/workspace-files.ts — ArtifactContentPort → Workspace Files（ADR-0006；ISSUE-002 §8）
 // 版本目录原子写：临时文件 → rename（同文件系统原子）；无残留临时文件。
 // 内容布局：<workspace>/<projectId>/<kind>/NNNN.json（内容本体 = 工作区文件，SQLite 只存引用）。
+// S6 固件：subpath → <workspace>/<projectId>/firmware/NNNN/src/main.cpp 等真实文件（Git-friendly）。
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -13,7 +14,9 @@ function sha256(content: string): string {
 export function createWorkspaceFilesContent(workspaceDir: string): ArtifactContentPort {
   return {
     async store(ref: VersionRef, content: string): Promise<{ contentRef: string; contentHash: string }> {
-      const contentRef = `${ref.projectId}/${ref.kind}/${String(ref.versionNo).padStart(4, "0")}.json`;
+      const contentRef = ref.subpath
+        ? `${ref.projectId}/${ref.kind}/${String(ref.versionNo).padStart(4, "0")}/${ref.subpath}`
+        : `${ref.projectId}/${ref.kind}/${String(ref.versionNo).padStart(4, "0")}.json`;
       const target = join(workspaceDir, contentRef);
       mkdirSync(dirname(target), { recursive: true });
       // 原子写：临时文件 → rename（同目录同文件系统）

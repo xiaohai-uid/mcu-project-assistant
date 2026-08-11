@@ -15,6 +15,7 @@ export type ErrorCode =
   | "invalid_decision"
   | "no_accepted_proposals"
   | "no_hardware_selected"
+  | "no_pin_map"
   | "no_stale"
   | "blocking_stale"
   | "not_found"

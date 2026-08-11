@@ -8,6 +8,8 @@ export interface VersionRef {
   projectId: string;
   kind: ArtifactKind;
   versionNo: number;
+  /** S6 固件：版本目录内子路径（firmware/NNNN/src/main.cpp）；缺省 = <kind>/NNNN.json */
+  subpath?: string;
 }
 
 export interface StoredContent {

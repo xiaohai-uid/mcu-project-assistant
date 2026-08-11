@@ -19,6 +19,7 @@ import type { ArtifactContentPort } from "@/src/ports/artifact-content";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { AnalysisProposalDto, ProposalType } from "@/src/shared-contracts/types";
+import { isFirmwareFilesPayload } from "@/src/application/capabilities/firmware";
 
 export class ProposalNotFoundError extends Error {
   constructor() {
@@ -81,9 +82,18 @@ export async function resolveProposal(
   const proposal = await deps.persistence.getProposal(input.proposalId);
   if (!proposal) throw new ProposalNotFoundError();
   if (input.decision === "accept") {
-    // OutdatedProposal 强制校验（accept 时 base 必须等于当前版本；禁止静默应用）
     const artifact = await deps.persistence.getArtifact(proposal.artifactId);
-    assertProposalCurrent(proposal, artifact?.currentVersionId ?? null);
+    if (proposal.type === "firmware" && isFirmwareFilesPayload(proposal.payload)) {
+      // S6 固件生成提案：base 校验对 pinmap（引脚变更 → 旧提案 OutdatedProposal 拒绝应用）；
+      // T2 = 写真实文件 + firmware/pinmap/wiring 联动版本（applyFirmwareAccept）
+      const pinmap = await deps.persistence.getArtifactByKind(proposal.projectId, "pinmap");
+      assertProposalCurrent(proposal, pinmap?.currentVersionId ?? null);
+      const { applyFirmwareAccept } = await import("@/src/application/capabilities/firmware");
+      await applyFirmwareAccept(proposal, deps);
+    } else {
+      // 普通提案（含 S5B revalidate 占位载荷）：base 必须等于自身 artifact 当前版本（禁止静默应用）
+      assertProposalCurrent(proposal, artifact?.currentVersionId ?? null);
+    }
   }
   const decided = decideProposal(proposal, input.decision, now);
   const currentVersionId = (await deps.persistence.getArtifact(proposal.artifactId))?.currentVersionId ?? null;

@@ -194,6 +194,13 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ capability: "revalidate_artifact", payload: kind ? { kind } : {} }),
     }),
+  // ---------- S6 Firmware Proposal ----------
+  generateFirmware: (projectId: string) =>
+    request<{ proposal: ProposalDto }>(`/api/v1/projects/${projectId}/commands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ capability: "generate_firmware", payload: {} }),
+    }),
 };
 
 export interface StaleMarkDto {

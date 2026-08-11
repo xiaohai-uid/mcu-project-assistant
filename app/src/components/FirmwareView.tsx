@@ -110,51 +110,55 @@ export const FirmwareView: React.FC = () => {
             </div>
           </div>
 
-          {/* 风险说明 */}
-          <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-200 text-xs mb-3">
-            <div className="font-semibold font-mono text-amber-600 dark:text-amber-400 mb-0.5">⚠️ {t(lang, "bootRiskTitle")}</div>
-            <p className="text-[11px] leading-relaxed">{t(lang, "bootRiskDesc")}</p>
-          </div>
+          {/* 风险说明（仅重映射提案；S6 真实 diff 数据） */}
+          {fw.proposal.bootRisk && (
+            <>
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-200 text-xs mb-3">
+                <div className="font-semibold font-mono text-amber-600 dark:text-amber-400 mb-0.5">⚠️ {t(lang, "bootRiskTitle")}</div>
+                <p className="text-[11px] leading-relaxed">{t(lang, "bootRiskDesc")}</p>
+              </div>
 
-          <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs mb-3">
-            <div className="font-semibold font-mono text-emerald-600 dark:text-emerald-400 mb-0.5">
-              {t(lang, "proposedRemapTitle").replace("IO12", fw.proposal.oldPin).replace("IO21", fw.proposal.newPin)}
-            </div>
-            <p className="text-[11px] leading-relaxed">
-              {t(lang, "proposedRemapDesc").replace("IO12", fw.proposal.oldPin).replace("IO21", fw.proposal.newPin)}
-            </p>
-          </div>
+              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs mb-3">
+                <div className="font-semibold font-mono text-emerald-600 dark:text-emerald-400 mb-0.5">
+                  {t(lang, "proposedRemapTitle").replace("IO12", fw.proposal.oldPin).replace("IO21", fw.proposal.newPin)}
+                </div>
+                <p className="text-[11px] leading-relaxed">
+                  {t(lang, "proposedRemapDesc").replace("IO12", fw.proposal.oldPin).replace("IO21", fw.proposal.newPin)}
+                </p>
+              </div>
 
-          {/* Diff 视图 */}
-          <div className="mb-3">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase font-mono">
-                {fw.proposal.file} · v{fw.proposal.versionFrom} → v{fw.proposal.versionTo}
-              </span>
-              <div className="flex gap-2">
-                <span className="px-1.5 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-mono">
-                  - {fw.proposal.oldPin}
-                </span>
-                <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[10px] font-mono">
-                  + {fw.proposal.newPin}
-                </span>
+              {/* Diff 视图 */}
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase font-mono">
+                    {fw.proposal.file} · v{fw.proposal.versionFrom} → v{fw.proposal.versionTo}
+                  </span>
+                  <div className="flex gap-2">
+                    <span className="px-1.5 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-mono">
+                      - {fw.proposal.oldPin}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[10px] font-mono">
+                      + {fw.proposal.newPin}
+                    </span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  <div className="rounded-md overflow-hidden border border-rose-500/20">
+                    <div className="px-2 py-1 bg-rose-500/10 text-[10px] font-mono text-rose-500">{t(lang, "diffOld")}</div>
+                    <pre className="p-2.5 text-[10px] font-mono leading-relaxed text-[var(--text-secondary)] overflow-x-auto bg-[var(--control-bg)]">
+                      {`#define PUMP_RELAY_PIN  ${fw.proposal.oldPin}`}
+                    </pre>
+                  </div>
+                  <div className="rounded-md overflow-hidden border border-emerald-500/20">
+                    <div className="px-2 py-1 bg-emerald-500/10 text-[10px] font-mono text-emerald-500">{t(lang, "diffNew")}</div>
+                    <pre className="p-2.5 text-[10px] font-mono leading-relaxed text-[var(--text-primary)] overflow-x-auto bg-[var(--control-bg)]">
+                      {`#define PUMP_RELAY_PIN  ${fw.proposal.newPin}`}
+                    </pre>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              <div className="rounded-md overflow-hidden border border-rose-500/20">
-                <div className="px-2 py-1 bg-rose-500/10 text-[10px] font-mono text-rose-500">{t(lang, "diffOld")}</div>
-                <pre className="p-2.5 text-[10px] font-mono leading-relaxed text-[var(--text-secondary)] overflow-x-auto bg-[var(--control-bg)]">
-                  {`#define PUMP_RELAY_PIN  ${fw.proposal.oldPin}`}
-                </pre>
-              </div>
-              <div className="rounded-md overflow-hidden border border-emerald-500/20">
-                <div className="px-2 py-1 bg-emerald-500/10 text-[10px] font-mono text-emerald-500">{t(lang, "diffNew")}</div>
-                <pre className="p-2.5 text-[10px] font-mono leading-relaxed text-[var(--text-primary)] overflow-x-auto bg-[var(--control-bg)]">
-                  {`#define PUMP_RELAY_PIN  ${fw.proposal.newPin}`}
-                </pre>
-              </div>
-            </div>
-          </div>
+            </>
+          )}
 
           {/* 影响 */}
           <div className="flex items-center gap-2">

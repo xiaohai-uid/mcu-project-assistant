@@ -28,10 +28,8 @@ import type {
   ThemeMode,
 } from "../types";
 import {
-  buildFirmwareCode,
   BUILD_DIAGNOSIS,
   DEFAULT_PROMPT,
-  makeFirmwareProposal,
   makeSerialLine,
   MCU_CANDIDATES,
   PERIPHERALS,
@@ -163,6 +161,7 @@ type Action =
   | { type: "PIN_EDITED"; component: string; pinId: string }
   | { type: "PINMAP_VERSIONS"; versions: AppState["pinmapVersions"] }
   | { type: "FW_GENERATING" }
+  | { type: "FW_RESET" }
   | { type: "FW_PROPOSAL"; p: AppState["firmware"]["proposal"] }
   | { type: "FW_ACCEPTED" }
   | { type: "FW_REJECTED" }
@@ -316,6 +315,7 @@ function reducer(state: AppState, a: Action): AppState {
     }
     case "PINMAP_VERSIONS": return { ...state, pinmapVersions: a.versions };
     case "FW_GENERATING": return { ...state, firmware: { ...state.firmware, stage: "generating" } };
+    case "FW_RESET": return { ...state, firmware: { ...state.firmware, stage: "idle", proposal: null } };
     case "FW_PROPOSAL": return { ...state, firmware: { ...state.firmware, stage: "proposal", proposal: a.p } };
     case "FW_ACCEPTED":
       return {
@@ -894,60 +894,108 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [s.project?.id, s.wiring.pinMappings, refreshStaleMarks, refreshPinmapVersions, pushSystem]
   );
 
-  // ---------- Firmware ----------
+  // ---------- Firmware（S6：真实 generate_firmware_proposal + resolve_proposal） ----------
 
   const generateFirmware = useCallback(() => {
+    const projectId = s.project?.id;
+    if (!projectId) return;
     dispatch({ type: "FW_GENERATING" });
+    // Progressive Swap（ISSUE-008 §5）：UI 模板/内存提案 → 真实 generate_firmware（只产出 Proposal，I-1）
     void (async () => {
-      await sleep(s.runtime.slowMode ? 2600 : 1100);
-      if (cancelRef.current.discovery) return;
-      const relay = s.wiring.pinMappings.find((p) => p.component.includes("Pump"));
-      const curPin = relay?.pinId?.replace("IO", "") ?? "12";
-      const versionFrom = s.firmware.version || 0;
-      const proposal =
-        curPin === "12"
-          ? makeFirmwareProposal(curPin, "21", versionFrom)
-          : makeFirmwareProposal(curPin, curPin === "5" ? "21" : "21", versionFrom); // 已有非 IO12 则仍给出对比提案
-      dispatch({ type: "FW_PROPOSAL", p: proposal });
-      dispatch({ type: "FW_CODE", code: buildFirmwareCode(proposal.newPin.replace("IO", "")), version: proposal.versionFrom });
-      pushCopilot({
-        sender: "copilot",
-        text: `Firmware generated. I found a boot risk: pump relay on ${proposal.oldPin} (strapping pin). Proposal: remap to ${proposal.newPin}. Review the diff.`,
-        warningNote: "Boot Conflict",
-        proposalCard: {
-          issueTitle: "Strapping Pin Conflict",
-          description: `Remap Pump Relay from ${proposal.oldPin} to ${proposal.newPin}`,
-          suggestedFix: "Update src/main.cpp and Wiring Diagram",
-        },
-      });
+      try {
+        const { proposal } = await clientApi.generateFirmware(projectId);
+        const diff = (proposal.diff ?? {}) as { oldPin?: string; newPin?: string; bootRisk?: boolean };
+        const files = JSON.parse(proposal.payload) as { "src/main.cpp": string };
+        const bootRisk = diff.bootRisk === true;
+        const oldPin = diff.oldPin ?? "IO12";
+        const newPin = diff.newPin ?? "IO21";
+        const versionFrom = s.firmware.version || 0;
+        dispatch({
+          type: "FW_PROPOSAL",
+          p: {
+            id: proposal.id,
+            title: bootRisk ? "Resolve GPIO Boot Conflict" : "Firmware Generation Review",
+            status: "pending",
+            bootRisk,
+            file: "src/main.cpp",
+            oldPin,
+            newPin,
+            oldCode: files["src/main.cpp"],
+            newCode: files["src/main.cpp"],
+            riskTitle: `Boot Issue Risk (${oldPin})`,
+            riskDetail:
+              "IO12 is an ESP32-S3 strapping pin. Pulling it high at reset forces 1.8V flash LDO configuration, potentially causing boot loops.",
+            impacts: proposal.impacts,
+            versionFrom,
+            versionTo: versionFrom + 1,
+          },
+        });
+        dispatch({ type: "FW_CODE", code: files["src/main.cpp"], version: versionFrom });
+        pushCopilot({
+          sender: "copilot",
+          text: bootRisk
+            ? `Firmware generated. I found a boot risk: pump relay on ${oldPin} (strapping pin). Proposal: remap to ${newPin}. Review the diff.`
+            : `Firmware generated from the current design (relay on ${newPin}, no boot risk). Review and accept to commit v${versionFrom + 1}.`,
+          warningNote: bootRisk ? "Boot Conflict" : undefined,
+          proposalCard: bootRisk
+            ? {
+                issueTitle: "Strapping Pin Conflict",
+                description: `Remap Pump Relay from ${oldPin} to ${newPin}`,
+                suggestedFix: "Update src/main.cpp and Wiring Diagram",
+              }
+            : undefined,
+        });
+      } catch (err) {
+        dispatch({ type: "FW_RESET" });
+        pushSystem(err instanceof ApiError ? `Firmware generation failed: ${err.code}` : "Firmware generation failed");
+      }
     })();
-  }, [s.runtime.slowMode, s.wiring.pinMappings, s.firmware.version, pushCopilot]);
+  }, [s.project?.id, s.firmware.version, pushCopilot, pushSystem]);
 
   const acceptFirmwareProposal = useCallback(() => {
     const p = s.firmware.proposal;
-    if (!p) return;
-    dispatch({ type: "FW_ACCEPTED" });
-    dispatch({ type: "ARTIFACT", kind: "firmware", status: "accepted", version: p.versionTo });
-    dispatch({ type: "ARTIFACT", kind: "wiring", status: "accepted", version: (s.artifacts.wiring.version || 0) + 1 });
-    dispatch({ type: "ARTIFACT", kind: "pinmap", status: "accepted", version: (s.artifacts.pinmap.version || 0) + 1 });
-    pushCopilot({
-      sender: "copilot",
-      text: `Proposal accepted! Pump Relay remapped ${p.oldPin} → ${p.newPin}. Firmware v${p.versionTo} committed. Wiring Diagram updated.`,
-    });
-  }, [s.firmware.proposal, s.artifacts.wiring, s.artifacts.pinmap, pushCopilot]);
+    const projectId = s.project?.id;
+    if (!p || !projectId) return;
+    // Progressive Swap（ISSUE-008 §5）：内存接受 → 真实 resolve_proposal（T2：写文件 + 联动版本）
+    void (async () => {
+      try {
+        await clientApi.resolveProposal(p.id, "accept");
+        dispatch({ type: "FW_ACCEPTED" });
+        dispatch({ type: "ARTIFACT", kind: "firmware", status: "accepted", version: p.versionTo });
+        dispatch({ type: "ARTIFACT", kind: "wiring", status: "accepted", version: (s.artifacts.wiring.version || 0) + 1 });
+        dispatch({ type: "ARTIFACT", kind: "pinmap", status: "accepted", version: (s.artifacts.pinmap.version || 0) + 1 });
+        // 联动版本已由服务端 T2 落库 → 刷新 marks/历史（接受本身解除 stale）
+        await refreshStaleMarks(projectId);
+        void refreshPinmapVersions();
+        pushCopilot({
+          sender: "copilot",
+          text: `Proposal accepted! Pump Relay remapped ${p.oldPin} → ${p.newPin}. Firmware v${p.versionTo} committed. Wiring Diagram updated.`,
+        });
+      } catch (err) {
+        pushSystem(err instanceof ApiError ? `Accept failed: ${err.code}` : "Accept failed");
+      }
+    })();
+  }, [s.firmware.proposal, s.project?.id, s.artifacts.wiring, s.artifacts.pinmap, refreshStaleMarks, refreshPinmapVersions, pushCopilot, pushSystem]);
 
   const rejectFirmwareProposal = useCallback(() => {
     const p = s.firmware.proposal;
-    dispatch({ type: "FW_REJECTED" });
-    if (p) {
-      dispatch({ type: "ARTIFACT", kind: "firmware", status: "warning", version: p.versionFrom });
-      pushCopilot({
-        sender: "copilot",
-        text: `Proposal rejected. Firmware v${p.versionFrom} kept with ${p.oldPin} (strapping risk remains — build may still succeed but boot behavior is not guaranteed).`,
-        warningNote: "Risk accepted by user",
-      });
-    }
-  }, [s.firmware.proposal, pushCopilot]);
+    const projectId = s.project?.id;
+    if (!p || !projectId) return;
+    void (async () => {
+      try {
+        await clientApi.resolveProposal(p.id, "reject");
+        dispatch({ type: "FW_REJECTED" });
+        dispatch({ type: "ARTIFACT", kind: "firmware", status: "warning", version: p.versionFrom });
+        pushCopilot({
+          sender: "copilot",
+          text: `Proposal rejected. Firmware v${p.versionFrom} kept with ${p.oldPin} (strapping risk remains — build may still succeed but boot behavior is not guaranteed).`,
+          warningNote: "Risk accepted by user",
+        });
+      } catch (err) {
+        pushSystem(err instanceof ApiError ? `Reject failed: ${err.code}` : "Reject failed");
+      }
+    })();
+  }, [s.firmware.proposal, s.project?.id, pushCopilot, pushSystem]);
 
   // ---------- Build ----------
 

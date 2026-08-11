@@ -178,6 +178,7 @@ export interface FirmwareProposal {
   id: string;
   title: string;
   status: ProposalDecision;
+  bootRisk?: boolean; // S6：真实提案 diff 是否含重映射/风险（无风险提案隐藏 Diff/风险区）
   // Diff 视图所需
   file: string;
   oldPin: string;
