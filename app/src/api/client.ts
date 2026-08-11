@@ -44,6 +44,29 @@ export interface ProjectDto {
   archivedReason: string | null;
 }
 
+export type ArtifactKindDto = "requirements" | "hardware" | "pinmap" | "wiring" | "firmware";
+
+export interface ArtifactDto {
+  id: string;
+  projectId: string;
+  kind: ArtifactKindDto;
+  currentVersionId: string | null;
+  createdAt: string;
+}
+
+export interface ArtifactVersionDto {
+  id: string;
+  artifactId: string;
+  versionNo: number;
+  contentRef: string;
+  contentHash: string;
+  status: "draft" | "accepted";
+  sourceKind: "manual" | "ai";
+  sourceProposalId: string | null;
+  createdAt: string;
+  createdBy: string;
+}
+
 export const api = {
   createProject: (name: string) =>
     request<ProjectDto>("/api/v1/projects", {
@@ -64,4 +87,21 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ confirmationToken }),
     }),
+  // ---------- S2 Artifacts / Versions ----------
+  ensureArtifact: (projectId: string, kind: ArtifactKindDto) =>
+    request<ArtifactDto>(`/api/v1/projects/${projectId}/artifacts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind }),
+    }),
+  listArtifacts: (projectId: string) => request<ArtifactDto[]>(`/api/v1/projects/${projectId}/artifacts`),
+  commitVersion: (artifactId: string, content: string) =>
+    request<ArtifactVersionDto>(`/api/v1/artifacts/${artifactId}/versions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    }),
+  listVersions: (artifactId: string) => request<ArtifactVersionDto[]>(`/api/v1/artifacts/${artifactId}/versions`),
+  getVersion: (versionId: string) =>
+    request<{ version: ArtifactVersionDto; content: string | null }>(`/api/v1/versions/${versionId}`),
 };

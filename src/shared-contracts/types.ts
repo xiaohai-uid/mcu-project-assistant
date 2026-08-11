@@ -8,3 +8,30 @@ export interface ProjectDto {
   archivedAt: string | null;
   archivedReason: string | null;
 }
+
+/** 5 种 Artifact 种类（spec §6；build/validation/debug 不是 Artifact） */
+export type ArtifactKind = "requirements" | "hardware" | "pinmap" | "wiring" | "firmware";
+
+export interface ArtifactDto {
+  id: string;
+  projectId: string;
+  kind: ArtifactKind;
+  currentVersionId: string | null;
+  createdAt: string;
+}
+
+export type ArtifactVersionStatus = "draft" | "accepted";
+export type ArtifactVersionSource = "manual" | "ai";
+
+export interface ArtifactVersionDto {
+  id: string;
+  artifactId: string;
+  versionNo: number;
+  contentRef: string;
+  contentHash: string;
+  status: ArtifactVersionStatus;
+  sourceKind: ArtifactVersionSource;
+  sourceProposalId: string | null;
+  createdAt: string;
+  createdBy: string;
+}

@@ -309,6 +309,15 @@ export interface AppState {
     verified: boolean;
   };
 
+  // S2：pinmap Artifact 版本历史（真实 capability commit_manual_edit 的 UI 呈现）
+  pinmapVersions: Array<{
+    id: string;
+    versionNo: number;
+    status: "draft" | "accepted";
+    sourceKind: "manual" | "ai";
+    createdAt: string;
+  }>;
+
   // Firmware 视图
   firmware: {
     stage: FirmwareStage;

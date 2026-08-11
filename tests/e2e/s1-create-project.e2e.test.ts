@@ -7,6 +7,8 @@ import type { Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AddressInfo } from "node:net";
 import { createApp } from "@/src/adapters/http/app";
+import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
+import { createNoopEvents } from "@/src/adapters/events/noop";
 import { openDatabase, type SqliteDb } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
@@ -29,7 +31,12 @@ afterAll(() => {
 async function startServer(): Promise<{ server: Server; db: SqliteDb; base: string; stop: () => Promise<void> }> {
   const db = openDatabase(dbPath);
   migrate(db);
-  const app = createApp({ persistence: createProjectStore(db), workspaceDir });
+  const app = createApp({
+    persistence: createProjectStore(db),
+    workspaceDir,
+    content: createWorkspaceFilesContent(workspaceDir),
+    events: createNoopEvents(),
+  });
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

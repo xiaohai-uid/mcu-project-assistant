@@ -1,15 +1,31 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { t } from "../lib/i18n";
 import { useApp } from "../state/AppContext";
+import { api as clientApi } from "../api/client";
 import { InfoBanner, PinEditor, StreamingDots } from "./ui";
 
 export const WiringGuidanceView: React.FC = () => {
-  const { state, verifyRules, generateFirmware, editPin, setSidebar } = useApp();
-  const { lang, wiring, artifacts } = state;
+  const { state, verifyRules, generateFirmware, editPin, setSidebar, refreshPinmapVersions } = useApp();
+  const { lang, wiring, artifacts, pinmapVersions, project } = state;
   const [zoomLevel, setZoomLevel] = useState(100);
   const [selectedPin, setSelectedPin] = useState<string | null>("IO4");
   const [editing, setEditing] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [openedVersion, setOpenedVersion] = useState<{ versionNo: number; content: string } | null>(null);
+
+  // S2：进入 Wiring 视图时加载 pinmap 版本历史（真实 capability；ISSUE-002 §5/§12）
+  useEffect(() => {
+    if (project) void refreshPinmapVersions();
+  }, [project, refreshPinmapVersions]);
+
+  const openVersion = async (versionId: string, versionNo: number) => {
+    try {
+      const detail = await clientApi.getVersion(versionId);
+      setOpenedVersion({ versionNo, content: detail.content ?? "{}" });
+    } catch {
+      setOpenedVersion({ versionNo, content: "{}" });
+    }
+  };
 
   const w = wiring;
   const pinmapStale = artifacts.pinmap.status === "stale";
@@ -49,6 +65,11 @@ export const WiringGuidanceView: React.FC = () => {
             ) : (
               <span className="px-2 py-0.5 rounded bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] text-[var(--text-secondary)] text-[11px] font-medium">
                 {t(lang, "rulesNotVerified")}
+              </span>
+            )}
+            {artifacts.pinmap.version > 0 && (
+              <span className="px-2 py-0.5 rounded bg-[#007aff]/10 border border-[#007aff]/20 text-[#007aff] dark:text-[#0a84ff] text-[11px] font-mono font-semibold">
+                v{artifacts.pinmap.version}
               </span>
             )}
           </div>
@@ -242,6 +263,44 @@ export const WiringGuidanceView: React.FC = () => {
                     })}
                   </tbody>
                 </table>
+              </div>
+
+              {/* S2：版本历史（真实 listVersions；点击打开不可变旧内容） */}
+              <div className="mt-4">
+                <div className="text-[11px] font-semibold text-[var(--text-primary)] mb-1.5 flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[14px] text-[#007aff] dark:text-[#0a84ff]">history</span>
+                  <span>{t(lang, "versionHistoryTitle")}</span>
+                </div>
+                {pinmapVersions.length === 0 ? (
+                  <p className="text-[11px] text-[var(--text-muted)]">{t(lang, "versionHistoryEmpty")}</p>
+                ) : (
+                  <ul className="divide-y divide-[var(--panel-border-subtle)] border border-[var(--panel-border-subtle)] rounded-md">
+                    {pinmapVersions.map((v) => (
+                      <li key={v.id} className="flex items-center justify-between px-2 py-1.5 text-[11px]">
+                        <span className="font-mono font-semibold text-[#007aff] dark:text-[#0a84ff]">v{v.versionNo}</span>
+                        <span className="text-[var(--text-secondary)]">
+                          {v.sourceKind === "manual" ? "manual" : "ai"} · {t(lang, "versionCreated")} {new Date(v.createdAt).toLocaleString()}
+                        </span>
+                        <button
+                          onClick={() => void openVersion(v.id, v.versionNo)}
+                          className="px-1.5 py-0.5 rounded text-[10px] mac-button-secondary"
+                        >
+                          {t(lang, "versionOpen")}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {openedVersion && (
+                  <div className="mt-2 p-2 bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] rounded-md">
+                    <div className="text-[10px] font-mono text-[var(--text-secondary)] mb-1">
+                      v{openedVersion.versionNo} · {t(lang, "versionOpen")}
+                    </div>
+                    <pre className="text-[10px] font-mono text-[var(--text-primary)] whitespace-pre-wrap max-h-40 overflow-auto">
+                      {openedVersion.content}
+                    </pre>
+                  </div>
+                )}
               </div>
 
               {/* 冲突卡 */}

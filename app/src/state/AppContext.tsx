@@ -91,6 +91,7 @@ function initialState(): AppState {
       issues: [],
       verified: false,
     },
+    pinmapVersions: [],
     firmware: {
       stage: "idle",
       code: "",
@@ -160,6 +161,7 @@ type Action =
   | { type: "WIRING_STAGE"; stage: AppState["wiring"]["stage"] }
   | { type: "WIRING_VERIFIED" }
   | { type: "PIN_EDITED"; component: string; pinId: string }
+  | { type: "PINMAP_VERSIONS"; versions: AppState["pinmapVersions"] }
   | { type: "FW_GENERATING" }
   | { type: "FW_PROPOSAL"; p: AppState["firmware"]["proposal"] }
   | { type: "FW_ACCEPTED" }
@@ -274,6 +276,7 @@ function reducer(state: AppState, a: Action): AppState {
       );
       return { ...state, wiring: { ...state.wiring, pinMappings: pins, issues } };
     }
+    case "PINMAP_VERSIONS": return { ...state, pinmapVersions: a.versions };
     case "FW_GENERATING": return { ...state, firmware: { ...state.firmware, stage: "generating" } };
     case "FW_PROPOSAL": return { ...state, firmware: { ...state.firmware, stage: "proposal", proposal: a.p } };
     case "FW_ACCEPTED":
@@ -342,6 +345,7 @@ interface AppApi {
   generatePins: () => void;
   verifyRules: () => void;
   editPin: (component: string, pinId: string) => void;
+  refreshPinmapVersions: () => Promise<void>;
   generateFirmware: () => void;
   acceptFirmwareProposal: () => void;
   rejectFirmwareProposal: () => void;
@@ -605,13 +609,51 @@ export function AppProvider({ children }: { children: ReactNode }) {
     })();
   }, [s.runtime.slowMode, s.wiring.issues, s.artifacts.wiring, s.artifacts.validation, pushCopilot]);
 
+  const refreshPinmapVersions = useCallback(async () => {
+    const projectId = s.project?.id;
+    if (!projectId) return;
+    try {
+      const artifact = await clientApi.ensureArtifact(projectId, "pinmap");
+      const versions = await clientApi.listVersions(artifact.id);
+      dispatch({
+        type: "PINMAP_VERSIONS",
+        versions: versions.map((v) => ({
+          id: v.id,
+          versionNo: v.versionNo,
+          status: v.status,
+          sourceKind: v.sourceKind,
+          createdAt: v.createdAt,
+        })),
+      });
+    } catch {
+      // 版本历史查询失败不打断视图（transport 错误由下一提交呈现）
+    }
+  }, [s.project?.id]);
+
   const editPin = useCallback(
     (component: string, pinId: string) => {
+      // Progressive Swap（ISSUE-002 §5）：内存版本 +1 → 真实 commit_manual_edit
+      // 手动编辑免 Proposal（I-11）；内容 = 编辑后的 pinMappings（S5A 前引脚数据仍为 Mock 来源，
+      // 但版本提交走真实 capability：SQLite 版本行 + Workspace 内容文件）
       dispatch({ type: "PIN_EDITED", component, pinId });
-      dispatch({ type: "ARTIFACT", kind: "pinmap", status: "accepted", version: (s.artifacts.pinmap.version || 0) + 1 });
-      pushSystem(`Manual pin edit: ${component} → ${pinId}. Pin Map v${s.artifacts.pinmap.version + 1}.`);
+      const nextMappings = s.wiring.pinMappings.map((p) =>
+        p.component === component ? { ...p, pinId } : p
+      );
+      void (async () => {
+        const projectId = s.project?.id;
+        if (!projectId) return;
+        try {
+          const artifact = await clientApi.ensureArtifact(projectId, "pinmap");
+          const version = await clientApi.commitVersion(artifact.id, JSON.stringify(nextMappings, null, 2));
+          dispatch({ type: "ARTIFACT", kind: "pinmap", status: "accepted", version: version.versionNo });
+          pushSystem(`Manual pin edit committed: ${component} → ${pinId}. Pin Map v${version.versionNo}.`);
+          void refreshPinmapVersions();
+        } catch (err) {
+          pushSystem(err instanceof ApiError ? `Commit failed: ${err.code}` : "Commit failed");
+        }
+      })();
     },
-    [s.artifacts.pinmap, pushSystem]
+    [s.project?.id, s.wiring.pinMappings, pushSystem, refreshPinmapVersions]
   );
 
   // ---------- Firmware ----------
@@ -867,6 +909,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       archiveProject,
       setNav,
       setSidebar,
+      editPin,
+      refreshPinmapVersions,
       startDiscovery,
       cancelDiscovery,
       answerClarification,
@@ -876,7 +920,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       selectMcu,
       generatePins,
       verifyRules,
-      editPin,
       generateFirmware,
       acceptFirmwareProposal,
       rejectFirmwareProposal,
@@ -898,7 +941,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       s, createProject, openProject, archiveProject, setNav, setSidebar,
       startDiscovery, cancelDiscovery, answerClarification, skipClarification,
       setProposalDecision, proceedToHardware, selectMcu, generatePins, verifyRules,
-      editPin, generateFirmware, acceptFirmwareProposal, rejectFirmwareProposal,
+      editPin, refreshPinmapVersions, generateFirmware, acceptFirmwareProposal, rejectFirmwareProposal,
       startBuild, cancelBuild, retryBuild, runDiagnosis, applyFix, detectBoard,
       sendSerial, simulateMoisture, togglePump, flashDevice, revalidateAll,
       sendCopilotMessage, runScenario,

@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { createApp, type AppDeps } from "@/src/adapters/http/app";
+import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
+import { createNoopEvents } from "@/src/adapters/events/noop";
 import { openDatabase, type SqliteDb } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
@@ -16,9 +18,12 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "mcu-s1-http-"));
   db = openDatabase(join(dir, "test.db"));
   migrate(db);
+  const ws = join(dir, "ws");
   const deps: AppDeps = {
     persistence: createProjectStore(db),
-    workspaceDir: join(dir, "ws"),
+    workspaceDir: ws,
+    content: createWorkspaceFilesContent(ws),
+    events: createNoopEvents(),
     now: () => new Date("2026-08-11T12:00:00.000Z"),
   };
   app = createApp(deps);

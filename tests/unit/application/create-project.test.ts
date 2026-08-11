@@ -23,11 +23,22 @@ function fakePersistence(): PersistencePort & { rows: Map<string, import("@/src/
         },
         getProject: (id) => rows.get(id) ?? null,
         listProjects: () => [...rows.values()],
+        // S2 扩展的 UoW 方法：本测试（S1 能力）不使用，留最小 no-op
+        createArtifact: () => {},
+        setCurrentVersion: () => {},
+        createVersion: () => {},
+        setVersionStatus: () => {},
       };
       return fn(uow);
     },
     getProject: async (id) => rows.get(id) ?? null,
     listProjects: async () => [...rows.values()],
+    // S2 扩展的只读方法：本测试不使用，留最小 no-op
+    getArtifact: async () => null,
+    getArtifactByKind: async () => null,
+    listArtifacts: async () => [],
+    getVersion: async () => null,
+    listVersions: async () => [],
   };
   return { ...port, rows };
 }

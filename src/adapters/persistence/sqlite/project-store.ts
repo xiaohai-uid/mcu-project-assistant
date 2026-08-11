@@ -1,5 +1,7 @@
-// adapters/persistence/sqlite/project-store.ts — PersistencePort 的 SQLite 实现
+// adapters/persistence/sqlite/project-store.ts — PersistencePort 的 SQLite 实现（S1 projects + S2 artifacts/versions）
+import type { Artifact, ArtifactVersion } from "@/src/domain/models/artifact";
 import type { Project } from "@/src/domain/models/project";
+import type { ArtifactKind, ArtifactVersionStatus } from "@/src/shared-contracts/types";
 import type { PersistencePort, UnitOfWork } from "@/src/ports/persistence";
 import type { SqliteDb } from "./connection";
 
@@ -9,6 +11,27 @@ interface ProjectRow {
   created_at: string;
   archived_at: string | null;
   archived_reason: string | null;
+}
+
+interface ArtifactRow {
+  id: string;
+  project_id: string;
+  kind: string;
+  current_version_id: string | null;
+  created_at: string;
+}
+
+interface ArtifactVersionRow {
+  id: string;
+  artifact_id: string;
+  version_no: number;
+  content_ref: string;
+  content_hash: string;
+  status: string;
+  source_kind: string;
+  source_proposal_id: string | null;
+  created_at: string;
+  created_by: string;
 }
 
 function toProject(row: ProjectRow): Project {
@@ -21,6 +44,31 @@ function toProject(row: ProjectRow): Project {
   };
 }
 
+function toArtifact(row: ArtifactRow): Artifact {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    kind: row.kind as ArtifactKind,
+    currentVersionId: row.current_version_id,
+    createdAt: row.created_at,
+  };
+}
+
+function toArtifactVersion(row: ArtifactVersionRow): ArtifactVersion {
+  return {
+    id: row.id,
+    artifactId: row.artifact_id,
+    versionNo: row.version_no,
+    contentRef: row.content_ref,
+    contentHash: row.content_hash,
+    status: row.status as ArtifactVersionStatus,
+    sourceKind: row.source_kind as ArtifactVersion["sourceKind"],
+    sourceProposalId: row.source_proposal_id,
+    createdAt: row.created_at,
+    createdBy: row.created_by,
+  };
+}
+
 export function createProjectStore(db: SqliteDb): PersistencePort {
   const insert = db.prepare(
     "INSERT INTO projects (id, name, created_at, archived_at, archived_reason) VALUES (@id, @name, @created_at, @archived_at, @archived_reason)",
@@ -30,6 +78,29 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
   );
   const selectById = db.prepare("SELECT * FROM projects WHERE id = ?");
   const selectAll = db.prepare("SELECT * FROM projects ORDER BY created_at ASC");
+
+  const insertArtifact = db.prepare(
+    "INSERT INTO artifacts (id, project_id, kind, current_version_id, created_at) VALUES (@id, @project_id, @kind, @current_version_id, @created_at)",
+  );
+  const updateCurrentVersion = db.prepare(
+    "UPDATE artifacts SET current_version_id = ? WHERE id = ?",
+  );
+  const selectArtifact = db.prepare("SELECT * FROM artifacts WHERE id = ?");
+  const selectArtifactByKind = db.prepare(
+    "SELECT * FROM artifacts WHERE project_id = ? AND kind = ?",
+  );
+  const selectArtifacts = db.prepare("SELECT * FROM artifacts WHERE project_id = ? ORDER BY created_at ASC");
+
+  const insertVersion = db.prepare(
+    `INSERT INTO artifact_versions
+       (id, artifact_id, version_no, content_ref, content_hash, status, source_kind, source_proposal_id, created_at, created_by)
+     VALUES (@id, @artifact_id, @version_no, @content_ref, @content_hash, @status, @source_kind, @source_proposal_id, @created_at, @created_by)`,
+  );
+  const updateVersionStatus = db.prepare("UPDATE artifact_versions SET status = ? WHERE id = ?");
+  const selectVersion = db.prepare("SELECT * FROM artifact_versions WHERE id = ?");
+  const selectVersions = db.prepare(
+    "SELECT * FROM artifact_versions WHERE artifact_id = ? ORDER BY version_no ASC",
+  );
 
   const uow: UnitOfWork = {
     createProject(p: Project): void {
@@ -51,6 +122,35 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     listProjects(): Project[] {
       return (selectAll.all() as ProjectRow[]).map(toProject);
     },
+    createArtifact(a: Artifact): void {
+      insertArtifact.run({
+        id: a.id,
+        project_id: a.projectId,
+        kind: a.kind,
+        current_version_id: a.currentVersionId,
+        created_at: a.createdAt,
+      });
+    },
+    setCurrentVersion(artifactId: string, versionId: string): void {
+      updateCurrentVersion.run(versionId, artifactId);
+    },
+    createVersion(v: ArtifactVersion): void {
+      insertVersion.run({
+        id: v.id,
+        artifact_id: v.artifactId,
+        version_no: v.versionNo,
+        content_ref: v.contentRef,
+        content_hash: v.contentHash,
+        status: v.status,
+        source_kind: v.sourceKind,
+        source_proposal_id: v.sourceProposalId,
+        created_at: v.createdAt,
+        created_by: v.createdBy,
+      });
+    },
+    setVersionStatus(id: string, status: ArtifactVersionStatus): void {
+      updateVersionStatus.run(status, id);
+    },
   };
 
   return {
@@ -60,5 +160,21 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     },
     getProject: async (id: string) => uow.getProject(id),
     listProjects: async () => uow.listProjects(),
+    getArtifact: async (id: string) => {
+      const row = selectArtifact.get(id) as ArtifactRow | undefined;
+      return row ? toArtifact(row) : null;
+    },
+    getArtifactByKind: async (projectId: string, kind: ArtifactKind) => {
+      const row = selectArtifactByKind.get(projectId, kind) as ArtifactRow | undefined;
+      return row ? toArtifact(row) : null;
+    },
+    listArtifacts: async (projectId: string) =>
+      (selectArtifacts.all(projectId) as ArtifactRow[]).map(toArtifact),
+    getVersion: async (id: string) => {
+      const row = selectVersion.get(id) as ArtifactVersionRow | undefined;
+      return row ? toArtifactVersion(row) : null;
+    },
+    listVersions: async (artifactId: string) =>
+      (selectVersions.all(artifactId) as ArtifactVersionRow[]).map(toArtifactVersion),
   };
 }

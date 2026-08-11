@@ -3,6 +3,8 @@ import type { NextFunction, Request, Response } from "express";
 
 export type ErrorCode =
   | "invalid_name"
+  | "invalid_kind"
+  | "invalid_content"
   | "not_found"
   | "confirmation_missing"
   | "confirmation_invalid"

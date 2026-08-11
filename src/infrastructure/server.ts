@@ -2,6 +2,8 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { createApp } from "@/src/adapters/http/app";
+import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
+import { createNoopEvents } from "@/src/adapters/events/noop";
 import { openDatabase } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
@@ -15,7 +17,12 @@ mkdirSync(config.workspaceDir, { recursive: true });
 const db = openDatabase(config.dbPath);
 migrate(db);
 
-const app = createApp({ persistence: createProjectStore(db), workspaceDir: config.workspaceDir });
+const app = createApp({
+  persistence: createProjectStore(db),
+  workspaceDir: config.workspaceDir,
+  content: createWorkspaceFilesContent(config.workspaceDir),
+  events: createNoopEvents(),
+});
 
 app.listen(config.port, config.host, () => {
   console.log(`MCU Project Assistant local server listening on http://${config.host}:${config.port}`);

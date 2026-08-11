@@ -1,5 +1,5 @@
 // adapters/persistence/sqlite/migrations.ts — 版本化迁移（schema 随 Slice 增长）
-// S1 仅 projects 表（ISSUE-001 §8）；禁止一次性建未来 Slice 的表。
+// S1 仅 projects 表；S2 增 artifacts + artifact_versions（ISSUE-002 §8）；禁止一次性建未来 Slice 的表。
 import type { SqliteDb } from "./connection";
 
 const MIGRATIONS: Array<{ version: number; name: string; sql: string }> = [
@@ -14,6 +14,40 @@ CREATE TABLE projects (
   archived_at TEXT NULL,
   archived_reason TEXT NULL
 );
+`,
+  },
+  {
+    version: 2,
+    name: "create_artifacts",
+    sql: `
+CREATE TABLE artifacts (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  kind TEXT NOT NULL CHECK (kind IN ('requirements','hardware','pinmap','wiring','firmware')),
+  current_version_id TEXT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE (project_id, kind)
+);
+CREATE TABLE artifact_versions (
+  id TEXT PRIMARY KEY,
+  artifact_id TEXT NOT NULL REFERENCES artifacts(id),
+  version_no INTEGER NOT NULL,
+  content_ref TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('draft','accepted')),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('manual','ai')),
+  source_proposal_id TEXT NULL,
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  UNIQUE (artifact_id, version_no)
+);
+CREATE INDEX idx_versions_artifact ON artifact_versions(artifact_id, version_no);
+-- I-2 不可变：content 字段创建后禁改（防篡改；对内容字段的 UPDATE 被拒绝）
+CREATE TRIGGER artifact_versions_immutable
+BEFORE UPDATE OF content_ref, content_hash ON artifact_versions
+BEGIN
+  SELECT RAISE(ABORT, 'artifact_versions content is immutable (I-2)');
+END;
 `,
   },
 ];
