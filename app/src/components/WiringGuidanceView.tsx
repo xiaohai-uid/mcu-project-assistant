@@ -78,9 +78,11 @@ export const WiringGuidanceView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* S10：PDF 导出不在 M1 能力范围（implementation-spec §19 Out of Scope）——禁用而非 mock 假成功 */}
           <button
-            onClick={() => alert(t(lang, "exportPdfDone"))}
-            className="px-3 py-1.5 mac-button-secondary rounded-md text-xs text-[var(--text-primary)] flex items-center gap-1.5"
+            disabled
+            title={t(lang, "exportPdfUnavailable")}
+            className="px-3 py-1.5 mac-button-secondary rounded-md text-xs text-[var(--text-primary)] flex items-center gap-1.5 disabled:opacity-50"
           >
             <span className="material-symbols-outlined text-[15px]">picture_as_pdf</span>
             <span>{t(lang, "exportPdf")}</span>

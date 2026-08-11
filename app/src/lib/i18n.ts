@@ -171,7 +171,7 @@ const en = {
   versionHistoryEmpty: "No versions yet — edit a pin to commit v1.",
   versionOpen: "Open",
   versionCreated: "Created",
-  exportPdfDone: "PDF exported (mock)",
+  exportPdfUnavailable: "PDF export is not available in this build.",
   verifyDone: "Rules verification complete",
   verifyResultClean: "All electrical rules passed",
   verifyResultIssues: "{count} issue(s) found — review before generating firmware",
@@ -253,7 +253,7 @@ const en = {
   deviceConnected: "Connected",
   flashToDevice: "Flash current firmware",
   calibrate: "Calibrate",
-  calibration: "Calibration (mock)",
+  calibration: "Calibration",
 
   // Settings View
   configCategory: "Configuration",
@@ -351,7 +351,7 @@ const en = {
   projectLastEdit: "Last Edit",
   projectSize: "Size",
   deleteProject: "Delete",
-  deleteConfirm: "Delete project? This cannot be undone (mock).",
+  deleteConfirm: "Archive project? It will no longer appear in the list.",
   helpTitle: "MCU Project Assistant Workspace Help",
   helpBody:
     "- Use Requirements tab for discovery.\n- Hardware tab to choose candidate MCUs.\n- Wiring tab to verify pin assignments.\n- Firmware tab to inspect code diff proposals.",
@@ -512,7 +512,7 @@ const zh: Record<TranslationKey, string> = {
   versionHistoryEmpty: "暂无版本——编辑引脚后提交 v1。",
   versionOpen: "打开",
   versionCreated: "创建于",
-  exportPdfDone: "PDF 已导出（模拟）",
+  exportPdfUnavailable: "PDF 导出在当前版本中不可用。",
   verifyDone: "规则校验完成",
   verifyResultClean: "全部电气规则通过",
   verifyResultIssues: "发现 {count} 个问题——生成固件前请先处理",
@@ -588,7 +588,7 @@ const zh: Record<TranslationKey, string> = {
   deviceConnected: "已连接",
   flashToDevice: "烧录当前固件",
   calibrate: "校准",
-  calibration: "校准（模拟）",
+  calibration: "校准",
   configCategory: "工作区配置",
   settingsTitle: "工作区设置与目标配置",
   settingsSubtitle:
@@ -679,7 +679,7 @@ const zh: Record<TranslationKey, string> = {
   projectLastEdit: "最近编辑",
   projectSize: "大小",
   deleteProject: "删除",
-  deleteConfirm: "删除项目？此操作不可撤销（模拟）。",
+  deleteConfirm: "归档项目？归档后将不再显示在列表中。",
   helpTitle: "MCU 项目助手工作区帮助",
   helpBody:
     "- 使用【需求分析】标签进行硬件需求挖掘。\n- 【硬件选型】标签选择目标 MCU 芯片。\n- 【引脚连线】标签校验引脚分配与冲突。\n- 【固件代码】标签查看 Copilot 提案与代码差异。",

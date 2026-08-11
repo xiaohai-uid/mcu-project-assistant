@@ -1,6 +1,6 @@
 // ============================================================
-// AppContext — Mock 应用状态容器
-// reducer + 异步动作（编排 mock/engine 脚本）+ State Lab 场景
+// AppContext — 应用状态容器（Progressive Swap 完成态，S10）
+// reducer + 异步动作（编排真实 HTTP/SSE API）+ State Lab 场景
 // ============================================================
 import {
   createContext,
@@ -29,8 +29,6 @@ import type {
 } from "../types";
 import {
   DEFAULT_PROMPT,
-  MCU_CANDIDATES,
-  PERIPHERALS,
   sleep,
 } from "../mock/engine";
 import { format, getInitialLanguage, getInitialTheme } from "../lib/i18n";
@@ -72,8 +70,9 @@ function initialState(): AppState {
       nextFails: false,
       partialNext: false,
     },
-    candidates: MCU_CANDIDATES,
-    peripherals: PERIPHERALS,
+    // S10：候选/外设由真实 /recommend-mcu 填充（HardwareSelectionView mount 时拉取），无 mock 占位
+    candidates: [],
+    peripherals: [],
     selectedMcu: "",
     wiring: {
       stage: "idle",

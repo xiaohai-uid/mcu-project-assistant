@@ -1,7 +1,7 @@
 # Implementation Spec v2 — Milestone 1: ESP32-S3 Golden Journey（Spec Hardening 后）
 
 > 日期：2026-08-11（v2：Spec Hardening 修正——Runtime 评审、API/Port/表压缩、SSE 最小化、Companion 收紧、Vertical Slice Sequence）
-> 状态：Hardening 完成 → **SPEC FROZEN**（spec-hardening-review.md 十项门禁 PASS）
+> 状态：Hardening 完成 → **SPEC FROZEN**（spec-hardening-review.md 十项门禁 PASS）；**S10 完成**（2026-08-12：S1-S9 全部落地 + Progressive Swap 完成态核查 + 旧目录删除，见 ISSUE-012 Delivery Record）
 > 上游：CONTRACT FROZEN（7 Decisions + 22 Interactions + 21 Capabilities + 8 Domain Objects + Stale + Events）+ ARCHITECTURE FROZEN（ADR 0003-0013）
 > 目标：**一个能力较弱的 AI，只阅读本 Spec + 仓库规范，就能按 Vertical Slice 顺序实现系统，无需重新设计产品与架构。**
 > 技术栈（**已评审定案**）：TypeScript / Node 20 单运行时（ADR-0013 + adr-typescript-runtime-review.md；V2 纯逻辑模块 TS 移植、测试 1:1 搬运为验收门；单模块移植失败才按需建 Engineering Port——不预建）。

@@ -26,9 +26,6 @@ export const TopNavBar: React.FC = () => {
           </div>
           <span className="font-semibold text-xs text-[var(--text-primary)] tracking-tight flex items-center gap-1.5">
             {t(lang, "appTitle")}
-            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[var(--control-bg)] text-[var(--text-secondary)] border border-[var(--panel-border-subtle)]">
-              mock
-            </span>
           </span>
         </div>
 
