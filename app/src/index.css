@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    /* System Font Stack */
+    --font-apple-system: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-apple-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+
+  /* Default Light Mode Vars */
+  :root, .light {
+    color-scheme: light;
+    --canvas-bg: #f5f5f7;
+    --sidebar-bg: rgba(238, 238, 242, 0.78);
+    --panel-bg: rgba(255, 255, 255, 0.85);
+    --panel-solid: #ffffff;
+    --panel-border: rgba(0, 0, 0, 0.08);
+    --panel-border-subtle: rgba(0, 0, 0, 0.05);
+    --text-primary: #1d1d1f;
+    --text-secondary: #86868b;
+    --text-muted: #a1a1a6;
+    --accent-blue: #007aff;
+    --accent-blue-hover: #0062cc;
+    --accent-blue-light: rgba(0, 122, 255, 0.08);
+    --control-bg: rgba(0, 0, 0, 0.04);
+    --control-hover: rgba(0, 0, 0, 0.07);
+    --card-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);
+  }
+
+  /* Dark Mode Vars */
+  .dark {
+    color-scheme: dark;
+    --canvas-bg: #161618;
+    --sidebar-bg: rgba(30, 30, 34, 0.8);
+    --panel-bg: rgba(38, 38, 42, 0.85);
+    --panel-solid: #222226;
+    --panel-border: rgba(255, 255, 255, 0.08);
+    --panel-border-subtle: rgba(255, 255, 255, 0.05);
+    --text-primary: #f5f5f7;
+    --text-secondary: #98989d;
+    --text-muted: #6e6e73;
+    --accent-blue: #0a84ff;
+    --accent-blue-hover: #409cff;
+    --accent-blue-light: rgba(10, 132, 255, 0.12);
+    --control-bg: rgba(255, 255, 255, 0.06);
+    --control-hover: rgba(255, 255, 255, 0.1);
+    --card-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  }
+
+  body {
+    background-color: var(--canvas-bg);
+    color: var(--text-primary);
+    font-family: var(--font-apple-system);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  /* macOS Style Translucent / Glass Classes */
+  .mac-glass {
+    background-color: var(--panel-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--panel-border);
+  }
+
+  .mac-sidebar {
+    background-color: var(--sidebar-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-right: 1px solid var(--panel-border);
+  }
+
+  .mac-card {
+    background-color: var(--panel-solid);
+    border: 1px solid var(--panel-border);
+    box-shadow: var(--card-shadow);
+    border-radius: 0.75rem; /* 12px macOS standard */
+  }
+
+  .mac-button-primary {
+    background-color: var(--accent-blue);
+    color: #ffffff;
+    font-weight: 500;
+    transition: background-color 0.15s ease, transform 0.1s ease;
+  }
+  .mac-button-primary:hover {
+    background-color: var(--accent-blue-hover);
+  }
+
+  .mac-button-secondary {
+    background-color: var(--control-bg);
+    color: var(--text-primary);
+    border: 1px solid var(--panel-border-subtle);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .mac-button-secondary:hover {
+    background-color: var(--control-hover);
+  }
+
+  /* macOS Refined Scrollbars */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(140, 140, 145, 0.3);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(140, 140, 145, 0.5);
+  }
+}
+
+.w-copilot-width {
+  width: 320px;
+}
+
+.mr-copilot-width {
+  margin-right: 320px;
+}
+
+.font-code {
+  font-family: var(--font-apple-mono);
+}

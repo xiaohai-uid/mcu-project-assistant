@@ -12,3 +12,11 @@ __pycache__/
 *.local
 *.tsbuildinfo
 .gitnexus/
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Runtime data (local-first workspace + db live outside the repo)
+data/
+workspace/
