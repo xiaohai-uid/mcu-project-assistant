@@ -61,6 +61,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
         claimNextTask: () => null,
         createProposal: (p) => void mem.proposals.set(p.id, p),
         resolveProposal: (p) => void mem.proposals.set(p.id, p),
+        createValidationRecord: () => {},
       };
       return fn(uow);
     },
@@ -75,6 +76,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
       [...mem.versions.values()].filter((v) => v.artifactId === artifactId).sort((a, b) => a.versionNo - b.versionNo),
     getTask: async () => null,
     latestTaskOutput: async () => null,
+    latestValidation: async () => null,
     getProposal: async (id) => mem.proposals.get(id) ?? null,
     listProposals: async (projectId) =>
       [...mem.proposals.values()].filter((p) => p.projectId === projectId),

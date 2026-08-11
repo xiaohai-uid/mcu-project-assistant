@@ -74,6 +74,17 @@ export interface RequirementAnalysisOutput {
   proposals: AnalysisProposalDto[];
 }
 
+export interface ValidationRecordDto {
+  id: string;
+  artifactVersionId: string;
+  kind: string;
+  rules: string[];
+  result: "pass" | "warn" | "fail";
+  diagnostics: Array<{ code: string; severity: string; message: string; details?: Record<string, unknown> }>;
+  startedAt: string;
+  completedAt: string | null;
+}
+
 export type ProposalType = "requirement" | "firmware" | "dependency";
 export type ProposalStatus = "pending" | "accepted" | "rejected";
 

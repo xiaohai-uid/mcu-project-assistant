@@ -147,6 +147,28 @@ export const api = {
         body: JSON.stringify({ capability: "recommend_mcu", payload: {} }),
       },
     ),
+  generatePinMap: (projectId: string) =>
+    request<{
+      artifact: ArtifactDto;
+      version: ArtifactVersionDto;
+      pinMap: Array<{ component: string; pinId: string; type: string }>;
+      issues: Array<{ pinId: string; severity: "warning" | "error"; title: string; detail: string }>;
+    }>(`/api/v1/projects/${projectId}/commands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ capability: "generate_pin_map", payload: {} }),
+    }),
+  validateWiring: (versionId: string) =>
+    request<{
+      id: string;
+      artifactVersionId: string;
+      kind: string;
+      rules: string[];
+      result: "pass" | "warn" | "fail";
+      diagnostics: Array<{ code: string; severity: string; message: string; details?: Record<string, unknown> }>;
+      startedAt: string;
+      completedAt: string | null;
+    }>(`/api/v1/versions/${versionId}/validations`, { method: "POST" }),
   selectMcu: (projectId: string, mcuId: string) =>
     request<{ artifact: ArtifactDto; version: ArtifactVersionDto; changed: boolean }>(
       `/api/v1/projects/${projectId}/commands`,

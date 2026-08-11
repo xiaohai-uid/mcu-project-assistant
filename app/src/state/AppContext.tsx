@@ -19,6 +19,8 @@ import type {
   CopilotChatMessage,
   DiscoveredRequirement,
   Language,
+  PinIssue,
+  PinMapping,
   RequirementProposal,
   NavigationTab,
   ProposalDecision,
@@ -739,43 +741,80 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ---------- Wiring ----------
 
   const generatePins = useCallback(() => {
+    const projectId = s.project?.id;
+    if (!projectId) return;
     dispatch({ type: "WIRING_STAGE", stage: "generating" });
+    // Progressive Swap（ISSUE-006 §5）：内存分配 → 真实 generate_pin_map（constraint-engine 求值）
     void (async () => {
-      await sleep(s.runtime.slowMode ? 2400 : 900);
-      if (cancelRef.current.discovery) return;
-      const { pins, issues } = autoAssignPins(s.selectedMcu);
-      dispatch({ type: "WIRING_GENERATED", pins, issues });
-      const pinmapVersion = (s.artifacts.pinmap.version || 0) + 1;
-      dispatch({ type: "ARTIFACT", kind: "pinmap", status: issues.length ? "warning" : "accepted", version: pinmapVersion });
-      if (issues.length) {
-        dispatch({ type: "ARTIFACT", kind: "wiring", status: "draft", version: 0 });
-        pushCopilot({
-          sender: "copilot",
-          text: `Pin assignment generated: ${pins.length} mappings. ⚠️ Strapping pin conflict detected on IO12 (pump relay). I can propose a remap during firmware generation.`,
-          warningNote: "Strapping Pin Conflict",
+      try {
+        const result = await clientApi.generatePinMap(projectId);
+        dispatch({
+          type: "WIRING_GENERATED",
+          pins: result.pinMap.map((p) => ({
+            component: p.component,
+            pinId: p.pinId,
+            type: p.type as PinMapping["type"],
+            colorDot: p.type === "I2C" ? "#a855f7" : p.type === "Analog" ? "#3b82f6" : "#ef4444",
+          })),
+          issues: result.issues.map((i) => ({
+            pinId: i.pinId,
+            severity: i.severity,
+            title: i.title,
+            detail: i.detail,
+          })),
         });
-      } else {
-        pushCopilot({ sender: "copilot", text: `Pin assignment generated for ${s.selectedMcu}: ${pins.length} mappings, no conflicts.` });
+        dispatch({
+          type: "ARTIFACT",
+          kind: "pinmap",
+          status: result.issues.length ? "warning" : "accepted",
+          version: result.version.versionNo,
+        });
+        dispatch({ type: "PINMAP_VERSIONS", versions: [] }); // 刷新历史由列表接口承担
+        if (result.issues.length) {
+          dispatch({ type: "ARTIFACT", kind: "wiring", status: "draft", version: 0 });
+          pushCopilot({
+            sender: "copilot",
+            text: `Pin assignment generated: ${result.pinMap.length} mappings. ⚠️ Strapping pin conflict detected on IO12 (pump relay). I can propose a remap during firmware generation.`,
+            warningNote: "Strapping Pin Conflict",
+          });
+        } else {
+          pushCopilot({ sender: "copilot", text: `Pin assignment generated for ${s.selectedMcu}: ${result.pinMap.length} mappings, no conflicts.` });
+        }
+      } catch (err) {
+        dispatch({ type: "WIRING_STAGE", stage: "error" });
+        pushSystem(err instanceof ApiError ? `Pin map failed: ${err.code}` : "Pin map failed");
       }
     })();
-  }, [s.runtime.slowMode, s.selectedMcu, s.artifacts.pinmap, pushCopilot]);
+  }, [s.project?.id, s.selectedMcu, pushCopilot, pushSystem]);
 
   const verifyRules = useCallback(() => {
+    const projectId = s.project?.id;
+    if (!projectId) return;
+    // Progressive Swap（ISSUE-006 §5）：内存提示 → 真实 validate_wiring（ValidationRecord 落库；I-7 未运行≠通过）
     void (async () => {
-      await sleep(s.runtime.slowMode ? 2000 : 700);
-      dispatch({ type: "WIRING_VERIFIED" });
-      const issues = s.wiring.issues;
-      const v = (s.artifacts.wiring.version || 0) + 1;
-      dispatch({ type: "ARTIFACT", kind: "wiring", status: issues.length ? "warning" : "validated", version: v });
-      dispatch({ type: "ARTIFACT", kind: "validation", status: "validated", version: (s.artifacts.validation.version || 0) + 1 });
-      pushCopilot({
-        sender: "copilot",
-        text: issues.length
-          ? `Rules verification complete: ${issues.length} issue(s) found (IO12 strapping). Firmware generation will propose a fix.`
-          : "Rules verification complete: all electrical rules passed.",
-      });
+      try {
+        const pinmap = await clientApi.ensureArtifact(projectId, "pinmap");
+        const versions = await clientApi.listVersions(pinmap.id);
+        const current = versions[versions.length - 1];
+        if (!current) return;
+        const record = await clientApi.validateWiring(current.id);
+        const issues = record.diagnostics
+          .filter((d) => d.code === "STRAPPING_PIN_USAGE")
+          .map((d) => ({ pinId: String(d.details?.pin ?? ""), severity: d.severity as PinIssue["severity"], title: "Strapping pin conflict", detail: d.message }));
+        dispatch({ type: "WIRING_VERIFIED" });
+        dispatch({ type: "ARTIFACT", kind: "wiring", status: record.result === "pass" ? "validated" : "warning", version: (s.artifacts.wiring.version || 0) + 1 });
+        dispatch({ type: "ARTIFACT", kind: "validation", status: "validated", version: (s.artifacts.validation.version || 0) + 1 });
+        pushCopilot({
+          sender: "copilot",
+          text: issues.length
+            ? `Rules verification complete: ${issues.length} issue(s) found (IO12 strapping). Firmware generation will propose a fix.`
+            : "Rules verification complete: all electrical rules passed.",
+        });
+      } catch (err) {
+        pushSystem(err instanceof ApiError ? `Verification failed: ${err.code}` : "Verification failed");
+      }
     })();
-  }, [s.runtime.slowMode, s.wiring.issues, s.artifacts.wiring, s.artifacts.validation, pushCopilot]);
+  }, [s.project?.id, s.artifacts.wiring, s.artifacts.validation, pushCopilot, pushSystem]);
 
   const refreshPinmapVersions = useCallback(async () => {
     const projectId = s.project?.id;

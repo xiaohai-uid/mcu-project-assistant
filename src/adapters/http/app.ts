@@ -36,6 +36,12 @@ import {
   submitClarification as submitClarificationCapability,
 } from "@/src/application/capabilities/analysis";
 import {
+  generatePinMap as generatePinMapCapability,
+  NoHardwareSelectedError,
+  validateWiring as validateWiringCapability,
+  latestValidation as latestValidationCapability,
+} from "@/src/application/capabilities/wiring";
+import {
   InvalidMcuError,
   ProjectNotFoundError as McuProjectNotFoundError,
   recommendMcu as recommendMcuCapability,
@@ -260,6 +266,18 @@ export function createApp(deps: AppDeps): Express {
       return;
     }
 
+    if (capability === "generate_pin_map") {
+      try {
+        const result = await generatePinMapCapability({ projectId }, proposalDeps);
+        res.json(result); // 纯知识求值（同步）
+      } catch (err) {
+        if (err instanceof NoHardwareSelectedError) throw new ApiError(409, "no_hardware_selected", err.message);
+        if (err instanceof McuProjectNotFoundError) throw new ApiError(404, "not_found", err.message);
+        throw err;
+      }
+      return;
+    }
+
     if (capability === "select_mcu") {
       const mcuId = typeof payload?.mcuId === "string" ? payload.mcuId : "";
       try {
@@ -372,6 +390,22 @@ export function createApp(deps: AppDeps): Express {
     }
   };
 
+  const handleValidateWiring = async (req: Request, res: Response) => {
+    try {
+      const record = await validateWiringCapability({ versionId: req.params.versionId as string }, proposalDeps);
+      res.status(201).json(record);
+    } catch (err) {
+      if (err instanceof McuProjectNotFoundError) throw new ApiError(404, "not_found", err.message);
+      throw err;
+    }
+  };
+
+  const handleLatestValidation = async (req: Request, res: Response) => {
+    const record = await latestValidationCapability({ versionId: req.params.versionId as string }, proposalDeps);
+    if (!record) throw new ApiError(404, "not_found", "No validation for this version");
+    res.json(record);
+  };
+
   app.get("/api/v1/health", (_req, res) => res.json({ status: "ok" }));
   app.post("/api/v1/projects", withErrorHandler(handleCreate));
   app.get("/api/v1/projects", withErrorHandler(handleList));
@@ -383,6 +417,8 @@ export function createApp(deps: AppDeps): Express {
   app.post("/api/v1/artifacts/:artifactId/versions", withErrorHandler(handleCommitVersion));
   app.get("/api/v1/artifacts/:artifactId/versions", withErrorHandler(handleListVersions));
   app.get("/api/v1/versions/:versionId", withErrorHandler(handleGetVersion));
+  app.post("/api/v1/versions/:versionId/validations", withErrorHandler(handleValidateWiring));
+  app.get("/api/v1/versions/:versionId/validations", withErrorHandler(handleLatestValidation));
   app.post("/api/v1/projects/:projectId/commands", withErrorHandler(handleCommands));
   app.get("/api/v1/projects/:projectId/proposals", withErrorHandler(handleListProposals));
   app.post("/api/v1/projects/:projectId/requirements/commit", withErrorHandler(handleCommitRequirements));

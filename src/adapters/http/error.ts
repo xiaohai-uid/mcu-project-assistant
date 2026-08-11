@@ -14,6 +14,7 @@ export type ErrorCode =
   | "outdated_proposal"
   | "invalid_decision"
   | "no_accepted_proposals"
+  | "no_hardware_selected"
   | "not_found"
   | "confirmation_missing"
   | "confirmation_invalid"

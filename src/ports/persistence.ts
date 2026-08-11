@@ -7,7 +7,7 @@ import type { Artifact, ArtifactVersion } from "@/src/domain/models/artifact";
 import type { Project } from "@/src/domain/models/project";
 import type { Proposal } from "@/src/domain/models/proposal";
 import type { TaskRecord } from "@/src/ports/task-execution";
-import type { ArtifactKind, ArtifactVersionStatus } from "@/src/shared-contracts/types";
+import type { ArtifactKind, ArtifactVersionStatus, ValidationRecordDto } from "@/src/shared-contracts/types";
 
 export interface UnitOfWork {
   // S1
@@ -28,6 +28,8 @@ export interface UnitOfWork {
   // S3B
   createProposal(p: Proposal): void;
   resolveProposal(p: Proposal): void;
+  // S5A
+  createValidationRecord(v: ValidationRecordDto): void;
 }
 
 export interface PersistencePort {
@@ -49,4 +51,6 @@ export interface PersistencePort {
   // S3B
   getProposal(id: string): Promise<Proposal | null>;
   listProposals(projectId: string): Promise<Proposal[]>;
+  // S5A
+  latestValidation(versionId: string): Promise<ValidationRecordDto | null>;
 }

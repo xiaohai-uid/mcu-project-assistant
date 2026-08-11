@@ -3,7 +3,7 @@ import type { Artifact, ArtifactVersion } from "@/src/domain/models/artifact";
 import type { Project } from "@/src/domain/models/project";
 import type { TaskRecord } from "@/src/ports/task-execution";
 import type { Proposal } from "@/src/domain/models/proposal";
-import type { ArtifactKind, ArtifactVersionStatus, TaskStatusDto } from "@/src/shared-contracts/types";
+import type { ArtifactKind, ArtifactVersionStatus, TaskStatusDto, ValidationRecordDto } from "@/src/shared-contracts/types";
 import type { PersistencePort, UnitOfWork } from "@/src/ports/persistence";
 import type { SqliteDb } from "./connection";
 
@@ -46,6 +46,17 @@ interface TaskRow {
   completed_at: string | null;
   error: string | null;
   output: string | null;
+}
+
+interface ValidationRow {
+  id: string;
+  artifact_version_id: string;
+  kind: string;
+  rules: string;
+  result: string;
+  diagnostics: string;
+  started_at: string;
+  completed_at: string | null;
 }
 
 interface ProposalRow {
@@ -182,6 +193,13 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     `UPDATE proposals SET status = @status, decided_at = @decided_at, decision_history = @decision_history WHERE id = @id`,
   );
   const selectProposal = db.prepare("SELECT * FROM proposals WHERE id = ?");
+  const insertValidation = db.prepare(
+    `INSERT INTO validation_records (id, artifact_version_id, kind, rules, result, diagnostics, started_at, completed_at)
+     VALUES (@id, @artifact_version_id, @kind, @rules, @result, @diagnostics, @started_at, @completed_at)`,
+  );
+  const selectLatestValidation = db.prepare(
+    "SELECT * FROM validation_records WHERE artifact_version_id = ? ORDER BY started_at DESC, rowid DESC LIMIT 1",
+  );
   const selectProposals = db.prepare("SELECT * FROM proposals WHERE project_id = ? ORDER BY created_at ASC, rowid ASC");
   const selectTask = db.prepare("SELECT * FROM tasks WHERE id = ?");
   const selectLatestOutput = db.prepare(
@@ -265,6 +283,18 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
         output: t.output,
       });
     },
+    createValidationRecord(v: ValidationRecordDto): void {
+      insertValidation.run({
+        id: v.id,
+        artifact_version_id: v.artifactVersionId,
+        kind: v.kind,
+        rules: JSON.stringify(v.rules),
+        result: v.result,
+        diagnostics: JSON.stringify(v.diagnostics),
+        started_at: v.startedAt,
+        completed_at: v.completedAt,
+      });
+    },
     createProposal(p: Proposal): void {
       insertProposal.run({
         id: p.id,
@@ -333,6 +363,20 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     getProposal: async (id: string) => {
       const row = selectProposal.get(id) as ProposalRow | undefined;
       return row ? toProposal(row) : null;
+    },
+    latestValidation: async (versionId: string) => {
+      const row = selectLatestValidation.get(versionId) as ValidationRow | undefined;
+      if (!row) return null;
+      return {
+        id: row.id,
+        artifactVersionId: row.artifact_version_id,
+        kind: row.kind,
+        rules: JSON.parse(row.rules) as string[],
+        result: row.result as ValidationRecordDto["result"],
+        diagnostics: JSON.parse(row.diagnostics) as ValidationRecordDto["diagnostics"],
+        startedAt: row.started_at,
+        completedAt: row.completed_at,
+      };
     },
     listProposals: async (projectId: string) =>
       (selectProposals.all(projectId) as ProposalRow[]).map(toProposal),

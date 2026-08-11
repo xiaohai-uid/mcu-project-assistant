@@ -114,22 +114,20 @@ const ESP32_S3: PlatformDefinition = {
   family: "esp32s3",
   framework: "arduino",
   logicVoltage: 3.3,
+  // 引脚池顺序 = 冻结 UI Golden Journey 参考分配（土壤→IO4、继电器→IO12、OLED→IO8/IO9）：
+  // strapping 引脚（IO0/IO12/IO45/IO46）可用但带风险 → 不入 reserved（reserved=系统功能独占），
+  // 由 ConstraintEngine 的 STRAPPING_PIN_USAGE 检查标记（Golden Journey 冲突场景数据源）
   pins: {
-    digital: ["IO0", "IO1", "IO2", "IO3", "IO4", "IO5", "IO6", "IO7", "IO8", "IO9", "IO10", "IO11", "IO12", "IO13", "IO14", "IO15", "IO16", "IO17", "IO18", "IO19", "IO20", "IO21", "IO35", "IO36", "IO37", "IO38", "IO39", "IO40", "IO41", "IO42", "IO43", "IO44", "IO45", "IO46", "IO47", "IO48"],
-    analog: ["IO1", "IO2", "IO3", "IO4", "IO5", "IO6", "IO7", "IO8", "IO9", "IO10", "IO11", "IO12", "IO13", "IO14", "IO15", "IO16", "IO17", "IO18", "IO19", "IO20"],
-    pwm: ["IO1", "IO2", "IO3", "IO4", "IO5", "IO6", "IO7", "IO8", "IO9", "IO10", "IO11", "IO12", "IO13", "IO14", "IO15", "IO16", "IO17", "IO18", "IO19", "IO20", "IO21", "IO35", "IO36", "IO37", "IO38", "IO39", "IO40", "IO41", "IO42", "IO43", "IO44", "IO45", "IO46", "IO47", "IO48"],
+    digital: ["IO12", "IO4", "IO5", "IO8", "IO9", "IO18", "IO19", "IO20", "IO21", "IO1", "IO2", "IO3", "IO6", "IO7", "IO10", "IO11", "IO13", "IO14", "IO15", "IO16", "IO17", "IO35", "IO36", "IO37", "IO38", "IO39", "IO40", "IO41", "IO42", "IO43", "IO44", "IO45", "IO46", "IO47", "IO48"],
+    analog: ["IO4", "IO1", "IO2", "IO3", "IO5", "IO6", "IO7", "IO8", "IO9", "IO10", "IO11", "IO12", "IO13", "IO14", "IO15", "IO16", "IO17", "IO18", "IO19", "IO20"],
+    pwm: ["IO5", "IO18", "IO19", "IO21", "IO35", "IO36", "IO37", "IO38", "IO39", "IO40", "IO41", "IO42", "IO43", "IO44", "IO47", "IO48"],
   },
   buses: {
     i2c: { pins: { sda: "IO8", scl: "IO9" }, shared: true },
     spi: { pins: { mosi: "IO35", miso: "IO37", sck: "IO36", ss: "IO42" }, shared: true },
     uart: { pins: { rx: "IO43", tx: "IO44" }, shared: false },
   },
-  reservedPins: [
-    { pin: "IO0", reason: "Strapping: boot mode" },
-    { pin: "IO45", reason: "Strapping: chip boot" },
-    { pin: "IO46", reason: "Strapping: download boot" },
-    { pin: "IO12", reason: "Strapping: flash voltage (1.8V/3.3V)" },
-  ],
+  reservedPins: [],
   memory: { flashKb: 8192, sramKb: 512, eepromKb: 0 },
   powerLimits: {
     maxPinCurrentMa: 40,

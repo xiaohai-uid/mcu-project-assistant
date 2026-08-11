@@ -33,6 +33,7 @@ function fakePersistence(): PersistencePort & { rows: Map<string, import("@/src/
         claimNextTask: () => null,
         createProposal: () => {},
         resolveProposal: () => {},
+        createValidationRecord: () => {},
       };
       return fn(uow);
     },
@@ -46,6 +47,7 @@ function fakePersistence(): PersistencePort & { rows: Map<string, import("@/src/
     listVersions: async () => [],
     getTask: async () => null,
     latestTaskOutput: async () => null,
+    latestValidation: async () => null,
     getProposal: async () => null,
     listProposals: async () => [],
   };

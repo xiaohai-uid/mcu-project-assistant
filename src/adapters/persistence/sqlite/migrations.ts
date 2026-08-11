@@ -92,6 +92,23 @@ CREATE INDEX idx_proposals_project ON proposals(project_id);
 CREATE INDEX idx_proposals_base ON proposals(base_version_id);
 `,
   },
+  {
+    version: 5,
+    name: "create_validation_records",
+    sql: `
+CREATE TABLE validation_records (
+  id TEXT PRIMARY KEY,
+  artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(id),
+  kind TEXT NOT NULL,
+  rules TEXT NOT NULL DEFAULT '[]',
+  result TEXT NOT NULL CHECK (result IN ('pass','warn','fail')),
+  diagnostics TEXT NOT NULL DEFAULT '[]',
+  started_at TEXT NOT NULL,
+  completed_at TEXT NULL
+);
+CREATE INDEX idx_validations_version ON validation_records(artifact_version_id);
+`,
+  },
 ];
 
 export function migrate(db: SqliteDb): void {

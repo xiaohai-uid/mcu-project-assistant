@@ -80,7 +80,99 @@ const OLED_096: ComponentDefinition = {
   safetyNotes: [],
 };
 
-const CATALOG: ComponentDefinition[] = [SOIL_MOISTURE, RELAY, OLED_096];
+// ---------- V2 测试引用组件（constraint-engine 搬运测试 1:1 所需；worker/tests/unit/constraints/test_engine.py） ----------
+
+const DHT22: ComponentDefinition = {
+  id: "sensor.dht22",
+  schemaVersion: "1",
+  displayName: "DHT22",
+  aliases: ["DHT22温湿度传感器", "AM2302"],
+  categories: ["sensor"],
+  capabilities: ["temperature_sensing", "humidity_sensing"],
+  electrical: { logicVoltage: 5.0, supplyVoltageMin: 3.3, supplyVoltageMax: 5.5, typicalCurrentMa: 2.5 },
+  interfaces: [{ type: "digital", signalCount: 1, ioDirection: "input" }],
+  platformCompatibility: { arduino_uno: "supported" },
+  firmware: { libraries: ["DHT sensor library"], includes: ["DHT.h"], codegenAdapter: "dht", varName: "DHT22" },
+  purchasing: { searchTerms: ["DHT22 module", "DHT22传感器"] },
+  safetyNotes: [],
+};
+
+const LCD1602: ComponentDefinition = {
+  id: "display.lcd1602",
+  schemaVersion: "1",
+  displayName: "LCD1602",
+  aliases: ["LCD 1602", "16x2 LCD", "LCD1602 I2C"],
+  categories: ["display"],
+  capabilities: ["text_display"],
+  electrical: { logicVoltage: 5.0, supplyVoltageMin: 4.5, supplyVoltageMax: 5.5, typicalCurrentMa: 5.0 },
+  interfaces: [{ type: "i2c", signalCount: 2, ioDirection: "output" }],
+  platformCompatibility: { arduino_uno: "supported" },
+  firmware: { libraries: ["LiquidCrystal_I2C"], includes: ["LiquidCrystal_I2C.h"], codegenAdapter: "lcd", varName: "LCD" },
+  purchasing: { searchTerms: ["LCD1602 I2C", "1602液晶屏"] },
+  safetyNotes: [],
+};
+
+const BMP280: ComponentDefinition = {
+  id: "sensor.bmp280",
+  schemaVersion: "1",
+  displayName: "BMP280",
+  aliases: ["BMP280气压传感器"],
+  categories: ["sensor"],
+  capabilities: ["pressure_sensing", "temperature_sensing", "altitude_sensing"],
+  electrical: { logicVoltage: 3.3, supplyVoltageMin: 1.71, supplyVoltageMax: 3.6, typicalCurrentMa: 2.7 },
+  interfaces: [{ type: "i2c", signalCount: 2, ioDirection: "input" }],
+  platformCompatibility: { arduino_uno: "supported" },
+  firmware: { libraries: ["Adafruit_BMP280"], includes: ["Adafruit_BMP280.h"], codegenAdapter: "bmp280", varName: "BMP280" },
+  purchasing: { searchTerms: ["BMP280 module", "BMP280气压"] },
+  safetyNotes: [],
+};
+
+const PHOTORESISTOR: ComponentDefinition = {
+  id: "sensor.photoresistor",
+  schemaVersion: "1",
+  displayName: "光敏电阻模块",
+  aliases: ["Photoresistor", "LDR", "光敏传感器"],
+  categories: ["sensor"],
+  capabilities: ["light_sensing"],
+  electrical: { logicVoltage: 5.0, supplyVoltageMin: 3.3, supplyVoltageMax: 5.5, typicalCurrentMa: 5.0 },
+  interfaces: [{ type: "analog", signalCount: 1, ioDirection: "input" }],
+  platformCompatibility: { arduino_uno: "supported" },
+  firmware: { libraries: [], includes: [], codegenAdapter: "generic_analog_sensor", varName: "LIGHT" },
+  purchasing: { searchTerms: ["photoresistor module", "光敏电阻模块"] },
+  safetyNotes: [],
+};
+
+const SG90: ComponentDefinition = {
+  id: "actuator.sg90",
+  schemaVersion: "1",
+  displayName: "SG90 舵机",
+  aliases: ["SG90", "Servo", "微型舵机"],
+  categories: ["actuator"],
+  capabilities: ["angular_control"],
+  electrical: { logicVoltage: 5.0, supplyVoltageMin: 4.8, supplyVoltageMax: 6.0, typicalCurrentMa: 250.0 },
+  interfaces: [{ type: "pwm", signalCount: 1, ioDirection: "output" }],
+  platformCompatibility: { arduino_uno: "supported" },
+  firmware: { libraries: ["Servo"], includes: ["Servo.h"], codegenAdapter: "servo", varName: "SERVO" },
+  purchasing: { searchTerms: ["SG90 servo", "SG90舵机"] },
+  safetyNotes: [],
+};
+
+const HC05: ComponentDefinition = {
+  id: "comm.hc_05",
+  schemaVersion: "1",
+  displayName: "HC-05 蓝牙模块",
+  aliases: ["HC-05", "Bluetooth Module", "蓝牙串口模块"],
+  categories: ["communication"],
+  capabilities: ["bluetooth_communication"],
+  electrical: { logicVoltage: 3.3, supplyVoltageMin: 3.6, supplyVoltageMax: 6.0, typicalCurrentMa: 30.0 },
+  interfaces: [{ type: "uart", signalCount: 2, ioDirection: "bidirectional" }],
+  platformCompatibility: { arduino_uno: "supported" },
+  firmware: { libraries: ["SoftwareSerial"], includes: ["SoftwareSerial.h"], codegenAdapter: "bluetooth", varName: "BT" },
+  purchasing: { searchTerms: ["HC-05 bluetooth", "HC-05蓝牙"] },
+  safetyNotes: [],
+};
+
+const CATALOG: ComponentDefinition[] = [SOIL_MOISTURE, RELAY, OLED_096, DHT22, LCD1602, BMP280, PHOTORESISTOR, SG90, HC05];
 
 export function createComponentRegistry(): ComponentRegistry {
   const byId = new Map<string, ComponentDefinition>();
