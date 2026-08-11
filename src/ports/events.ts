@@ -53,6 +53,8 @@ export type LogicalEvent =
   | { type: "build.succeeded"; projectId: string; buildId: string; exitCode: number }
   | { type: "build.failed"; projectId: string; buildId: string; exitCode: number }
   | { type: "build.cancelled"; projectId: string; buildId: string }
+  // ---------- S8 Diagnosis ----------
+  | { type: "diagnosis.completed"; projectId: string; buildId: string; cause: string }
   | { type: "provider.unavailable"; provider: string; reason: string };
 
 export interface EventPort {

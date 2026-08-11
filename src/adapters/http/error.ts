@@ -20,6 +20,7 @@ export type ErrorCode =
   | "blocking_stale"
   | "toolchain_unavailable"
   | "invalid_build_state"
+  | "build_not_failed"
   | "not_found"
   | "confirmation_missing"
   | "confirmation_invalid"

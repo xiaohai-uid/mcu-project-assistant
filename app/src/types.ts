@@ -212,7 +212,7 @@ export interface BuildDiagnosis {
   cause: string;
   fix: string;
   // 修复以"提案"形态呈现（AI 不静默改固件）——diff 为代码块文本
-  proposal: { file: string; diff: string } | null;
+  proposal: { file: string; diff: string; proposalId?: string } | null;
 }
 
 // ---------- Companion / Device ----------

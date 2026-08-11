@@ -20,6 +20,7 @@ import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { AnalysisProposalDto, ProposalType } from "@/src/shared-contracts/types";
 import { isFirmwareFilesPayload } from "@/src/application/capabilities/firmware";
+import { isBuildFixPayload } from "@/src/application/capabilities/diagnosis";
 
 export class ProposalNotFoundError extends Error {
   constructor() {
@@ -90,6 +91,12 @@ export async function resolveProposal(
       assertProposalCurrent(proposal, pinmap?.currentVersionId ?? null);
       const { applyFirmwareAccept } = await import("@/src/application/capabilities/firmware");
       await applyFirmwareAccept(proposal, deps);
+    } else if (proposal.type === "firmware" && isBuildFixPayload(proposal.payload)) {
+      // S8 build_fix 提案：base 校验对自身 artifact（固件被改后修复提案过期）；
+      // T2 = 写真实文件（platformio.ini +lib_deps）→ 新 Firmware 版本（恰一版本）
+      assertProposalCurrent(proposal, artifact?.currentVersionId ?? null);
+      const { applyFirmwareFix } = await import("@/src/application/capabilities/diagnosis");
+      await applyFirmwareFix(proposal, deps);
     } else {
       // 普通提案（含 S5B revalidate 占位载荷）：base 必须等于自身 artifact 当前版本（禁止静默应用）
       assertProposalCurrent(proposal, artifact?.currentVersionId ?? null);

@@ -158,6 +158,17 @@ export function createMockAiProvider(opts: MockAiProviderOptions = {}): AIProvid
         };
         return { data: output as T };
       }
+      if (req.schema === "build-diagnosis") {
+        return {
+          data: {
+            cause: "Missing library dependency: <Adafruit_SSD1306.h> not found (OLED library not declared in project dependencies)",
+            fix: "Add the Adafruit SSD1306 library to platformio.ini and rebuild.",
+            file: "platformio.ini",
+            diff:
+              "\n+lib_deps =\n+    adafruit/Adafruit SSD1306@^2.5.10\n+    adafruit/Adafruit GFX Library@^1.11.9",
+          } as T,
+        };
+      }
       throw new Error(`unknown schema: ${req.schema}`);
     },
   };

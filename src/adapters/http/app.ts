@@ -85,6 +85,11 @@ import {
   runBuild as runBuildCapability,
   VersionNotFoundError as BuildVersionNotFoundError,
 } from "@/src/application/capabilities/build";
+import {
+  BuildNotFailedError,
+  BuildNotFoundError as DiagnosisBuildNotFoundError,
+  diagnoseBuild as diagnoseBuildCapability,
+} from "@/src/application/capabilities/diagnosis";
 
 export interface AppDeps {
   persistence: PersistencePort;
@@ -129,6 +134,7 @@ export function createApp(deps: AppDeps): Express {
     workspaceDir: deps.workspaceDir,
     now,
   };
+  const diagnosisDeps = { persistence: deps.persistence, content: deps.content, events: deps.events, ai: deps.ai, now };
 
   // Idempotency-Key：内存映射（transport 层；重启即失，S1 记录在案——持久化幂等存储随需要引入）
   const idempotency = new Map<string, { project?: Project; version?: ArtifactVersionDto }>();
@@ -533,6 +539,20 @@ export function createApp(deps: AppDeps): Express {
     res.json(info);
   };
 
+  // S8：诊断（Build FAILED → 原因/建议/Fix 提案；不写版本）
+  const handleDiagnoseBuild = async (req: Request, res: Response) => {
+    try {
+      const result = await diagnoseBuildCapability({ buildId: req.params.buildId as string, now }, diagnosisDeps);
+      res.json(result);
+    } catch (err) {
+      if (err instanceof BuildNotFoundError || err instanceof DiagnosisBuildNotFoundError)
+        throw new ApiError(404, "not_found", err.message);
+      if (err instanceof BuildNotFailedError) throw new ApiError(409, "build_not_failed", err.message);
+      if (err instanceof ProviderUnavailableError) throw new ApiError(503, "provider_unavailable", err.message);
+      throw err;
+    }
+  };
+
   app.get("/api/v1/health", (_req, res) => res.json({ status: "ok" }));
   app.post("/api/v1/projects", withErrorHandler(handleCreate));
   app.get("/api/v1/projects", withErrorHandler(handleList));
@@ -556,6 +576,7 @@ export function createApp(deps: AppDeps): Express {
   app.get("/api/v1/projects/:projectId/stale-marks", withErrorHandler(handleStaleMarks));
   app.post("/api/v1/projects/:projectId/builds", withErrorHandler(handleRunBuild));
   app.get("/api/v1/builds/:buildId", withErrorHandler(handleGetBuild));
+  app.post("/api/v1/builds/:buildId/diagnose", withErrorHandler(handleDiagnoseBuild));
   app.post("/api/v1/builds/:buildId/cancel", withErrorHandler(handleCancelBuild));
   app.get("/api/v1/versions/:versionId/builds", withErrorHandler(handleListBuilds));
   app.get("/api/v1/toolchain", withErrorHandler(handleToolchain));

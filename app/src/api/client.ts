@@ -213,6 +213,17 @@ export const api = {
   getBuilds: (versionId: string) => request<BuildRecordDto[]>(`/api/v1/versions/${versionId}/builds`),
   checkToolchain: () =>
     request<{ available: boolean; toolchain: string; version: string | null; reason?: string }>("/api/v1/toolchain"),
+  // ---------- S8 Diagnosis ----------
+  diagnoseBuild: (buildId: string) =>
+    request<{
+      diagnosis: {
+        title: string;
+        cause: string;
+        fix: string;
+        proposal: { file: string; diff: string; proposalId?: string } | null;
+      };
+      proposal: ProposalDto;
+    }>(`/api/v1/builds/${buildId}/diagnose`, { method: "POST" }),
 };
 
 export interface StaleMarkDto {

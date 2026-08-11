@@ -28,7 +28,6 @@ import type {
   ThemeMode,
 } from "../types";
 import {
-  BUILD_DIAGNOSIS,
   DEFAULT_PROMPT,
   makeSerialLine,
   MCU_CANDIDATES,
@@ -1117,20 +1116,40 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const retryBuild = useCallback(() => startBuild(), [startBuild]);
 
   const runDiagnosis = useCallback(() => {
+    const buildId = buildRef.current.buildId;
+    if (!buildId) return;
+    // Progressive Swap（ISSUE-010 §5）：UI 预置诊断 → 真实 diagnose_build（AI mock → 诊断 + build_fix 提案）
     void (async () => {
-      await sleep(s.runtime.slowMode ? 2200 : 1000);
-      pushCopilot({
-        sender: "copilot",
-        text: "Diagnosis complete: missing library dependency `Adafruit_SSD1306`. I'll propose adding it to platformio.ini.",
-      });
+      try {
+        const { diagnosis } = await clientApi.diagnoseBuild(buildId);
+        dispatch({ type: "DIAGNOSIS", d: diagnosis });
+        pushCopilot({
+          sender: "copilot",
+          text: "Diagnosis complete: missing library dependency `Adafruit_SSD1306`. I'll propose adding it to platformio.ini.",
+        });
+      } catch (err) {
+        pushSystem(err instanceof ApiError ? `Diagnosis failed: ${err.code}` : "Diagnosis failed");
+      }
     })();
-    dispatch({ type: "DIAGNOSIS", d: BUILD_DIAGNOSIS });
-  }, [s.runtime.slowMode, pushCopilot]);
+  }, [pushCopilot, pushSystem]);
 
   const applyFix = useCallback(() => {
-    dispatch({ type: "BUILD_FIX_APPLIED" });
-    pushSystem("Fix proposal applied: lib_deps added to platformio.ini (Firmware deps v+1). Rebuild to verify.");
-  }, [pushSystem]);
+    // Progressive Swap（ISSUE-010 §5）：内存标志 → 真实 resolve_proposal（build_fix accept → 新固件版本）
+    const proposalId = s.build.diagnosis?.proposal?.proposalId;
+    const projectId = s.project?.id;
+    if (!proposalId || !projectId) return;
+    void (async () => {
+      try {
+        await clientApi.resolveProposal(proposalId, "accept");
+        dispatch({ type: "BUILD_FIX_APPLIED" });
+        dispatch({ type: "ARTIFACT", kind: "firmware", status: "accepted", version: (s.artifacts.firmware.version || 0) + 1 });
+        await refreshStaleMarks(projectId);
+        pushSystem("Fix proposal applied: lib_deps added to platformio.ini (Firmware v+1). Rebuild to verify.");
+      } catch (err) {
+        pushSystem(err instanceof ApiError ? `Apply fix failed: ${err.code}` : "Apply fix failed");
+      }
+    })();
+  }, [s.build.diagnosis, s.project?.id, s.artifacts.firmware.version, refreshStaleMarks, pushSystem]);
 
   // ---------- Companion ----------
 
