@@ -8,7 +8,7 @@ import type { PersistencePort, UnitOfWork } from "@/src/ports/persistence";
 import type { TaskContext, TaskExecutionPort, TaskRecord } from "@/src/ports/task-execution";
 import type { AIProviderPort, StructuredRequest } from "@/src/ports/ai-provider";
 import { ProviderUnavailableError } from "@/src/ports/ai-provider";
-import { analyzeRequirement, submitClarification, cancelAnalysis, getTask } from "@/src/application/capabilities/analysis";
+import { analyzeRequirement, submitClarification, cancelAnalysis, getTask, executeRequirementAnalysis } from "@/src/application/capabilities/analysis";
 import { createProject as createProjectCapability } from "@/src/application/capabilities/projects";
 
 const NOW = "2026-08-11T12:00:00.000Z";
@@ -83,13 +83,13 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
   return { ...port, mem };
 }
 
-function fakeTasks(): TaskExecutionPort & { tasks: Map<string, TaskRecord> } {
+function fakeTasks(execute?: (task: TaskRecord, ctx: TaskContext) => Promise<void>): TaskExecutionPort & { tasks: Map<string, TaskRecord> } {
   const tasks = new Map<string, TaskRecord>();
   const controllers = new Map<string, AbortController>();
   let seq = 0;
   return {
     tasks,
-    async submit(input, fn) {
+    async submit(input) {
       const id = `task-${++seq}`;
       const record: TaskRecord = {
         id,
@@ -108,7 +108,7 @@ function fakeTasks(): TaskExecutionPort & { tasks: Map<string, TaskRecord> } {
       controllers.set(id, ctrl);
       const ctx: TaskContext = { taskId: id, signal: ctrl.signal, emit: () => {}, setOutput: async () => {} };
       tasks.set(id, { ...record, status: "running", startedAt: NOW });
-      fn(ctx).then(
+      (execute ? execute(record, ctx) : Promise.resolve()).then(
         () => {
           controllers.delete(id);
           tasks.set(id, { ...tasks.get(id)!, status: "completed", completedAt: NOW });
@@ -188,9 +188,15 @@ async function seedProject(port: PersistencePort): Promise<Project> {
 
 function deps(over: Partial<Parameters<typeof analyzeRequirement>[1]> = {}) {
   const persistence = fakePersistence();
-  const tasks = fakeTasks();
   const ai = fakeAi();
   const events = fakeEvents();
+  const tasks = fakeTasks((task, ctx) =>
+    executeRequirementAnalysis(
+      JSON.parse(task.input) as { projectId: string; description: string; lab?: Record<string, unknown> },
+      ctx,
+      { persistence, ai, events, now },
+    ),
+  );
   return {
     persistence,
     tasks,

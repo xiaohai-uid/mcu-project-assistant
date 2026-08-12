@@ -78,7 +78,7 @@ describe("tasks 表（ISSUE-003 §8）", () => {
     expect(t?.completedAt).not.toBeNull();
   });
 
-  it("claimNextTask：取最早 queued → 置 running（FIFO；running=崩溃遗留可重新 claim）", async () => {
+  it("claimNextTask：取最早 queued → 置 running（FIFO）", async () => {
     const { store } = freshStore();
     await store.withTransaction((uow) => {
       uow.saveTask(task("t1", "queued"));
@@ -88,13 +88,13 @@ describe("tasks 表（ISSUE-003 §8）", () => {
     expect(claimed?.id).toBe("t1");
     const t1 = await store.getTask("t1");
     expect(t1?.status).toBe("running");
-    // running 无执行者（崩溃遗留）→ 可再次被 claim；先完结 t1 再 claim 取 t2（FIFO）
+    // 完结 t1 后 claim 取 t2（FIFO）
     await store.withTransaction((uow) => uow.updateTask(task("t1", "completed")));
     const claimed2 = await store.withTransaction((uow) => uow.claimNextTask());
     expect(claimed2?.id).toBe("t2");
   });
 
-  it("崩溃恢复：重启后 running→queued（recoverQueued；running 无执行者）", async () => {
+  it("崩溃恢复：重启后 running→queued，再由 claimNextTask 原子 claim", async () => {
     const first = freshStore();
     await first.store.withTransaction((uow) => {
       uow.saveTask(task("t1", "running")); // 崩溃遗留
@@ -103,6 +103,7 @@ describe("tasks 表（ISSUE-003 §8）", () => {
     first.db.close();
 
     const second = freshStore();
+    await second.store.withTransaction((uow) => uow.requeueOrphanedTasks?.());
     const recovered = await second.store.withTransaction((uow) => uow.claimNextTask());
     expect(recovered?.id).toBe("t1"); // running → 可重新 claim（即 queued 语义）
     const t2 = await second.store.getTask("t2");

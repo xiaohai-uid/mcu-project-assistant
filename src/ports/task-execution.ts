@@ -20,6 +20,8 @@ export interface TaskRecord {
 
 export interface TaskContext {
   taskId: string;
+  /** Whether this invocation was scheduled from a fresh submission or restart recovery. */
+  mode?: "new" | "recovery";
   /** 取消信号：cancel() 后 abort；任务实现应周期性检查并终止 */
   signal: AbortSignal;
   /** 任务内发布逻辑事件（经 EventPort；进度/终态） */
@@ -29,8 +31,8 @@ export interface TaskContext {
 }
 
 export interface TaskExecutionPort {
-  /** 提交任务（persist queued → in-process 执行）；返回 taskId */
-  submit(input: { capability: string; input: string }, fn: (ctx: TaskContext) => Promise<void>): Promise<string>;
+  /** 提交持久化任务；normal/recovery 均由同一 persisted-task executor 执行。 */
+  submit(input: { capability: string; input: string }): Promise<string>;
   /** 取消：仅 running 可取消；返回是否成功取消 */
   cancel(taskId: string): Promise<boolean>;
   getTask(taskId: string): Promise<TaskRecord | null>;

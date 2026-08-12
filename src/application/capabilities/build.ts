@@ -65,6 +65,69 @@ function appendLog(workspaceDir: string, buildId: string, line: string): void {
   appendFileSync(target, `${line}\n`, "utf8");
 }
 
+export interface PersistedBuildTaskInput {
+  buildId: string;
+  projectId: string;
+  versionId: string;
+}
+
+export async function executeBuildTask(
+  input: PersistedBuildTaskInput,
+  ctx: import("@/src/ports/task-execution").TaskContext,
+  deps: Pick<BuildCapabilityDeps, "persistence" | "events" | "compiler" | "workspaceDir" | "now">,
+  initialRecord?: BuildRecord,
+): Promise<void> {
+  const now = deps.now ?? (() => new Date());
+  const record = initialRecord ?? (await deps.persistence.getBuildRecord(input.buildId));
+  if (!record) throw new BuildNotFoundError();
+  const version = await deps.persistence.getVersion(record.artifactVersionId);
+  if (!version) throw new VersionNotFoundError();
+  const currentRecord = { ...record, taskId: ctx.taskId };
+  await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(currentRecord));
+
+  const request = {
+    target: record.target,
+    toolchain: "esp32-arduino" as const,
+    options: record.options,
+    firmwareRef: version.contentRef,
+  };
+  try {
+    const result = await deps.compiler.build(
+      request,
+      (line) => {
+        appendLog(deps.workspaceDir, input.buildId, line);
+        deps.events.publish({ type: "build.output", projectId: input.projectId, buildId: input.buildId, line });
+      },
+      ctx.signal,
+    );
+    const status = ctx.signal.aborted ? "cancelled" : result.exitCode === 0 ? "succeeded" : "failed";
+    const finalized = finalizeBuildRecord(currentRecord, {
+      status,
+      completedAt: now().toISOString(),
+      stdoutRef: buildLogRef(input.buildId),
+      exitCode: result.exitCode,
+    });
+    await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
+    if (status === "succeeded") {
+      deps.events.publish({ type: "build.succeeded", projectId: input.projectId, buildId: input.buildId, exitCode: result.exitCode });
+    } else if (status === "failed") {
+      deps.events.publish({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, exitCode: result.exitCode });
+    } else {
+      deps.events.publish({ type: "build.cancelled", projectId: input.projectId, buildId: input.buildId });
+    }
+  } catch (err) {
+    const finalized = finalizeBuildRecord(currentRecord, {
+      status: "failed",
+      completedAt: now().toISOString(),
+      stdoutRef: buildLogRef(input.buildId),
+      exitCode: 1,
+      diagnostics: [{ code: "BUILD_START_FAILED", severity: "error", message: (err as Error).message }],
+    });
+    await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
+    deps.events.publish({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, exitCode: 1 });
+  }
+}
+
 export async function runBuild(
   input: { projectId: string; versionId: string; target?: string; toolchain?: string; options?: Record<string, unknown>; now?: () => Date },
   deps: BuildCapabilityDeps,
@@ -112,49 +175,6 @@ export async function runBuild(
   // 任务执行（ADR-0007 in-process）：逐行输出 → SSE + .build 日志；终态 → 记录 + 事件
   await deps.tasks.submit(
     { capability: "run_build", input: JSON.stringify({ buildId, projectId: input.projectId, versionId: input.versionId }) },
-    async (ctx) => {
-      // 记录 taskId（取消查询用）
-      await deps.persistence.withTransaction((uow) => uow.updateBuildRecord({ ...record, taskId: ctx.taskId }));
-
-      let current: BuildRecord = record;
-      try {
-        const result = await deps.compiler.build(
-          request,
-          (line) => {
-            appendLog(deps.workspaceDir, buildId, line);
-            ctx.emit({ type: "build.output", projectId: input.projectId, buildId, line });
-          },
-          ctx.signal,
-        );
-        const status = ctx.signal.aborted ? "cancelled" : result.exitCode === 0 ? "succeeded" : "failed";
-        current = finalizeBuildRecord(record, {
-          status,
-          completedAt: now().toISOString(),
-          stdoutRef: buildLogRef(buildId),
-          exitCode: result.exitCode,
-        });
-        await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(current));
-        if (status === "succeeded") {
-          ctx.emit({ type: "build.succeeded", projectId: input.projectId, buildId, exitCode: result.exitCode });
-        } else if (status === "failed") {
-          ctx.emit({ type: "build.failed", projectId: input.projectId, buildId, exitCode: result.exitCode });
-        } else {
-          ctx.emit({ type: "build.cancelled", projectId: input.projectId, buildId });
-        }
-      } catch (err) {
-        // 编译启动失败（工具链消失等）→ 失败记录（I-6：失败也落记录；非错误信封）
-        current = finalizeBuildRecord(record, {
-          status: "failed",
-          completedAt: now().toISOString(),
-          stdoutRef: buildLogRef(buildId),
-          exitCode: 1,
-          diagnostics: [{ code: "BUILD_START_FAILED", severity: "error", message: (err as Error).message }],
-        });
-        await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(current));
-        ctx.emit({ type: "build.failed", projectId: input.projectId, buildId, exitCode: 1 });
-      }
-      void current;
-    },
   );
 
   return { buildId };

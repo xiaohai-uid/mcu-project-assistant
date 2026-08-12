@@ -24,8 +24,10 @@ export interface UnitOfWork {
   // S3A
   saveTask(t: TaskRecord): void;
   updateTask(t: TaskRecord): void;
-  /** 取最早 queued（或崩溃遗留 running）→ 置 running（崩溃恢复：running 无执行者即视为可重新 claim） */
+  /** 取最早 queued → 置 running；恢复流程先把遗留 running 重新排回 queued。 */
   claimNextTask(): TaskRecord | null;
+  /** 启动恢复前将上一进程遗留的 running 任务重新置为 queued。 */
+  requeueOrphanedTasks?(): number;
   // S3B
   createProposal(p: Proposal): void;
   resolveProposal(p: Proposal): void;

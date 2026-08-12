@@ -284,11 +284,12 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
   const selectLatestOutput = db.prepare(
     "SELECT output FROM tasks WHERE capability = ? AND status = 'completed' ORDER BY completed_at DESC, rowid DESC LIMIT 1",
   );
-  // 崩溃恢复：running 无执行者即视为可重新 claim（本地单进程）；FIFO（created_at + 插入序 rowid）
+  // 崩溃恢复由 requeueOrphanedTasks 先清理 running；claim 只取 queued，保证并发 claimant 不重复拿同一任务。
   const claimNext = db.prepare(
-    `SELECT * FROM tasks WHERE status IN ('queued','running') ORDER BY created_at ASC, rowid ASC LIMIT 1`,
+    `SELECT * FROM tasks WHERE status = 'queued' ORDER BY created_at ASC, rowid ASC LIMIT 1`,
   );
   const markRunning = db.prepare("UPDATE tasks SET status = 'running', started_at = ? WHERE id = ?");
+  const requeueOrphans = db.prepare("UPDATE tasks SET status = 'queued', started_at = NULL WHERE status = 'running'");
 
   const uow: UnitOfWork = {
     createProject(p: Project): void {
@@ -464,8 +465,12 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     claimNextTask(): TaskRecord | null {
       const row = claimNext.get() as TaskRow | undefined;
       if (!row) return null;
-      markRunning.run(new Date().toISOString(), row.id);
-      return toTask(claimNext.get() as TaskRow);
+      const startedAt = new Date().toISOString();
+      markRunning.run(startedAt, row.id);
+      return toTask({ ...row, status: "running", started_at: startedAt });
+    },
+    requeueOrphanedTasks(): number {
+      return Number(requeueOrphans.run().changes);
     },
   };
 

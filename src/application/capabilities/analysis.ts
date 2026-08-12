@@ -63,6 +63,144 @@ interface ClarificationGate {
 /** 运行中分析的澄清门（taskId → 当前轮 gate；多轮 D7） */
 const gates = new Map<string, ClarificationGate>();
 
+export interface PersistedAnalysisTaskInput {
+  projectId: string;
+  description: string;
+  lab?: Record<string, unknown>;
+}
+
+export async function executeRequirementAnalysis(
+  input: PersistedAnalysisTaskInput,
+  ctx: import("@/src/ports/task-execution").TaskContext,
+  deps: Pick<AnalysisCapabilityDeps, "persistence" | "ai" | "events" | "now">,
+): Promise<void> {
+  const analysisId = ctx.taskId;
+  const lab = input.lab ?? {};
+  const now = deps.now ?? (() => new Date());
+  try {
+    let status: ProviderStatus;
+    try {
+      status = await deps.ai.status();
+    } catch {
+      status = "unavailable";
+    }
+    if (status !== "available") {
+      deps.events.publish({ type: "provider.unavailable", provider: deps.ai.name, reason: "provider status != available" });
+      deps.events.publish({
+        type: "requirement.analysis.failed",
+        projectId: input.projectId,
+        analysisId,
+        reason: "AI provider is unavailable",
+      });
+      throw new ProviderUnavailableError("AI provider is unavailable");
+    }
+
+    deps.events.publish({
+      type: "requirement.analysis.started",
+      projectId: input.projectId,
+      analysisId,
+      taskId: ctx.taskId,
+    });
+
+    await deps.ai.streamText({
+      prompt: input.description,
+      hint: lab,
+      signal: ctx.signal,
+      onChunk: (chunk) => {
+        if (ctx.signal.aborted) return;
+        deps.events.publish({
+          type: "requirement.analysis.progress",
+          projectId: input.projectId,
+          analysisId,
+          stage: "streaming",
+          chunk,
+        });
+      },
+    });
+
+    let roundId = 0;
+    let output: RequirementAnalysisOutput | null = null;
+    for (;;) {
+      if (ctx.signal.aborted) throw new Error("analysis aborted");
+      const { data } = await deps.ai.generateStructured<RequirementAnalysisOutput>({
+        prompt: input.description,
+        schema: "requirement-analysis",
+        context: { ...lab, roundId },
+        signal: ctx.signal,
+      });
+      output = data;
+
+      for (const cap of data.capabilities) {
+        deps.events.publish({
+          type: "requirement.analysis.progress",
+          projectId: input.projectId,
+          analysisId,
+          stage: "capabilities",
+          chunk: JSON.stringify(cap),
+        });
+      }
+
+      if (!data.clarification) break;
+      roundId += 1;
+      if (ctx.signal.aborted) throw new Error("analysis aborted");
+
+      let resolveGate!: (v: ClarificationAnswer) => void;
+      const answerPromise = new Promise<ClarificationAnswer>((resolve) => {
+        resolveGate = resolve;
+      });
+      const abortPromise = new Promise<never>((_, reject) =>
+        ctx.signal.addEventListener("abort", () => reject(new Error("analysis aborted")), { once: true }),
+      );
+      gates.set(ctx.taskId, { roundId, answer: answerPromise, resolve: resolveGate });
+      deps.events.publish({
+        type: "requirement.analysis.clarification.requested",
+        projectId: input.projectId,
+        analysisId,
+        roundId,
+        question: data.clarification.question,
+        detail: data.clarification.detail,
+      });
+      await Promise.race([answerPromise, abortPromise]);
+      gates.delete(ctx.taskId);
+    }
+
+    if (!output) throw new Error("analysis produced no output");
+    deps.events.publish({
+      type: "requirement.analysis.completed",
+      projectId: input.projectId,
+      analysisId,
+      capabilities: output.capabilities,
+    });
+    await ctx.setOutput(JSON.stringify({ capabilities: output.capabilities }));
+
+    if (output.proposals && output.proposals.length > 0) {
+      const { createProposalsFromAnalysis } = await import("@/src/application/capabilities/proposals");
+      await createProposalsFromAnalysis(
+        { projectId: input.projectId, proposals: output.proposals, now },
+        { persistence: deps.persistence, now },
+      );
+    }
+  } catch (err) {
+    gates.delete(ctx.taskId);
+    if (ctx.signal.aborted) {
+      deps.events.publish({
+        type: "requirement.analysis.cancelled",
+        projectId: input.projectId,
+        analysisId,
+      });
+    } else if (err instanceof ProviderUnavailableError) {
+      deps.events.publish({ provider: deps.ai.name, type: "provider.unavailable", reason: err.message });
+      deps.events.publish({
+        type: "requirement.analysis.failed",
+        projectId: input.projectId,
+        analysisId,
+        reason: err.message,
+      });
+    }
+    throw err;
+  }
+}
+
 export async function analyzeRequirement(
   input: { projectId: string; description: string; lab?: Record<string, unknown>; now?: () => Date },
   deps: AnalysisCapabilityDeps,
@@ -87,144 +225,9 @@ export async function analyzeRequirement(
   }
 
   const taskId = await deps.tasks.submit(
-    { capability: "analyze_requirement", input: input.description },
-    async (ctx) => {
-      const analysisId = ctx.taskId;
-      const lab = input.lab ?? {};
-      try {
-        // Provider 可用性检查（合法降级：provider.unavailable 事件；不 fallback mock）
-        let status: ProviderStatus;
-        try {
-          status = await deps.ai.status();
-        } catch {
-          status = "unavailable";
-        }
-        if (status !== "available") {
-          deps.events.publish({ type: "provider.unavailable", provider: deps.ai.name, reason: "provider status != available" });
-          deps.events.publish({
-            type: "requirement.analysis.failed",
-            projectId: input.projectId,
-            analysisId,
-            reason: "AI provider is unavailable",
-          });
-          throw new ProviderUnavailableError("AI provider is unavailable");
-        }
-
-        deps.events.publish({
-          type: "requirement.analysis.started",
-          projectId: input.projectId,
-          analysisId,
-          taskId: ctx.taskId,
-        });
-
-        // 流式文本（可取消）
-        await deps.ai.streamText({
-          prompt: input.description,
-          hint: lab,
-          signal: ctx.signal,
-          onChunk: (chunk) => {
-            if (ctx.signal.aborted) return;
-            deps.events.publish({
-              type: "requirement.analysis.progress",
-              projectId: input.projectId,
-              analysisId,
-              stage: "streaming",
-              chunk,
-            });
-          },
-        });
-
-        // 结构化输出：能力卡 + 多轮澄清（roundId 递增；D7）
-        let roundId = 0;
-        let output: RequirementAnalysisOutput | null = null;
-        for (;;) {
-          if (ctx.signal.aborted) throw new Error("analysis aborted");
-          const { data } = await deps.ai.generateStructured<RequirementAnalysisOutput>({
-            prompt: input.description,
-            schema: "requirement-analysis",
-            context: { ...lab, roundId },
-            signal: ctx.signal,
-          });
-          output = data;
-
-          for (const cap of data.capabilities) {
-            deps.events.publish({
-              type: "requirement.analysis.progress",
-              projectId: input.projectId,
-              analysisId,
-              stage: "capabilities",
-              chunk: JSON.stringify(cap),
-            });
-          }
-
-          if (!data.clarification) break;
-          roundId += 1;
-
-          // await 间隙中可能已 abort（监听器尚未建立）→ 显式检查，避免错过取消
-          if (ctx.signal.aborted) throw new Error("analysis aborted");
-
-          // 澄清门：等待 submit_clarification（answer|skip）；取消 → 抛错终止任务
-          let resolveGate!: (v: ClarificationAnswer) => void;
-          const answerPromise = new Promise<ClarificationAnswer>((resolve) => {
-            resolveGate = resolve;
-          });
-          const abortPromise = new Promise<never>((_, reject) =>
-            ctx.signal.addEventListener("abort", () => reject(new Error("analysis aborted")), { once: true }),
-          );
-          gates.set(ctx.taskId, { roundId, answer: answerPromise, resolve: resolveGate });
-          deps.events.publish({
-            type: "requirement.analysis.clarification.requested",
-            projectId: input.projectId,
-            analysisId,
-            roundId,
-            question: data.clarification.question,
-            detail: data.clarification.detail,
-          });
-          await Promise.race([answerPromise, abortPromise]);
-          gates.delete(ctx.taskId);
-          // answer 已通过 context.roundId 递增体现；skip 显式记录（默认规格选择）
-        }
-
-        if (!output) throw new Error("analysis produced no output");
-        deps.events.publish({
-          type: "requirement.analysis.completed",
-          projectId: input.projectId,
-          analysisId,
-          capabilities: output.capabilities,
-        });
-
-        // 任务结果暂存（tasks.output：capabilities；S3B commitRequirements 聚合输入）
-        await ctx.setOutput(JSON.stringify({ capabilities: output.capabilities }));
-
-        // S3B：分析完成后为每个形式化项产出提案（引用 base 版本，零写入；I-1 Proposal Gate）
-        if (output.proposals && output.proposals.length > 0) {
-          const { createProposalsFromAnalysis } = await import("@/src/application/capabilities/proposals");
-          await createProposalsFromAnalysis(
-            { projectId: input.projectId, proposals: output.proposals, now: input.now },
-            { persistence: deps.persistence, now: input.now },
-          );
-        }
-      } catch (err) {
-        // 澄清门清理（取消/异常时不留 stale gate——内存泄漏防护）
-        gates.delete(ctx.taskId);
-        if (ctx.signal.aborted) {
-          deps.events.publish({
-            type: "requirement.analysis.cancelled",
-            projectId: input.projectId,
-            analysisId,
-          });
-        } else if (err instanceof ProviderUnavailableError) {
-          // 运行中 provider 故障：显式降级事件（ADR-0010；不 fallback mock）
-          deps.events.publish({ type: "provider.unavailable", provider: deps.ai.name, reason: err.message });
-          deps.events.publish({
-            type: "requirement.analysis.failed",
-            projectId: input.projectId,
-            analysisId,
-            reason: err.message,
-          });
-        }
-        throw err;
-      }
+    {
+      capability: "analyze_requirement",
+      input: JSON.stringify({ projectId: input.projectId, description: input.description, lab: input.lab ?? {} }),
     },
   );
 

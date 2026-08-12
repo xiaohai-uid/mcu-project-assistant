@@ -14,6 +14,7 @@ import type { StaleMarkDto } from "@/src/shared-contracts/types";
 import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
 import { createMockCompiler, createUnavailableMockCompiler } from "@/src/adapters/compiler/mock";
 import { createInProcessTasks } from "@/src/adapters/task/in-process";
+import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
 import { createNoopEvents } from "@/src/adapters/events/noop";
 import { ToolchainUnavailableError } from "@/src/ports/compiler";
 import { runBuild, getBuildRecord, listBuilds, cancelBuild } from "@/src/application/capabilities/build";
@@ -111,6 +112,7 @@ function deps(compiler = createMockCompiler()) {
   const events = createNoopEvents();
   const tasks = createInProcessTasks({ persistence, events });
   const buildDeps = { persistence, tasks, events, compiler, workspaceDir: join(dir, "ws"), now };
+  tasks.setExecutor(createProductionTaskExecutor({ persistence, events, ai: { name: "test", status: async () => "unavailable", streamText: async () => {}, generateStructured: async () => ({ data: {} }) } as never, compiler, workspaceDir: join(dir, "ws"), now }));
   return { persistence, content, events, tasks, buildDeps };
 }
 

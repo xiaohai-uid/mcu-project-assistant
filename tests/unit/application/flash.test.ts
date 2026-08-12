@@ -13,6 +13,7 @@ import type { PersistencePort, UnitOfWork } from "@/src/ports/persistence";
 import type { StaleMarkDto } from "@/src/shared-contracts/types";
 import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
 import { createInProcessTasks } from "@/src/adapters/task/in-process";
+import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
 import { createCompanionLocalDevice } from "@/src/adapters/device/companion-local";
 import {
   createFlashTokenStore,
@@ -124,6 +125,7 @@ function deps() {
   const tasks = createInProcessTasks({ persistence, events });
   const device = createCompanionLocalDevice();
   const tokens = createFlashTokenStore();
+  tasks.setExecutor(createProductionTaskExecutor({ persistence, events, ai: { name: "test", status: async () => "unavailable", streamText: async () => {}, generateStructured: async () => ({ data: {} }) } as never, compiler: { discoverToolchain: async () => ({ available: false, toolchain: "esp32-arduino", version: null }), build: async () => ({ exitCode: 1 }) } as never, workspaceDir: join(dir, "ws"), device, tokens, now }));
   return {
     persistence,
     content,

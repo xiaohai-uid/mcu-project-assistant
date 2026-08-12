@@ -74,6 +74,8 @@ import type { DevicePort } from "@/src/ports/device";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort } from "@/src/ports/task-execution";
+import type { InProcessTaskRuntime } from "@/src/adapters/task/in-process";
+import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
 import type { ArtifactKind, ArtifactVersionDto } from "@/src/shared-contracts/types";
 import { ApiError, withErrorHandler } from "./error";
 import { writeProjectMirror } from "@/src/infrastructure/workspace";
@@ -161,6 +163,20 @@ export function createApp(deps: AppDeps): Express {
     workspaceDir: deps.workspaceDir,
     now,
   };
+
+  const taskRuntime = deps.tasks as Partial<InProcessTaskRuntime>;
+  taskRuntime.setExecutor?.(
+    createProductionTaskExecutor({
+      persistence: deps.persistence,
+      events: deps.events,
+      ai: deps.ai,
+      compiler: deps.compiler,
+      workspaceDir: deps.workspaceDir,
+      now,
+      device: deps.device,
+      tokens: flashTokens,
+    }),
+  );
 
   // Idempotency-Key：内存映射（transport 层；重启即失，S1 记录在案——持久化幂等存储随需要引入）
   const idempotency = new Map<string, { project?: Project; version?: ArtifactVersionDto }>();

@@ -25,18 +25,45 @@ const events = createSseEvents();
 
 // AI Provider 必须显式选择真实 provider；配置错误在 HTTP server 初始化前 fail-closed。
 const ai = createAiProvider();
+const compiler = createEsp32ArduinoCompiler();
+const tasks = createInProcessTasks({ persistence, events });
 
-const app = createApp({
-  persistence,
-  workspaceDir: config.workspaceDir,
-  content: createWorkspaceFilesContent(config.workspaceDir),
-  events,
-  tasks: createInProcessTasks({ persistence, events }),
-  compiler: createEsp32ArduinoCompiler(),
-  device: createCompanionLocalDevice(),
-  ai,
-});
+async function startServer(): Promise<void> {
+  const app = createApp({
+    persistence,
+    workspaceDir: config.workspaceDir,
+    content: createWorkspaceFilesContent(config.workspaceDir),
+    events,
+    tasks,
+    compiler,
+    device: createCompanionLocalDevice(),
+    ai,
+  });
 
-app.listen(config.port, config.host, () => {
-  console.log(`MCU Project Assistant local server listening on http://${config.host}:${config.port} (ai=${ai.name})`);
+  // Recovery claims/schedules before listen; long executions continue after HTTP is exposed.
+  const recovery = await tasks.recover();
+  if (recovery.recovered > 0) console.log(`Scheduled durable task recovery: count=${recovery.recovered}`);
+
+  const server = app.listen(config.port, config.host, () => {
+    console.log(`MCU Project Assistant local server listening on http://${config.host}:${config.port} (ai=${ai.name})`);
+  });
+
+  let shuttingDown = false;
+  const shutdown = (): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    void (async () => {
+      await tasks.stop();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      db.close();
+    })();
+  };
+  process.once("SIGINT", shutdown);
+  process.once("SIGTERM", shutdown);
+}
+
+void startServer().catch((err) => {
+  console.error(err);
+  db.close();
+  process.exitCode = 1;
 });

@@ -14,6 +14,7 @@ import type { StaleMarkDto } from "@/src/shared-contracts/types";
 import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
 import { createMockCompiler } from "@/src/adapters/compiler/mock";
 import { createInProcessTasks } from "@/src/adapters/task/in-process";
+import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
 import { createNoopEvents } from "@/src/adapters/events/noop";
 import { createMockAiProvider } from "@/src/adapters/ai/mock";
 import { runBuild, getBuildRecord } from "@/src/application/capabilities/build";
@@ -116,6 +117,7 @@ function deps() {
     exitCode: 1,
   });
   const ai = createMockAiProvider({ slow: false });
+  tasks.setExecutor(createProductionTaskExecutor({ persistence, events, ai, compiler, workspaceDir: join(dir, "ws"), now }));
   return {
     persistence,
     content,
@@ -127,6 +129,18 @@ function deps() {
     diagnosisDeps: { persistence, content, events, ai, now },
     proposalDeps: { persistence, content, events, now },
   };
+}
+
+function useCompiler(d: ReturnType<typeof deps>, compiler: ReturnType<typeof createMockCompiler>): void {
+  d.buildDeps.compiler = compiler;
+  d.tasks.setExecutor(createProductionTaskExecutor({
+    persistence: d.persistence,
+    events: d.events,
+    ai: d.ai,
+    compiler,
+    workspaceDir: join(dir, "ws"),
+    now,
+  }));
 }
 
 async function seedJourney(d: ReturnType<typeof deps>): Promise<{ project: Project; versionId: string; fwId: string }> {
@@ -239,10 +253,9 @@ describe("S8 三模型分离（Proposal / ArtifactVersion / BuildRecord）", () 
 
     // 重建（复用 S7；修复后工具链成功）→ 新 BuildRecord 而非新版本
     const versionsAfterRebuild = d.persistence.mem.versions.size;
-    const { buildId: buildId2 } = await runBuild(
-      { projectId: project.id, versionId: latest.id },
-      { ...d.buildDeps, compiler: createMockCompiler() },
-    );
+    const successCompiler = createMockCompiler();
+    useCompiler(d, successCompiler);
+    const { buildId: buildId2 } = await runBuild({ projectId: project.id, versionId: latest.id }, d.buildDeps);
     await waitFor(async () => (await getBuildRecord({ buildId: buildId2 }, d.buildDeps))?.status === "succeeded");
     expect(d.persistence.mem.versions.size).toBe(versionsAfterRebuild); // 重建不产生版本
     expect(d.persistence.mem.builds.size).toBe(2);
@@ -272,7 +285,8 @@ describe("S8 三模型分离（Proposal / ArtifactVersion / BuildRecord）", () 
     const d = deps();
     const { project, versionId } = await seedJourney(d);
     const successCompiler = createMockCompiler();
-    const run = await runBuild({ projectId: project.id, versionId }, { ...d.buildDeps, compiler: successCompiler });
+    useCompiler(d, successCompiler);
+    const run = await runBuild({ projectId: project.id, versionId }, d.buildDeps);
     await waitFor(async () => (await getBuildRecord({ buildId: run.buildId }, d.buildDeps))?.status === "succeeded");
     await expect(diagnoseBuild({ buildId: run.buildId, now }, d.diagnosisDeps)).rejects.toThrow(BuildNotFailedError);
   });

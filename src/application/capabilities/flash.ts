@@ -103,6 +103,63 @@ export interface FlashCapabilityDeps {
   now?: () => Date;
 }
 
+export type FlashTaskDeps = Pick<FlashCapabilityDeps, "persistence" | "events" | "device" | "tokens" | "workspaceDir" | "now">;
+
+export interface PersistedFlashTaskInput {
+  deviceId: string;
+  firmwareVersionId: string;
+}
+
+export async function executeFlashTask(
+  input: PersistedFlashTaskInput,
+  ctx: import("@/src/ports/task-execution").TaskContext,
+  deps: FlashTaskDeps,
+): Promise<void> {
+  const now = deps.now ?? (() => new Date());
+  const version = await deps.persistence.getVersion(input.firmwareVersionId);
+  if (!version) throw new FirmwareVersionNotFoundError();
+  const artifact = await deps.persistence.getArtifact(version.artifactId);
+  const projectId = artifact?.projectId ?? "";
+  const sessionId = { value: "" };
+  const lines: string[] = [];
+
+  try {
+    const result = await deps.device.flash(
+      { deviceId: input.deviceId },
+      (e) => {
+        if (e.type === "progress") {
+          ctx.emit({ type: "device.flashing", projectId, deviceId: input.deviceId, percent: e.percent, message: e.message });
+        } else if (e.type === "line") {
+          lines.push(e.line);
+        }
+      },
+      ctx.signal,
+    );
+    sessionId.value = result.sessionId;
+    if (ctx.signal.aborted || result.exitCode !== 0) {
+      ctx.emit({ type: "device.flash_failed", projectId, deviceId: input.deviceId, message: "Flash aborted" });
+      await ctx.setOutput(JSON.stringify({ sessionId: "" }));
+      return;
+    }
+    if (sessionId.value) {
+      const evidencePath = join(deps.workspaceDir, ".evidence", `${sessionId.value}.log`);
+      mkdirSync(join(deps.workspaceDir, ".evidence"), { recursive: true });
+      appendFileSync(evidencePath, lines.join("\n") + "\n", "utf8");
+    }
+    ctx.emit({ type: "device.flashed", projectId, deviceId: input.deviceId, sessionId: sessionId.value });
+    await ctx.setOutput(JSON.stringify({ sessionId: sessionId.value }));
+  } catch (err) {
+    ctx.emit({
+      type: "device.flash_failed",
+      projectId,
+      deviceId: input.deviceId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    await ctx.setOutput(JSON.stringify({ sessionId: "" }));
+  }
+  void now;
+}
+
 export async function detectDevice(
   _input: Record<string, never>,
   deps: Pick<FlashCapabilityDeps, "device" | "persistence" | "now">,
@@ -154,53 +211,24 @@ export async function flashDevice(
   if (deps.device.session().stage !== "connected") throw new DeviceDisconnectedError();
 
   // 4. 烧录执行（in-process 任务；进度事件 → SSE；deferred 等待任务终态以返回 sessionId）
-  let sessionId = "";
-  const lines: string[] = [];
-  let resolveDone!: (v: { sessionId: string }) => void;
-  const done = new Promise<{ sessionId: string }>((r) => (resolveDone = r));
-  await deps.tasks.submit(
+  const taskId = await deps.tasks.submit(
     { capability: "flash_device", input: JSON.stringify({ deviceId: input.deviceId, firmwareVersionId: input.firmwareVersionId }) },
-    async (ctx) => {
-      try {
-        const result = await deps.device.flash(
-          { deviceId: input.deviceId },
-          (e) => {
-            if (e.type === "progress") {
-              ctx.emit({ type: "device.flashing", projectId, deviceId: input.deviceId, percent: e.percent, message: e.message });
-            } else if (e.type === "line") {
-              lines.push(e.line);
-            }
-          },
-          ctx.signal,
-        );
-        sessionId = result.sessionId;
-        if (ctx.signal.aborted || result.exitCode !== 0) {
-          // 中断/失败：不留半成品证据（不写 .evidence）
-          ctx.emit({ type: "device.flash_failed", projectId, deviceId: input.deviceId, message: "Flash aborted" });
-          resolveDone({ sessionId: "" });
-          return;
-        }
-        // 完成 → Debug 证据（.evidence/<sessionId>.log；大体积证据进 workspace）
-        if (sessionId) {
-          const evidencePath = join(deps.workspaceDir, ".evidence", `${sessionId}.log`);
-          mkdirSync(join(deps.workspaceDir, ".evidence"), { recursive: true });
-          appendFileSync(evidencePath, lines.join("\n") + "\n", "utf8");
-        }
-        ctx.emit({ type: "device.flashed", projectId, deviceId: input.deviceId, sessionId });
-        resolveDone({ sessionId });
-      } catch (err) {
-        ctx.emit({
-          type: "device.flash_failed",
-          projectId,
-          deviceId: input.deviceId,
-          message: err instanceof Error ? err.message : String(err),
-        });
-        resolveDone({ sessionId: "" });
-      }
-    },
   );
 
-  return done;
+  const runtime = deps.tasks as TaskExecutionPort & {
+    waitForTask?: (id: string) => Promise<import("@/src/ports/task-execution").TaskRecord | null>;
+  };
+  const task = runtime.waitForTask
+    ? await runtime.waitForTask(taskId)
+    : await (async () => {
+        for (;;) {
+          const current = await deps.tasks.getTask(taskId);
+          if (current && ["completed", "failed", "cancelled"].includes(current.status)) return current;
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      })();
+  if (!task) throw new Error(`Flash task ${taskId} disappeared before reaching a terminal state`);
+  return task.output ? (JSON.parse(task.output) as { sessionId: string }) : { sessionId: "" };
 }
 
 export async function disconnectDevice(deps: Pick<FlashCapabilityDeps, "device">): Promise<void> {
