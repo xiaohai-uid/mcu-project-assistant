@@ -97,9 +97,15 @@ describe("zhipu-glm adapter (real AIProviderPort)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const parsed = JSON.parse(init.body as string) as { response_format: { type: string }; messages: Array<{ role: string }> };
+    const parsed = JSON.parse(init.body as string) as {
+      response_format: { type: string };
+      messages: Array<{ role: string }>;
+      thinking: { type: string };
+    };
     expect(parsed.response_format).toEqual({ type: "json_object" });
     expect(parsed.messages[0]?.role).toBe("system");
+    // 思考模式必须开启（产品要求：推理质量优先于速度）
+    expect(parsed.thinking).toEqual({ type: "enabled" });
   });
 
   it("generateStructured: 非法 JSON → 重试一次 → 第二次成功", async () => {

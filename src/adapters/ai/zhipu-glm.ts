@@ -87,13 +87,15 @@ function extractJson(text: string): unknown {
 export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderPort {
   const baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL;
   const model = opts.model ?? DEFAULT_MODEL;
-  const timeoutMs = opts.timeoutMs ?? 120_000;
+  // reasoning 模型（思考模式开启）生成慢：120s 起，可通过 opts.timeoutMs 调大
+  const timeoutMs = opts.timeoutMs ?? 240_000;
 
-  /** 探测请求（不消耗配额语义：max_tokens=1） */
+  /** 探测请求（可达性探测，非内容生成：不消耗推理预算） */
   const PROBE_BODY = { model, messages: [{ role: "user", content: "ping" }], max_tokens: 1 };
 
-  /** 结构化/流式请求（thinking disabled：JSON 与进度文本无需推理链，显著提速——实测 0.4s vs 60s+） */
-  const WORK_BODY = { thinking: { type: "disabled" } };
+  /** 结构化/流式请求：思考模式必须开启（产品要求——推理质量优先于速度；
+   * 真实代价：reasoning_content 占 token 预算 + 耗时上升，由 timeoutMs/max_tokens 承载） */
+  const WORK_BODY = { thinking: { type: "enabled" } };
   let lastStatusAt = 0;
   let lastStatus: ProviderStatus = "unavailable";
 
@@ -155,7 +157,7 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
           model,
           messages: [{ role: "user", content: req.prompt }],
           stream: true,
-          max_tokens: 1024,
+          max_tokens: 2048,
         },
         req.signal,
       );
@@ -216,7 +218,7 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
                 { role: "user", content: req.prompt },
               ],
               response_format: { type: "json_object" },
-              max_tokens: 2048,
+              max_tokens: 4096,
             },
             req.signal,
           );
@@ -253,7 +255,7 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
                   { role: "user", content: req.prompt },
                 ],
                 response_format: { type: "json_object" },
-                max_tokens: 1024,
+                max_tokens: 2048,
               },
               req.signal,
             );
