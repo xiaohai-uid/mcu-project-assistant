@@ -1,7 +1,7 @@
 // unit/application/build — run_build（application-contract 2.12；ISSUE-009 §11）
 // 202 → BuildRecord running → 逐行输出（SSE build.output + .build 日志）→ 终态（succeeded/failed/cancelled）。
 // D2 断言：Build 不产生 Firmware 版本；503 ToolchainUnavailable（真实检测）；L3 门禁 409。
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -17,7 +17,7 @@ import { createInProcessTasks } from "@/src/adapters/task/in-process";
 import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
 import { createNoopEvents } from "@/src/adapters/events/noop";
 import { ToolchainUnavailableError } from "@/src/ports/compiler";
-import { runBuild, getBuildRecord, listBuilds, cancelBuild } from "@/src/application/capabilities/build";
+import { BuildExecutionError, BuildInputError, executeBuildTask, resolveBuildPaths, runBuild, getBuildRecord, listBuilds, cancelBuild } from "@/src/application/capabilities/build";
 import { selectMcu } from "@/src/application/capabilities/mcu";
 import { createProject as createProjectCapability } from "@/src/application/capabilities/projects";
 import { createArtifact as domainCreateArtifact } from "@/src/domain/models/artifact";
@@ -179,6 +179,11 @@ describe("run_build（contract 2.12；D2 Build 不产生版本）", () => {
     await waitFor(async () => (await getBuildRecord({ buildId }, d.buildDeps))?.status === "succeeded");
     const done = (await getBuildRecord({ buildId }, d.buildDeps))!;
     expect(done.exitCode).toBe(0);
+    expect(done.sourceDir).toContain("firmware");
+    expect(done.outputDir).toContain(buildId);
+    expect(done.outputs).toHaveLength(1);
+    expect(done.outputs[0]?.kind).toBe("bin");
+    expect(done.outputs[0]?.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(done.stdoutRef).toContain(".build");
     expect(done.stdoutRef).toContain(buildId);
     // .build/<buildId>.log 真实存在（证据分离；DB 只存 ref）
@@ -222,5 +227,85 @@ describe("run_build（contract 2.12；D2 Build 不产生版本）", () => {
     const d = deps(createUnavailableMockCompiler());
     const { project, versionId } = await seedJourney(d);
     await expect(runBuild({ projectId: project.id, versionId }, d.buildDeps)).rejects.toThrow(ToolchainUnavailableError);
+  });
+
+  it("同时存在多个固件版本时，只把请求版本的绝对 sourceDir 交给 compiler", async () => {
+    const base = deps();
+    const { project, versionId } = await seedJourney(base);
+    const firmware = (await base.persistence.getArtifactByKind(project.id, "firmware"))!;
+    const second = await base.content.store({ projectId: project.id, kind: "firmware", versionNo: 2, subpath: "src/main.cpp" }, "void setup(){ /* B */ }");
+    const secondConfig = await base.content.store({ projectId: project.id, kind: "firmware", versionNo: 2, subpath: "platformio.ini" }, "[env:esp32s3]");
+    await base.persistence.withTransaction((uow) => {
+      uow.createVersion({ id: "firmware-v2", artifactId: firmware.id, versionNo: 2, contentRef: second.contentRef, contentHash: second.contentHash, status: "accepted", sourceKind: "manual", sourceProposalId: null, createdAt: NOW, createdBy: "owner" });
+      void secondConfig;
+    });
+    const captured: string[] = [];
+    const delegate = createMockCompiler();
+    const compiler = {
+      discoverToolchain: delegate.discoverToolchain,
+      build: async (request: Parameters<typeof delegate.build>[0], onOutput: Parameters<typeof delegate.build>[1], signal: Parameters<typeof delegate.build>[2]) => {
+        captured.push(request.sourceDir);
+        return delegate.build(request, onOutput, signal);
+      },
+    };
+    base.tasks.setExecutor(createProductionTaskExecutor({ persistence: base.persistence, events: base.events, ai: { name: "test", status: async () => "unavailable", streamText: async () => {}, generateStructured: async () => ({ data: {} }) } as never, compiler, workspaceDir: join(dir, "ws"), now }));
+    const buildDeps = { ...base.buildDeps, compiler };
+    const { buildId } = await runBuild({ projectId: project.id, versionId }, buildDeps);
+    await waitFor(async () => (await getBuildRecord({ buildId }, buildDeps))?.status === "succeeded");
+    const done = (await getBuildRecord({ buildId }, buildDeps))!;
+    expect(done.artifactVersionId).toBe(versionId);
+    expect(captured).toEqual([done.sourceDir]);
+    expect(done.sourceDir).not.toContain("0002");
+    expect(done.sourceDir).toContain("0001");
+  });
+
+  it("rejects missing and foreign firmware source paths before compiler execution", async () => {
+    const workspace = join(dir, "ws");
+    expect(() => resolveBuildPaths(workspace, "firmware/9999/src/main.cpp", "build-missing")).toThrow(BuildInputError);
+    expect(() => resolveBuildPaths(workspace, "../outside/src/main.cpp", "build-escape")).toThrow(BuildInputError);
+    expect(() => resolveBuildPaths(workspace, join(dir, "foreign", "src", "main.cpp"), "build-absolute")).toThrow(BuildInputError);
+
+    const base = deps();
+    const { project, versionId } = await seedJourney(base);
+    const compiler = {
+      discoverToolchain: base.buildDeps.compiler.discoverToolchain,
+      build: async (...args: Parameters<typeof base.buildDeps.compiler.build>) => {
+        throw new Error(`compiler must not run: ${args[0].sourceDir}`);
+      },
+    };
+    const invalidVersion = { ...base.persistence.mem.versions.get(versionId)!, contentRef: "firmware/9999/src/main.cpp" };
+    base.persistence.mem.versions.set(versionId, invalidVersion);
+    await expect(runBuild({ projectId: project.id, versionId }, { ...base.buildDeps, compiler })).rejects.toBeInstanceOf(BuildInputError);
+    expect(base.persistence.mem.builds.size).toBe(0);
+  });
+
+  it("clears stale output before a failed attempt so old firmware cannot become this build's evidence", async () => {
+    const base = deps(createMockCompiler({ lines: [], exitCode: 7 }));
+    const { project, versionId } = await seedJourney(base);
+    const submitted: { buildId?: string } = {};
+    const tasks = {
+      submit: async (input: { capability: string; input: string }) => {
+        submitted.buildId = (JSON.parse(input.input) as { buildId: string }).buildId;
+        return "build-task";
+      },
+      cancel: async () => false,
+      getTask: async () => null,
+    };
+    const buildDeps = { ...base.buildDeps, tasks };
+    const { buildId } = await runBuild({ projectId: project.id, versionId }, buildDeps);
+    expect(submitted.buildId).toBe(buildId);
+    const record = (await getBuildRecord({ buildId }, buildDeps))!;
+    mkdirSync(record.outputDir!, { recursive: true });
+    const stale = join(record.outputDir!, "old.bin");
+    writeFileSync(stale, "stale", "utf8");
+    await expect(executeBuildTask(
+      { buildId, projectId: project.id, versionId },
+      { taskId: "build-task", mode: "new", signal: new AbortController().signal, emit: () => {}, progress: () => {}, setOutput: async () => {} },
+      buildDeps,
+    )).rejects.toBeInstanceOf(BuildExecutionError);
+    const failed = (await getBuildRecord({ buildId }, buildDeps))!;
+    expect(failed.status).toBe("failed");
+    expect(failed.outputs).toEqual([]);
+    expect(existsSync(stale)).toBe(false);
   });
 });

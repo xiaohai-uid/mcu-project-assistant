@@ -164,6 +164,16 @@ CREATE TABLE preferences (
 );
 `,
   },
+  {
+    version: 9,
+    name: "add_build_output_evidence",
+    sql: `
+ALTER TABLE build_records ADD COLUMN source_dir TEXT NULL;
+ALTER TABLE build_records ADD COLUMN output_dir TEXT NULL;
+ALTER TABLE build_records ADD COLUMN command_json TEXT NULL;
+ALTER TABLE build_records ADD COLUMN outputs_json TEXT NULL;
+`,
+  },
 ];
 
 export function migrate(db: SqliteDb): void {

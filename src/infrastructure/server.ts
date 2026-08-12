@@ -27,7 +27,7 @@ const events = createSseEvents();
 
 // AI Provider 必须显式选择真实 provider；配置错误在 HTTP server 初始化前 fail-closed。
 const ai = createAiProvider();
-const compiler = createEsp32ArduinoCompiler();
+const compiler = createEsp32ArduinoCompiler({ arduinoCliPath: config.arduinoCliPath, timeoutMs: config.buildTimeoutMs });
 const tasks = createInProcessTasks({ persistence, events });
 if (config.deviceProvider !== "companion") throw new Error("No supported device provider configured");
 const device = createCompanionLocalDevice();

@@ -21,6 +21,8 @@ describe("production runtime configuration", () => {
       dbPath: resolve("C:/mcu-config-test/data/test-config.db"),
       workspaceDir: resolve("C:/mcu-config-test/workspace/test-config"),
       deviceProvider: "companion",
+      arduinoCliPath: "arduino-cli",
+      buildTimeoutMs: 600000,
     });
   });
 

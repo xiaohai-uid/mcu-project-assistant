@@ -130,7 +130,7 @@ describe("S7 Golden Journey — Build end-to-end（真实 HTTP + deterministic c
     expect(existsSync(join(ws, done.stdoutRef!))).toBe(true);
     const log = readFileSync(join(ws, done.stdoutRef!), "utf8");
     expect(log).toContain("Compiling sketch");
-    expect(log).toContain("Memory usage: RAM 22.4% / Flash 31.8%");
+    expect(log).not.toMatch(/RAM\s+22\.4%|Flash\s+31\.8%/);
     expect(log).toContain("Build complete");
 
     // 2. Build #2（同一固件版本；同版本多记录；Firmware 版本数不变——D2）

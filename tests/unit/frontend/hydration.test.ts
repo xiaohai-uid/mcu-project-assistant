@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { latestTask, mergeTaskTruth, parseAnalysisCapabilities, parseFlashTruth } from "@/app/src/state/hydration";
+import { hasVerifiedFirmwareOutput, latestTask, matchesBuildEvent, mergeTaskTruth, parseAnalysisCapabilities, parseFlashTruth } from "@/app/src/state/hydration";
 import type { TaskDto } from "@/app/src/api/client";
 
 const task = (patch: Partial<TaskDto>): TaskDto => ({
@@ -16,6 +16,20 @@ const task = (patch: Partial<TaskDto>): TaskDto => ({
 });
 
 describe("refresh hydration truth helpers", () => {
+  it("does not treat a legacy succeeded build without output evidence as flash-ready", () => {
+    expect(hasVerifiedFirmwareOutput({ status: "succeeded", outputs: [] })).toBe(false);
+    expect(hasVerifiedFirmwareOutput({
+      status: "succeeded",
+      outputs: [{ path: "firmware.bin", kind: "bin", sizeBytes: 4, sha256: "a".repeat(64) }],
+    })).toBe(true);
+  });
+
+  it("accepts only the currently selected build's SSE terminal event", () => {
+    expect(matchesBuildEvent("build-a", "build-a")).toBe(true);
+    expect(matchesBuildEvent("build-b", "build-a")).toBe(false);
+    expect(matchesBuildEvent(null, "build-a")).toBe(false);
+  });
+
   it("terminal live truth wins over a late running refresh, in either event order", () => {
     const completed = task({ status: "completed", completedAt: "2026-08-12T00:00:05.000Z", output: '{"capabilities":[]}' });
     const running = task({ status: "running", completedAt: null });

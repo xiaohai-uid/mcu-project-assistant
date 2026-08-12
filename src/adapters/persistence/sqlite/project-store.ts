@@ -88,6 +88,10 @@ interface BuildRow {
   stderr_ref: string | null;
   exit_code: number | null;
   diagnostics: string;
+  source_dir?: string | null;
+  output_dir?: string | null;
+  command_json?: string | null;
+  outputs_json?: string | null;
 }
 
 interface ProposalRow {
@@ -192,6 +196,10 @@ function toBuild(row: BuildRow): BuildRecord {
     stderrRef: row.stderr_ref,
     exitCode: row.exit_code,
     diagnostics: JSON.parse(row.diagnostics) as BuildRecord["diagnostics"],
+    sourceDir: row.source_dir ?? null,
+    outputDir: row.output_dir ?? null,
+    command: row.command_json ? JSON.parse(row.command_json) as string[] : [],
+    outputs: row.outputs_json ? JSON.parse(row.outputs_json) as NonNullable<BuildRecord["outputs"]> : [],
   };
 }
 
@@ -286,11 +294,11 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     "SELECT * FROM stale_marks WHERE project_id = ? AND resolved_at IS NULL ORDER BY created_at ASC",
   );
   const insertBuild = db.prepare(
-    `INSERT INTO build_records (id, artifact_version_id, task_id, target, toolchain, toolchain_version, options, status, started_at, completed_at, stdout_ref, stderr_ref, exit_code, diagnostics)
-     VALUES (@id, @artifact_version_id, @task_id, @target, @toolchain, @toolchain_version, @options, @status, @started_at, @completed_at, @stdout_ref, @stderr_ref, @exit_code, @diagnostics)`,
+    `INSERT INTO build_records (id, artifact_version_id, task_id, target, toolchain, toolchain_version, options, status, started_at, completed_at, stdout_ref, stderr_ref, exit_code, diagnostics, source_dir, output_dir, command_json, outputs_json)
+     VALUES (@id, @artifact_version_id, @task_id, @target, @toolchain, @toolchain_version, @options, @status, @started_at, @completed_at, @stdout_ref, @stderr_ref, @exit_code, @diagnostics, @source_dir, @output_dir, @command_json, @outputs_json)`,
   );
   const updateBuild = db.prepare(
-    `UPDATE build_records SET task_id = @task_id, status = @status, completed_at = @completed_at, stdout_ref = @stdout_ref, stderr_ref = @stderr_ref, exit_code = @exit_code, diagnostics = @diagnostics WHERE id = @id`,
+    `UPDATE build_records SET task_id = @task_id, status = @status, completed_at = @completed_at, stdout_ref = @stdout_ref, stderr_ref = @stderr_ref, exit_code = @exit_code, diagnostics = @diagnostics, source_dir = @source_dir, output_dir = @output_dir, command_json = @command_json, outputs_json = @outputs_json WHERE id = @id`,
   );
   const selectBuild = db.prepare("SELECT * FROM build_records WHERE id = ?");
   const selectBuilds = db.prepare(
@@ -433,6 +441,10 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
         stderr_ref: b.stderrRef,
         exit_code: b.exitCode,
         diagnostics: JSON.stringify(b.diagnostics),
+        source_dir: b.sourceDir ?? null,
+        output_dir: b.outputDir ?? null,
+        command_json: b.command ? JSON.stringify(b.command) : null,
+        outputs_json: b.outputs ? JSON.stringify(b.outputs) : null,
       });
     },
     updateBuildRecord(b: BuildRecord): void {
@@ -445,6 +457,10 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
         stderr_ref: b.stderrRef,
         exit_code: b.exitCode,
         diagnostics: JSON.stringify(b.diagnostics),
+        source_dir: b.sourceDir ?? null,
+        output_dir: b.outputDir ?? null,
+        command_json: b.command ? JSON.stringify(b.command) : null,
+        outputs_json: b.outputs ? JSON.stringify(b.outputs) : null,
       });
     },
     setPreference(key: string, value: string, updatedAt: string): void {

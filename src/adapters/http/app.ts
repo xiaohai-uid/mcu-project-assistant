@@ -70,7 +70,7 @@ import type { AIProviderPort } from "@/src/ports/ai-provider";
 import { ProviderUnavailableError } from "@/src/ports/ai-provider";
 import type { ArtifactContentPort } from "@/src/ports/artifact-content";
 import type { CompilerPort } from "@/src/ports/compiler";
-import { ToolchainUnavailableError } from "@/src/ports/compiler";
+import { ToolchainUnavailableError, UnsupportedBuildTargetError } from "@/src/ports/compiler";
 import type { DevicePort } from "@/src/ports/device";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
@@ -82,6 +82,7 @@ import { ApiError, withErrorHandler } from "./error";
 import { writeProjectMirror } from "@/src/infrastructure/workspace";
 import {
   BuildNotCancellableError,
+  BuildInputError,
   BuildNotFoundError,
   cancelBuild as cancelBuildCapability,
   getBuildRecord as getBuildRecordCapability,
@@ -557,6 +558,8 @@ export function createApp(deps: AppDeps): Express {
       if (err instanceof BuildVersionNotFoundError || err instanceof BuildNotFoundError)
         throw new ApiError(404, "not_found", err.message);
       if (err instanceof ToolchainUnavailableError) throw new ApiError(503, "toolchain_unavailable", err.message);
+      if (err instanceof UnsupportedBuildTargetError) throw new ApiError(400, "unsupported_build_target", err.message);
+      if (err instanceof BuildInputError) throw new ApiError(400, "invalid_build_source", err.message);
       if (err instanceof BlockingStaleError) throw new ApiError(409, "blocking_stale", err.message);
       if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
       throw err;

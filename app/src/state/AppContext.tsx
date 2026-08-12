@@ -38,6 +38,8 @@ import type { AnalysisCapabilityDto, McuCandidateDto, PeripheralDto } from "../a
 import type { TaskDto } from "../api/client";
 import {
   latestTask,
+  hasVerifiedFirmwareOutput,
+  matchesBuildEvent,
   mergeTaskTruth,
   parseAnalysisCapabilities,
   parseFlashTruth,
@@ -159,7 +161,9 @@ function initialState(): AppState {
       version: 0,
     },
     build: {
+      buildId: null,
       stage: "idle",
+      outputVerified: false,
       logs: [],
       diagnosis: null,
       nextFails: false,
@@ -239,6 +243,8 @@ type Action =
   | { type: "FW_REJECTED" }
   | { type: "FW_CODE"; code: string; version: number }
   | { type: "BUILD_STAGE"; stage: AppState["build"]["stage"] }
+  | { type: "BUILD_ID"; buildId: string | null }
+  | { type: "BUILD_EVIDENCE"; verified: boolean }
   | { type: "BUILD_LOG"; line: BuildLogLine }
   | { type: "BUILD_LOGS"; logs: BuildLogLine[] }
   | { type: "BUILD_NEXT_FAIL"; v: boolean }
@@ -295,7 +301,7 @@ function reducer(state: AppState, a: Action): AppState {
       let selectedMcu = "";
       let pinMappings: PinMapping[] = [];
       let pinmapVersions: AppState["pinmapVersions"] = [];
-      let build: AppState["build"] = { ...state.build, stage: "idle", logs: [], diagnosis: null };
+      let build: AppState["build"] = { ...state.build, buildId: null, stage: "idle", outputVerified: false, logs: [], diagnosis: null };
       for (const item of snapshot.artifacts) {
         const kind = item.artifact.kind as ArtifactKind;
         if (!(kind in hydratedArtifacts)) continue;
@@ -306,7 +312,13 @@ function reducer(state: AppState, a: Action): AppState {
           firmwareCode = item.content ?? "";
           firmwareVersion = version?.versionNo ?? 0;
           firmwareStage = version?.status === "accepted" ? "accepted" : version ? "proposal" : "idle";
-          build = { ...build, stage: latestBuildStage(item.builds) };
+          const latest = item.builds.at(-1);
+          build = {
+            ...build,
+            buildId: latest?.id ?? null,
+            stage: latestBuildStage(item.builds),
+            outputVerified: latest ? hasVerifiedFirmwareOutput(latest) : false,
+          };
         }
         if (kind === "hardware") {
           const parsed = contentObject(item.content);
@@ -503,7 +515,9 @@ function reducer(state: AppState, a: Action): AppState {
     case "FW_REJECTED":
       return { ...state, firmware: { ...state.firmware, stage: "rejected" } };
     case "FW_CODE": return { ...state, firmware: { ...state.firmware, code: a.code, version: a.version } };
-    case "BUILD_STAGE": return { ...state, build: { ...state.build, stage: a.stage } };
+    case "BUILD_STAGE": return { ...state, build: { ...state.build, stage: a.stage, ...(a.stage !== "succeeded" ? { outputVerified: false } : {}) } };
+    case "BUILD_ID": return { ...state, build: { ...state.build, buildId: a.buildId, outputVerified: false } };
+    case "BUILD_EVIDENCE": return { ...state, build: { ...state.build, outputVerified: a.verified } };
     case "BUILD_LOG": return { ...state, build: { ...state.build, logs: [...state.build.logs, a.line] } };
     case "BUILD_LOGS": return { ...state, build: { ...state.build, logs: a.logs } };
     case "BUILD_NEXT_FAIL": return { ...state, build: { ...state.build, nextFails: a.v } };
@@ -777,6 +791,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     (projectId: string) =>
       subscribeProjectEvents(projectId, {
         onEvent: (type, data) => {
+          const event = data as { buildId?: unknown };
+          const eventBuildId = typeof event.buildId === "string" ? event.buildId : null;
+          if (!matchesBuildEvent(eventBuildId, buildRef.current.buildId)) return;
           switch (type) {
             case "build.output": {
               const { line } = data as { line: string };
@@ -785,6 +802,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
             case "build.succeeded": {
               dispatch({ type: "BUILD_STAGE", stage: "succeeded" });
+              if (eventBuildId) void clientApi.getBuild(eventBuildId).then((build) => dispatch({
+                type: "BUILD_EVIDENCE",
+                verified: hasVerifiedFirmwareOutput(build),
+              })).catch(() => dispatch({ type: "BUILD_EVIDENCE", verified: false }));
               dispatch({
                 type: "ARTIFACT",
                 kind: "build",
@@ -1427,6 +1448,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!firmwareOk) return; // Stale 拦截（视图层提示）
     cancelRef.current.build = false;
     dispatch({ type: "BUILD_LOGS", logs: [] });
+    dispatch({ type: "BUILD_ID", buildId: null });
     dispatch({ type: "BUILD_STAGE", stage: "building" });
     // Progressive Swap（ISSUE-009 §5）：内存日志脚本 → 真实 run_build（CompilerPort + BuildRecord）
     void (async () => {
@@ -1439,6 +1461,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         const { buildId } = await clientApi.runBuild(projectId, current.id);
         buildRef.current.buildId = buildId;
+        dispatch({ type: "BUILD_ID", buildId });
         // 日志流/终态由 SSE build.* 事件驱动（subscribeBuildEvents）
       } catch (err) {
         dispatch({ type: "BUILD_STAGE", stage: "failed" });
@@ -1559,6 +1582,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const projectId = s.project?.id;
     if (!projectId) return;
     if (s.runtime.deviceStage !== "connected") return;
+    if (!s.build.outputVerified) return;
     void (async () => {
       try {
         const { token } = await clientApi.issueFlashToken("companion-esp32s3");
@@ -1567,7 +1591,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         pushSystem(err instanceof ApiError ? `Flash token failed: ${err.code}` : "Flash token failed");
       }
     })();
-  }, [s.project?.id, s.runtime.deviceStage, flashDevice, pushSystem]);
+  }, [s.project?.id, s.runtime.deviceStage, s.build.outputVerified, flashDevice, pushSystem]);
 
   const sendSerial = useCallback(
     (cmd: string) => {
@@ -1678,7 +1702,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } else if (lower.includes("build") || lower.includes("error")) {
         reply = s.build.stage === "failed"
           ? "The build failed on a missing dependency: `Adafruit_SSD1306.h`. I can propose adding the library to platformio.ini — press 'Ask Copilot to diagnose' for a full analysis."
-          : "The last build succeeded. Memory: RAM 22.4% / Flash 31.8%.";
+          : "The last build status comes from the durable build record; verified firmware output is required before flashing.";
       } else if (lower.includes("stale") || lower.includes("outdated")) {
         reply = "Stale artifacts are marked in the sidebar and each affected view. Run 'Revalidate All' to regenerate them from the latest upstream artifacts — your previous decisions are re-applied.";
       } else if (lower.includes("who") || lower.includes("what") || lower.includes("help")) {

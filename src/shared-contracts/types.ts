@@ -126,6 +126,13 @@ export interface SerialResultDto {
 
 export type BuildStatusDto = "running" | "succeeded" | "failed" | "cancelled";
 
+export interface BuildOutputEvidenceDto {
+  path: string;
+  kind: "bin" | "elf" | "hex";
+  sizeBytes: number;
+  sha256: string;
+}
+
 /** BuildRecord（D2：Build 证据独立于版本；同版本可多次构建；Build 不产生 Firmware 版本） */
 export interface BuildRecordDto {
   id: string;
@@ -142,6 +149,11 @@ export interface BuildRecordDto {
   stderrRef: string | null;
   exitCode: number | null;
   diagnostics: Array<{ code: string; severity: string; message: string; details?: Record<string, unknown> }>;
+  /** Phase 11: absent on legacy rows; present on newly executed builds. */
+  sourceDir: string | null;
+  outputDir: string | null;
+  command: string[];
+  outputs: BuildOutputEvidenceDto[];
 }
 
 export type StaleLevel = "L1" | "L2" | "L3";

@@ -8,6 +8,8 @@ export interface AppConfig {
   dbPath: string;
   workspaceDir: string;
   deviceProvider: "companion";
+  arduinoCliPath: string;
+  buildTimeoutMs: number;
 }
 
 const APPLICATION_ROOT = fileURLToPath(new URL("../..", import.meta.url));
@@ -27,6 +29,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error("MCU_PORT must be an integer from 1 to 65535");
   }
+
+  const rawBuildTimeout = env.MCU_BUILD_TIMEOUT_MS?.trim() || "600000";
+  if (!/^\d+$/.test(rawBuildTimeout) || Number(rawBuildTimeout) < 1) {
+    throw new Error("MCU_BUILD_TIMEOUT_MS must be a positive integer");
+  }
+  const buildTimeoutMs = Number(rawBuildTimeout);
+  const arduinoCliPath = env.MCU_ARDUINO_CLI_PATH?.trim() || "arduino-cli";
 
   const rawDbPath = env.MCU_DB_PATH?.trim();
   const rawWorkspaceDir = env.MCU_WORKSPACE_DIR?.trim();
@@ -54,5 +63,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot
     dbPath,
     workspaceDir,
     deviceProvider: "companion",
+    arduinoCliPath,
+    buildTimeoutMs,
   };
 }

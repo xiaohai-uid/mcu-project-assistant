@@ -339,7 +339,9 @@ export interface AppState {
 
   // Build 视图
   build: {
+    buildId: string | null;
     stage: BuildStage;
+    outputVerified: boolean;
     logs: BuildLogLine[];
     diagnosis: BuildDiagnosis | null;
     nextFails: boolean;  // Lab：下次编译失败

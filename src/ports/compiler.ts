@@ -13,11 +13,25 @@ export interface BuildRequest {
   target: string; // 如 "esp32-s3"
   toolchain: "esp32-arduino";
   options: Record<string, unknown>; // 结构化选项对象（board/fqbn/optimize…）
-  firmwareRef: string; // 编译源（firmware 版本 contentRef）
+  sourceDir: string; // 已解析并验证的 durable firmware source directory
+  outputDir: string; // 每次构建独立的绝对输出目录
+}
+
+export interface BuildOutputEvidence {
+  path: string;
+  kind: "bin" | "elf" | "hex";
+  sizeBytes: number;
+  sha256: string;
 }
 
 export interface BuildResult {
   exitCode: number;
+  toolchain: "esp32-arduino";
+  toolchainVersion?: string;
+  command: string[];
+  sourceDir: string;
+  outputDir: string;
+  outputs: BuildOutputEvidence[];
 }
 
 export interface CompilerPort {
@@ -34,5 +48,19 @@ export class ToolchainUnavailableError extends Error {
   constructor(reason: string) {
     super(reason);
     this.name = "ToolchainUnavailableError";
+  }
+}
+
+export class UnsupportedBuildTargetError extends Error {
+  constructor(target: string) {
+    super(`Unsupported build target: ${target}`);
+    this.name = "UnsupportedBuildTargetError";
+  }
+}
+
+export class BuildTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Build timed out after ${timeoutMs}ms`);
+    this.name = "BuildTimeoutError";
   }
 }

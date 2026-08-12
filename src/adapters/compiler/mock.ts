@@ -3,6 +3,9 @@
 // **无 shell 拼接断言**：mock 也验证 request 为对象而非命令串（与真实适配器同契约）。
 import type { BuildRequest, BuildResult, CompilerPort, ToolchainInfo } from "@/src/ports/compiler";
 import { ToolchainUnavailableError } from "@/src/ports/compiler";
+import { mkdirSync, writeFileSync, statSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { createHash } from "node:crypto";
 
 export interface MockBuildScript {
   lines: string[];
@@ -26,7 +29,6 @@ export function createMockCompilerHandle(script?: MockBuildScript): MockCompiler
       "[OK] Compiling sketch...",
       "[OK] Linking...",
       "[OK] Generating binary image...",
-      "[OK] Memory usage: RAM 22.4% / Flash 31.8%",
       "[OK] Build complete",
     ],
     exitCode: 0,
@@ -44,12 +46,27 @@ export function createMockCompilerHandle(script?: MockBuildScript): MockCompiler
       }
       if (unavailable) throw new ToolchainUnavailableError("arduino-cli not found on PATH (mock)");
       for (const line of s.lines) {
-        if (signal.aborted) return { exitCode: 1 };
+        if (signal.aborted) return { exitCode: 1, toolchain: "esp32-arduino", command: [], sourceDir: request.sourceDir, outputDir: request.outputDir, outputs: [] };
         onOutput(line);
         await new Promise((r) => setTimeout(r, s.lineDelayMs ?? 5));
       }
-      if (signal.aborted) return { exitCode: 1 };
-      return { exitCode: s.exitCode ?? 0 };
+      if (signal.aborted) return { exitCode: 1, toolchain: "esp32-arduino", command: [], sourceDir: request.sourceDir, outputDir: request.outputDir, outputs: [] };
+      const exitCode = s.exitCode ?? 0;
+      if (exitCode === 0) {
+        mkdirSync(request.outputDir, { recursive: true });
+        const path = join(request.outputDir, "mock-firmware.bin");
+        writeFileSync(path, "controlled deterministic mock firmware\n", "utf8");
+        const stat = statSync(path);
+        return {
+          exitCode,
+          toolchain: "esp32-arduino",
+          command: ["mock-compiler", "compile", "--fqbn", "esp32:esp32:esp32s3", "--output-dir", request.outputDir, request.sourceDir],
+          sourceDir: request.sourceDir,
+          outputDir: request.outputDir,
+          outputs: [{ path, kind: "bin", sizeBytes: stat.size, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") }],
+        };
+      }
+      return { exitCode, toolchain: "esp32-arduino", command: [], sourceDir: request.sourceDir, outputDir: request.outputDir, outputs: [] };
     },
   };
   return {

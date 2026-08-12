@@ -23,7 +23,7 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-function envFor(dbPath: string, workspaceDir: string, port: number): NodeJS.ProcessEnv {
+function envFor(dbPath: string, workspaceDir: string, port: number, overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return {
     ...process.env,
     MCU_HOST: "127.0.0.1",
@@ -35,16 +35,18 @@ function envFor(dbPath: string, workspaceDir: string, port: number): NodeJS.Proc
     SENSENOVA_API_KEY: process.env.SENSENOVA_API_KEY ?? "production-runtime-test-key",
     SENSENOVA_BASE_URL: process.env.SENSENOVA_BASE_URL ?? "https://example.invalid/v1",
     SENSENOVA_CHAT_MODEL: process.env.SENSENOVA_CHAT_MODEL ?? "deepseek-v4-flash",
+    MCU_ARDUINO_CLI_PATH: process.env.MCU_ARDUINO_CLI_PATH ?? "arduino-cli",
     ...(process.env.RUN_REAL_SENSENOVA_SMOKE === "1" ? { SENSENOVA_TIMEOUT_MS: process.env.SENSENOVA_TIMEOUT_MS ?? "30000" } : {}),
+    ...overrides,
   };
 }
 
-async function startProduction(dbPath: string, workspaceDir: string, cwd: string): Promise<{ child: ChildProcess; base: string }> {
+async function startProduction(dbPath: string, workspaceDir: string, cwd: string, overrides: NodeJS.ProcessEnv = {}): Promise<{ child: ChildProcess; base: string }> {
   if (!existsSync(entrypoint)) throw new Error("dist/server/server.js is missing; run npm run build first");
   const port = await freePort();
   const child = spawn(process.execPath, [entrypoint], {
     cwd,
-    env: envFor(dbPath, workspaceDir, port),
+    env: envFor(dbPath, workspaceDir, port, overrides),
     stdio: ["ignore", "pipe", "pipe"],
   });
   children.push(child);
@@ -185,6 +187,46 @@ describe("built production runtime boundary", () => {
       .map((file) => readFileSync(file, "utf8"));
     expect(bundles.join("\n")).not.toMatch(/production-runtime-test-key/);
     expect(bundles.join("\n")).not.toMatch(/runScenario\(/);
+  });
+
+  it("fails closed before creating a build record when the configured compiler is missing", async () => {
+    const dir = join(testRoot, "missing-toolchain");
+    const dbPath = join(dir, "state.db");
+    const workspaceDir = join(dir, "workspace");
+    const first = await startProduction(dbPath, workspaceDir, testRoot, { MCU_ARDUINO_CLI_PATH: join(dir, "missing-arduino-cli") });
+    try {
+      const project = await createProject(first.base);
+      const artifactResponse = await fetch(`${first.base}/api/v1/projects/${project.id}/artifacts`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind: "firmware" }),
+      });
+      expect(artifactResponse.status).toBe(201);
+      const artifact = (await artifactResponse.json()) as { id: string };
+      const versionResponse = await fetch(`${first.base}/api/v1/artifacts/${artifact.id}/versions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "legacy firmware content" }),
+      });
+      expect(versionResponse.status).toBe(201);
+      const version = (await versionResponse.json()) as { id: string };
+
+      const toolchain = await (await fetch(`${first.base}/api/v1/toolchain`)).json() as { available: boolean; reason?: string };
+      expect(toolchain.available).toBe(false);
+      expect(toolchain.reason).toMatch(/not found|missing/i);
+
+      const buildResponse = await fetch(`${first.base}/api/v1/projects/${project.id}/builds`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ versionId: version.id, target: "esp32-s3" }),
+      });
+      expect(buildResponse.status).toBe(503);
+      expect(((await buildResponse.json()) as { error: { code: string } }).error.code).toBe("toolchain_unavailable");
+      expect(await (await fetch(`${first.base}/api/v1/versions/${version.id}/builds`)).json()).toEqual([]);
+      expect(await (await fetch(`${first.base}/api/v1/projects/${project.id}/tasks`)).json()).toEqual([]);
+    } finally {
+      await stopProduction(first.child);
+    }
   });
 
   it.skipIf(process.env.RUN_REAL_SENSENOVA_SMOKE !== "1" || !process.env.SENSENOVA_API_KEY)("executes the real SenseNova analysis path from the built production process", async () => {

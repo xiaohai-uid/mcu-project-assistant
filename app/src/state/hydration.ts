@@ -7,6 +7,7 @@ import type {
   TaskDto,
 } from "../api/client";
 import type { DeviceInfoDto, DeviceTruthDto } from "@/src/shared-contracts/types";
+import type { BuildOutputEvidenceDto } from "@/src/shared-contracts/types";
 
 export interface HydratedArtifact {
   artifact: ArtifactDto;
@@ -24,6 +25,18 @@ export interface ProjectHydrationSnapshot {
   staleMarks: Array<{ kind: string | null; level: string }>;
   device: { lastDevice: DeviceInfoDto | null };
   toolchain: { available: boolean | null };
+}
+
+export function hasVerifiedFirmwareOutput(build: {
+  status: string;
+  outputs: BuildOutputEvidenceDto[];
+}): boolean {
+  return build.status === "succeeded"
+    && build.outputs.some((output) => output.kind === "bin" && output.sizeBytes > 0 && /^[a-f0-9]{64}$/i.test(output.sha256));
+}
+
+export function matchesBuildEvent(eventBuildId: string | null, currentBuildId: string | null): boolean {
+  return eventBuildId !== null && eventBuildId === currentBuildId;
 }
 
 const TERMINAL = new Set<TaskDto["status"]>(["completed", "failed", "cancelled"]);

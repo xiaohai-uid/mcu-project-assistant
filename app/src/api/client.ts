@@ -1,6 +1,6 @@
 // app/src/api/client.ts — Capability HTTP 客户端（S1：projects 面；随 Slice 扩展）
 // Progressive Swap：替换 Mock 引擎的 create/open/archive 路径（ISSUE-001 §5）
-import type { DeviceInfoDto, FlashResultDto, SerialResultDto } from "@/src/shared-contracts/types";
+import type { BuildOutputEvidenceDto, DeviceInfoDto, FlashResultDto, SerialResultDto } from "@/src/shared-contracts/types";
 
 export class ApiError extends Error {
   constructor(
@@ -213,6 +213,7 @@ export const api = {
   cancelBuild: (buildId: string) =>
     request<{ buildId: string; status: string }>(`/api/v1/builds/${buildId}/cancel`, { method: "POST" }),
   getBuilds: (versionId: string) => request<BuildRecordDto[]>(`/api/v1/versions/${versionId}/builds`),
+  getBuild: (buildId: string) => request<BuildRecordDto>(`/api/v1/builds/${buildId}`),
   checkToolchain: () =>
     request<{ available: boolean; toolchain: string; version: string | null; reason?: string }>("/api/v1/toolchain"),
   // ---------- S8 Diagnosis ----------
@@ -279,6 +280,10 @@ export interface BuildRecordDto {
   stderrRef: string | null;
   exitCode: number | null;
   diagnostics: Array<{ code: string; severity: string; message: string; details?: Record<string, unknown> }>;
+  sourceDir: string | null;
+  outputDir: string | null;
+  command: string[];
+  outputs: BuildOutputEvidenceDto[];
 }
 
 export interface McuCandidateDto {

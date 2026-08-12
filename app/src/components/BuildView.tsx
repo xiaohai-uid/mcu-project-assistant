@@ -256,7 +256,7 @@ export const BuildView: React.FC = () => {
         onCancel={() => setConfirmFlash(false)}
         lang={lang}
       />
-      {deviceOk && firmwareOk && build.stage === "succeeded" && (
+      {deviceOk && firmwareOk && build.stage === "succeeded" && build.outputVerified && (
         <button onClick={() => setConfirmFlash(true)} className="w-full py-2 mac-button-primary rounded-md text-xs font-medium flex items-center justify-center gap-1.5">
           <span className="material-symbols-outlined text-[15px]">bolt</span>
           {t(lang, "flashDevice")}

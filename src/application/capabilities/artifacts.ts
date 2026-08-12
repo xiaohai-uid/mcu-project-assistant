@@ -77,10 +77,27 @@ export async function commitManualEdit(
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const versions = await deps.persistence.listVersions(artifact.id);
     const versionNo = versions.reduce((max, v) => Math.max(max, v.versionNo), 0) + 1;
-    const { contentRef, contentHash } = await deps.content.store(
-      { projectId: artifact.projectId, kind: artifact.kind, versionNo },
-      content,
-    );
+    const stored = artifact.kind === "firmware"
+      ? await (async () => {
+          let files: Record<string, unknown> | null = null;
+          try { files = JSON.parse(content) as Record<string, unknown>; } catch { /* legacy/free-form content */ }
+          const main = files?.["src/main.cpp"];
+          const platformio = files?.["platformio.ini"];
+          if (typeof main !== "string" || typeof platformio !== "string") {
+            return deps.content.store({ projectId: artifact.projectId, kind: artifact.kind, versionNo }, content);
+          }
+          const mainStore = await deps.content.store(
+            { projectId: artifact.projectId, kind: artifact.kind, versionNo, subpath: "src/main.cpp" },
+            main,
+          );
+          await deps.content.store(
+            { projectId: artifact.projectId, kind: artifact.kind, versionNo, subpath: "platformio.ini" },
+            platformio,
+          );
+          return mainStore;
+        })()
+      : await deps.content.store({ projectId: artifact.projectId, kind: artifact.kind, versionNo }, content);
+    const { contentRef, contentHash } = stored;
     const version = createArtifactVersion({
       artifactId: artifact.id,
       versionNo,

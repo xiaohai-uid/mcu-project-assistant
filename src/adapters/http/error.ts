@@ -19,6 +19,8 @@ export type ErrorCode =
   | "no_stale"
   | "blocking_stale"
   | "toolchain_unavailable"
+  | "unsupported_build_target"
+  | "invalid_build_source"
   | "invalid_build_state"
   | "build_not_failed"
   | "not_found"
