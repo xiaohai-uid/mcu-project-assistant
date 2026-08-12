@@ -9,7 +9,7 @@ export const ProjectCopilotPanel: React.FC = () => {
   const [inputText, setInputText] = React.useState("");
 
   const handleSend = () => {
-    if (!inputText.trim() || !runtime.providerAvailable) return;
+    if (!inputText.trim() || runtime.providerAvailable === false) return;
     sendCopilotMessage(inputText.trim());
     setInputText("");
   };
@@ -127,7 +127,7 @@ export const ProjectCopilotPanel: React.FC = () => {
                 <div className="flex justify-between"><span className="text-[var(--text-secondary)]">MCU</span><span className="font-mono text-[var(--text-primary)]">{selectedMcu || "—"}</span></div>
                 <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Firmware</span><span className="font-mono text-[var(--text-primary)]">v{firmware.version || "—"}</span></div>
                 <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Device</span><span className="font-mono text-[var(--text-primary)]">{runtime.deviceStage}</span></div>
-                <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Provider</span><span className="font-mono text-[var(--text-primary)]">{runtime.providerAvailable ? "ok" : "down"}</span></div>
+                <div className="flex justify-between"><span className="text-[var(--text-secondary)]">Provider</span><span className="font-mono text-[var(--text-primary)]">{runtime.providerAvailable === null ? "unknown" : runtime.providerAvailable ? "ok" : "down"}</span></div>
               </div>
             </div>
             <div className="p-3 rounded-lg bg-[var(--control-bg)] border border-[var(--panel-border-subtle)]">
@@ -209,18 +209,18 @@ export const ProjectCopilotPanel: React.FC = () => {
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             placeholder={t(lang, "askCopilotPlaceholder")}
-            disabled={!runtime.providerAvailable}
+            disabled={runtime.providerAvailable === false}
             className="flex-1 px-2.5 py-1.5 rounded-md bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] text-[11px] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#007aff] disabled:opacity-40"
           />
           <button
             onClick={handleSend}
-            disabled={!inputText.trim() || !runtime.providerAvailable}
+            disabled={!inputText.trim() || runtime.providerAvailable === false}
             className="p-1.5 rounded-md mac-button-primary disabled:opacity-40"
           >
             <span className="material-symbols-outlined text-[16px]">send</span>
           </button>
         </div>
-        {!runtime.providerAvailable && (
+        {runtime.providerAvailable === false && (
           <p className="text-[10px] text-rose-500 mt-1.5">{t(lang, "providerUnavailable")}</p>
         )}
       </div>

@@ -78,11 +78,11 @@ export const SettingsView: React.FC = () => {
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-[var(--text-primary)]">{t(lang, "serialPortLabel")}</label>
-                <span className="font-mono text-[11px] text-[var(--text-secondary)]">{project?.port ?? "companion-local"} @ 115200</span>
+                <span className="font-mono text-[11px] text-[var(--text-secondary)]">{project?.port ?? "—"} @ 115200</span>
               </div>
               <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
-                <span className={`w-1.5 h-1.5 rounded-full ${runtime.online ? "bg-emerald-500" : "bg-rose-500"}`}></span>
-                {runtime.online ? t(lang, "activeConnected") : t(lang, "bridgeOffline")}
+                <span className={`w-1.5 h-1.5 rounded-full ${runtime.online === true ? "bg-emerald-500" : runtime.online === false ? "bg-rose-500" : "bg-slate-400"}`}></span>
+                {runtime.online === true ? t(lang, "activeConnected") : runtime.online === false ? t(lang, "bridgeOffline") : "Unknown"}
               </div>
             </>
           )}
@@ -153,7 +153,7 @@ export const SettingsView: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setProviderTest(runtime.providerAvailable ? "ok" : "fail")}
+                  onClick={() => setProviderTest(runtime.providerAvailable === true ? "ok" : "fail")}
                   className="px-3 py-1.5 mac-button-secondary rounded-md text-xs"
                 >
                   {t(lang, "providerTest")}
@@ -170,7 +170,7 @@ export const SettingsView: React.FC = () => {
               <label className="text-xs font-semibold text-[var(--text-primary)]">{t(lang, "companionTabSettings")}</label>
               <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
                 <span className={`w-1.5 h-1.5 rounded-full ${runtime.deviceStage === "connected" ? "bg-emerald-500" : "bg-[var(--text-muted)]"}`}></span>
-                {runtime.deviceStage === "connected" ? `${t(lang, "deviceConnected")} · ${project?.target ?? "ESP32-S3"} (${project?.port ?? "companion-local"})${runtime.deviceTruth ? ` · ${runtime.deviceTruth.executionReality} / ${runtime.deviceTruth.physicalVerified ? "physical verified" : "physical not verified"}` : " · execution source unavailable"}` : t(lang, "deviceNotConnected")}
+                {runtime.deviceStage === "connected" ? `${t(lang, "deviceConnected")} · ${project?.target ?? "—"} (${project?.port ?? "—"})${runtime.deviceTruth ? ` · ${runtime.deviceTruth.executionReality} / ${runtime.deviceTruth.physicalVerified ? "physical verified" : "physical not verified"}` : " · execution source unavailable"}` : t(lang, "deviceNotConnected")}
               </div>
               {runtime.deviceStage !== "connected" && (
                 <button onClick={detectBoard} className="px-3 py-1.5 mac-button-primary rounded-md text-xs w-fit">
@@ -178,8 +178,8 @@ export const SettingsView: React.FC = () => {
                 </button>
               )}
               <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
-                <span className={`w-1.5 h-1.5 rounded-full ${runtime.toolchainAvailable ? "bg-emerald-500" : "bg-rose-500"}`}></span>
-                {runtime.toolchainAvailable ? "PlatformIO / ESP-IDF" : t(lang, "toolchainUnavailable")}
+                <span className={`w-1.5 h-1.5 rounded-full ${runtime.toolchainAvailable === true ? "bg-emerald-500" : runtime.toolchainAvailable === false ? "bg-rose-500" : "bg-slate-400"}`}></span>
+                {runtime.toolchainAvailable === true ? "PlatformIO / ESP-IDF" : runtime.toolchainAvailable === false ? t(lang, "toolchainUnavailable") : "Unknown"}
               </div>
             </div>
           )}

@@ -121,6 +121,7 @@ export const api = {
   cancelTask: (taskId: string) =>
     request<{ taskId: string; status: string }>(`/api/v1/commands/${taskId}/cancel`, { method: "POST" }),
   getTask: (taskId: string) => request<TaskDto>(`/api/v1/commands/${taskId}`),
+  listTasks: (projectId: string) => request<TaskDto[]>(`/api/v1/projects/${projectId}/tasks`),
   // ---------- S3B Proposals ----------
   listProposals: (projectId: string) => request<ProposalDto[]>(`/api/v1/projects/${projectId}/proposals`),
   resolveProposal: (proposalId: string, decision: "accept" | "reject") =>
@@ -227,6 +228,8 @@ export const api = {
     }>(`/api/v1/builds/${buildId}/diagnose`, { method: "POST" }),
   // ---------- S9 Device / Flash / Serial ----------
   detectDevice: () => request<DeviceInfoDto>("/api/v1/device/detect", { method: "POST" }),
+  getDeviceState: (projectId: string) =>
+    request<{ lastDevice: DeviceInfoDto | null }>(`/api/v1/projects/${projectId}/device-state`),
   issueFlashToken: (deviceId: string) =>
     request<{ token: string; expiresAt: string }>("/api/v1/device/flash-token", {
       method: "POST",
@@ -326,6 +329,7 @@ export interface TaskDto {
   startedAt: string | null;
   completedAt: string | null;
   error: string | null;
+  output: string | null;
 }
 
 /** 需求分析能力卡（与 shared-contracts AnalysisCapabilityDto 同形；SSE 载荷） */

@@ -21,7 +21,7 @@ export const BuildView: React.FC = () => {
 
   const firmwareOk = artifacts.firmware.version > 0 && artifacts.firmware.status !== "stale";
   const deviceOk = runtime.deviceStage === "connected";
-  const toolchainOk = runtime.toolchainAvailable;
+  const toolchainOk = runtime.toolchainAvailable === true;
   const building = build.stage === "building";
 
   const logColor = (kind: string) =>
@@ -245,7 +245,7 @@ export const BuildView: React.FC = () => {
       <ConfirmDialog
         open={confirmFlash}
         title={t(lang, "flashConfirmTitle")}
-        desc={t(lang, "flashConfirmDesc").replace("{device}", `${state.project?.target ?? "ESP32-S3"} (${state.project?.port ?? "companion-local"})`)}
+        desc={t(lang, "flashConfirmDesc").replace("{device}", `${state.project?.target ?? "—"} (${state.project?.port ?? "—"})`)}
         confirmLabel={t(lang, "flashConfirmYes")}
         cancelLabel={t(lang, "flashConfirmNo")}
         onConfirm={() => {

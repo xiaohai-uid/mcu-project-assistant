@@ -39,10 +39,10 @@ export const RequirementsView: React.FC = () => {
   return (
     <div className="flex-1 px-6 py-6 max-w-[960px] mx-auto flex flex-col gap-5 pb-20">
       {/* 全局提示条 */}
-      {!runtime.online && (
+      {runtime.online === false && (
         <InfoBanner icon="cloud_off" title={t(lang, "offlineNotice")} lang={lang} tone="amber" />
       )}
-      {!runtime.providerAvailable && (
+      {runtime.providerAvailable === false && (
         <InfoBanner
           icon="cloud_off"
           title={t(lang, "providerUnavailable")}
@@ -97,8 +97,8 @@ export const RequirementsView: React.FC = () => {
               disabled={
                 analyzing ||
                 !discoveryPrompt.trim() ||
-                !runtime.online ||
-                !runtime.providerAvailable ||
+                runtime.online !== true ||
+                runtime.providerAvailable === false ||
                 artifacts.requirements.status === "accepted"
               }
               className="px-4 py-1.5 mac-button-primary rounded-md text-xs font-medium disabled:opacity-50 transition-colors flex items-center gap-1.5 shadow-sm"

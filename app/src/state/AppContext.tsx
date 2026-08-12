@@ -29,13 +29,21 @@ import type {
 } from "../types";
 import type { DeviceTruthDto } from "@/src/shared-contracts/types";
 import {
-  DEFAULT_PROMPT,
   sleep,
 } from "../mock/engine";
 import { format, getInitialLanguage, getInitialTheme } from "../lib/i18n";
 import { api as clientApi, ApiError } from "../api/client";
 import { subscribeProjectEvents } from "../api/sse";
 import type { AnalysisCapabilityDto, McuCandidateDto, PeripheralDto } from "../api/client";
+import type { TaskDto } from "../api/client";
+import {
+  latestTask,
+  mergeTaskTruth,
+  parseAnalysisCapabilities,
+  parseFlashTruth,
+  parseTaskInput,
+  type ProjectHydrationSnapshot,
+} from "./hydration";
 
 // ---------- 初始状态 ----------
 
@@ -50,6 +58,66 @@ const freshArtifacts = (): Record<ArtifactKind, ArtifactState> => ({
   debug: { kind: "debug", status: "draft", version: 0 },
 });
 
+function dtoCapability(c: ReturnType<typeof parseAnalysisCapabilities>[number]): DiscoveredRequirement {
+  return {
+    id: c.id,
+    title: c.title,
+    type: c.type,
+    status: c.status,
+    progress: c.progress,
+    icon: c.icon,
+    isWarning: c.isWarning,
+    details: c.details,
+  };
+}
+
+function dtoProposal(p: import("../api/client").ProposalDto): RequirementProposal {
+  let title = p.id;
+  let initialIdea = "";
+  let formalizedRequirement = "";
+  try {
+    const parsed = JSON.parse(p.payload) as { title?: string; initialIdea?: string; formalizedRequirement?: string };
+    title = parsed.title ?? p.id;
+    initialIdea = parsed.initialIdea ?? "";
+    formalizedRequirement = parsed.formalizedRequirement ?? "";
+  } catch {
+    // Durable malformed payload remains identifiable by id.
+  }
+  return {
+    id: p.id,
+    number: String(p.number).padStart(2, "0"),
+    title,
+    accepted: p.status === "accepted",
+    initialIdea,
+    formalizedRequirement,
+    impacts: p.impacts,
+    decision: p.status,
+  };
+}
+
+function artifactStatus(version: ProjectHydrationSnapshot["artifacts"][number]["version"]): ArtifactState["status"] {
+  return version?.status === "accepted" ? "accepted" : "draft";
+}
+
+function contentObject(content: string | null): Record<string, unknown> {
+  if (!content) return {};
+  try {
+    const value = JSON.parse(content) as unknown;
+    return value && typeof value === "object" ? value as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function latestBuildStage(builds: ProjectHydrationSnapshot["artifacts"][number]["builds"]): AppState["build"]["stage"] {
+  const build = builds.at(-1);
+  if (!build) return "idle";
+  if (build.status === "running") return "building";
+  if (build.status === "succeeded") return "succeeded";
+  if (build.status === "failed") return "failed";
+  return "cancelled";
+}
+
 function initialState(): AppState {
   return {
     nav: "Home",
@@ -60,7 +128,7 @@ function initialState(): AppState {
     project: null,
     projects: [],
     artifacts: freshArtifacts(),
-    discoveryPrompt: DEFAULT_PROMPT,
+    discoveryPrompt: "",
     discovery: {
       stage: "idle",
       capabilities: [],
@@ -68,6 +136,7 @@ function initialState(): AppState {
       clarification: null,
       error: null,
       streamedText: "",
+      analysisTask: null,
       analysisPhase: null,
       nextFails: false,
       partialNext: false,
@@ -99,8 +168,8 @@ function initialState(): AppState {
     companion: {
       stage: "idle",
       serialLines: [],
-      moisture: 42,
-      temperature: 24.5,
+      moisture: null,
+      temperature: null,
       pumpActive: false,
       flashProgress: 0,
     },
@@ -113,9 +182,9 @@ function initialState(): AppState {
     ],
     revalidate: { running: false, proposals: [] },
     runtime: {
-      online: true,
-      providerAvailable: true,
-      toolchainAvailable: true,
+      online: null,
+      providerAvailable: null,
+      toolchainAvailable: null,
       deviceStage: "none",
       deviceTruth: null,
       slowMode: false,
@@ -135,9 +204,12 @@ type Action =
   | { type: "LAB_OPEN"; open: boolean }
   | { type: "CREATE_PROJECT"; id: string; name: string }
   | { type: "OPEN_PROJECT"; id: string; name: string }
+  | { type: "HYDRATE_PROJECT"; snapshot: ProjectHydrationSnapshot }
   | { type: "DELETE_PROJECT"; id: string }
   | { type: "SET_PROMPT"; prompt: string }
   | { type: "DISC_SET_STAGE"; stage: AppState["discovery"]["stage"] }
+  | { type: "DISC_TASK"; task: TaskDto }
+  | { type: "DISC_TASK_PATCH"; patch: Partial<TaskDto> }
   | { type: "DISC_STREAM"; text: string }
   | { type: "DISC_PHASE"; phase: AppState["discovery"]["analysisPhase"] }
   | { type: "DISC_CLEAR_RESULTS" }
@@ -191,7 +263,7 @@ function reducer(state: AppState, a: Action): AppState {
     case "CREATE_PROJECT":
       return {
         ...state,
-        project: { id: a.id, name: a.name, target: "ESP32-S3", port: "companion-local" },
+        project: { id: a.id, name: a.name, target: null, port: null },
         nav: "Draft",
         sidebar: "Requirements",
         artifacts: freshArtifacts(),
@@ -201,16 +273,107 @@ function reducer(state: AppState, a: Action): AppState {
         build: initialState().build,
         companion: initialState().companion,
         selectedMcu: "",
+        runtime: { ...state.runtime, online: true, providerAvailable: null, toolchainAvailable: null, deviceStage: "none", deviceTruth: null },
         copilotMessages: [
           { id: `sys-${Date.now()}`, sender: "system", text: `Project "${a.name}" created. Start with Requirements discovery.` },
         ],
       };
     case "OPEN_PROJECT":
-      return { ...state, project: { ...(state.project ?? { name: a.name, target: "ESP32-S3", port: "companion-local" }), id: a.id, name: a.name }, nav: "Draft", sidebar: "Requirements" };
+      return { ...state, project: { id: a.id, name: a.name, target: null, port: null }, nav: "Draft", sidebar: "Requirements", discovery: { ...state.discovery, analysisTask: null } };
+    case "HYDRATE_PROJECT": {
+      const snapshot = a.snapshot;
+      const analysisTask = mergeTaskTruth(state.discovery.analysisTask, latestTask(snapshot.tasks, "analyze_requirement"));
+      const analysisOutput = analysisTask?.status === "completed" ? parseAnalysisCapabilities(analysisTask.output) : [];
+      const proposalItems = snapshot.proposals.map(dtoProposal);
+      const taskInput = parseTaskInput(analysisTask?.input ?? null);
+      const taskDescription = typeof taskInput.description === "string" ? taskInput.description : "";
+      const staleKinds = new Set(snapshot.staleMarks.map((mark) => mark.kind).filter((kind): kind is string => typeof kind === "string"));
+      const hydratedArtifacts = freshArtifacts();
+      let firmwareCode = "";
+      let firmwareVersion = 0;
+      let firmwareStage: AppState["firmware"]["stage"] = "idle";
+      let selectedMcu = "";
+      let pinMappings: PinMapping[] = [];
+      let pinmapVersions: AppState["pinmapVersions"] = [];
+      let build: AppState["build"] = { ...state.build, stage: "idle", logs: [], diagnosis: null };
+      for (const item of snapshot.artifacts) {
+        const kind = item.artifact.kind as ArtifactKind;
+        if (!(kind in hydratedArtifacts)) continue;
+        const version = item.version;
+        const status = staleKinds.has(kind) ? "stale" : artifactStatus(version);
+        hydratedArtifacts[kind] = { kind, status, version: version?.versionNo ?? 0 };
+        if (kind === "firmware") {
+          firmwareCode = item.content ?? "";
+          firmwareVersion = version?.versionNo ?? 0;
+          firmwareStage = version?.status === "accepted" ? "accepted" : version ? "proposal" : "idle";
+          build = { ...build, stage: latestBuildStage(item.builds) };
+        }
+        if (kind === "hardware") {
+          const parsed = contentObject(item.content);
+          selectedMcu = typeof parsed.selectedMcuId === "string" ? parsed.selectedMcuId : "";
+        }
+        if (kind === "pinmap") {
+          pinmapVersions = item.versions.map((v) => ({ id: v.id, versionNo: v.versionNo, status: v.status, sourceKind: v.sourceKind === "manual" ? "manual" : "ai", createdAt: v.createdAt }));
+          const parsed = contentObject(item.content);
+          const pins = parsed.pinMap ?? parsed.pins;
+          if (Array.isArray(pins)) {
+            pinMappings = pins.filter((pin): pin is PinMapping => {
+              const item = pin as unknown as Record<string, unknown>;
+              return typeof item.component === "string" && typeof item.pinId === "string";
+            }).map((pin) => {
+              const item = pin as unknown as Record<string, unknown>;
+              return { ...pin, type: item.type === "Analog" || item.type === "I2C" ? pin.type : "Digital", colorDot: pin.colorDot ?? "#007aff" };
+            });
+          }
+        }
+      }
+      const flashTask = latestTask(snapshot.tasks, "flash_device");
+      const lastKnownTruth = parseFlashTruth(flashTask?.output ?? null) ?? snapshot.device.lastDevice?.truth ?? null;
+      const analysisStage = analysisTask?.status === "completed"
+        ? "ready"
+        : analysisTask?.status === "failed"
+          ? "error"
+          : analysisTask?.status === "cancelled"
+            ? "cancelled"
+            : analysisTask && (analysisTask.status === "queued" || analysisTask.status === "running")
+              ? "analyzing"
+              : "idle";
+      return {
+        ...state,
+        project: { id: snapshot.project.id, name: snapshot.project.name, target: null, port: null },
+        artifacts: hydratedArtifacts,
+        discoveryPrompt: taskDescription,
+        discovery: {
+          ...state.discovery,
+          stage: analysisStage,
+          capabilities: analysisOutput.map(dtoCapability),
+          proposals: proposalItems,
+          clarification: null,
+          error: analysisTask?.status === "failed" ? analysisTask.error ?? "Analysis failed" : null,
+          streamedText: "",
+          analysisPhase: null,
+          analysisTask,
+        },
+        selectedMcu,
+        wiring: { ...state.wiring, stage: pinMappings.length ? "review" : "idle", pinMappings, issues: [], verified: false },
+        pinmapVersions,
+        firmware: { ...state.firmware, stage: firmwareStage, code: firmwareCode, proposal: null, version: firmwareVersion },
+        build,
+        companion: { ...state.companion, stage: "idle", serialLines: [], moisture: null, temperature: null, pumpActive: false, flashProgress: 0 },
+        runtime: { ...state.runtime, online: true, providerAvailable: null, toolchainAvailable: snapshot.toolchain.available, deviceStage: "none", deviceTruth: lastKnownTruth },
+        nav: "Draft",
+        sidebar: "Requirements",
+      };
+    }
     case "DELETE_PROJECT":
       return { ...state, projects: state.projects.filter((p) => p.id !== a.id) };
     case "SET_PROMPT": return { ...state, discoveryPrompt: a.prompt };
     case "DISC_SET_STAGE": return { ...state, discovery: { ...state.discovery, stage: a.stage } };
+    case "DISC_TASK": return { ...state, discovery: { ...state.discovery, analysisTask: mergeTaskTruth(state.discovery.analysisTask, a.task) } };
+    case "DISC_TASK_PATCH": {
+      if (!state.discovery.analysisTask) return state;
+      return { ...state, discovery: { ...state.discovery, analysisTask: mergeTaskTruth(state.discovery.analysisTask, { ...state.discovery.analysisTask, ...a.patch }) } };
+    }
     case "DISC_STREAM": return { ...state, discovery: { ...state.discovery, streamedText: state.discovery.streamedText + a.text } };
     case "DISC_PHASE": return { ...state, discovery: { ...state.discovery, analysisPhase: a.phase } };
     case "DISC_CLEAR_RESULTS": return { ...state, discovery: { ...state.discovery, capabilities: [], proposals: [], clarification: null, error: null, streamedText: "", analysisPhase: null } };
@@ -227,6 +390,7 @@ function reducer(state: AppState, a: Action): AppState {
           proposals: a.props.map((p) => ({ ...p, decision: p.accepted ? "accepted" : "pending" })),
           clarification: null,
           error: null,
+          analysisPhase: null,
         },
       };
     case "DISC_ERROR": return { ...state, discovery: { ...state.discovery, stage: "error", error: a.error } };
@@ -418,7 +582,72 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const buildRef = useRef<{ buildId: string | null; close?: () => void }>({ buildId: null });
   const deviceRef = useRef<{ close?: () => void }>({});
   const serialRef = useRef<{ close?: () => void }>({});
+  const taskRef = useRef<{ taskId: string; roundId: number; close: (() => void) | null }>({ taskId: "", roundId: 0, close: null });
+  const hydrationSeq = useRef(0);
+  const analysisEventRef = useRef<(projectId: string, type: string, data: unknown) => void>(() => undefined);
   const s = state;
+
+  const processAnalysisEvent = useCallback((projectId: string, type: string, data: unknown) => {
+    switch (type) {
+      case "requirement.analysis.started":
+        dispatch({ type: "DISC_TASK_PATCH", patch: { status: "running" } });
+        break;
+      case "requirement.analysis.progress": {
+        const progress = data as { stage?: string; chunk?: string };
+        if (progress.stage === "streaming" && progress.chunk) dispatch({ type: "DISC_STREAM", text: progress.chunk });
+        if (progress.stage === "capabilities" && progress.chunk) {
+          try {
+            const parsed = JSON.parse(progress.chunk) as AnalysisCapabilityDto;
+            dispatch({ type: "DISC_CAPABILITY", cap: dtoCapability(parsed) });
+          } catch {
+            // Ignore a partial SSE frame; the durable task output remains authoritative.
+          }
+        }
+        break;
+      }
+      case "requirement.analysis.phase": {
+        const phase = data as AppState["discovery"]["analysisPhase"];
+        dispatch({ type: "DISC_PHASE", phase });
+        break;
+      }
+      case "requirement.analysis.clarification.requested": {
+        const clarification = data as { roundId: number; question: string; detail?: string };
+        taskRef.current.roundId = clarification.roundId;
+        dispatch({ type: "DISC_PHASE", phase: null });
+        dispatch({ type: "DISC_CLARIFICATION", c: { question: clarification.question, detail: clarification.detail ?? "", answer: "", answered: false } });
+        dispatch({ type: "DISC_SET_STAGE", stage: "clarifying" });
+        break;
+      }
+      case "requirement.analysis.completed": {
+        const completed = data as { capabilities?: AnalysisCapabilityDto[] };
+        const capabilities = (completed.capabilities ?? []).map(dtoCapability);
+        dispatch({ type: "DISC_PHASE", phase: null });
+        dispatch({ type: "DISC_DONE", caps: capabilities, props: [] });
+        void clientApi.listProposals(projectId).then((proposals) => {
+          dispatch({ type: "DISC_DONE", caps: capabilities, props: proposals.map(dtoProposal) });
+        }).catch(() => undefined);
+        break;
+      }
+      case "requirement.analysis.failed": {
+        const error = (data as { reason?: string }).reason ?? "Analysis failed";
+        dispatch({ type: "DISC_PHASE", phase: null });
+        dispatch({ type: "DISC_TASK_PATCH", patch: { status: "failed", completedAt: new Date().toISOString(), error } });
+        dispatch({ type: "DISC_ERROR", error });
+        break;
+      }
+      case "requirement.analysis.cancelled":
+        dispatch({ type: "DISC_PHASE", phase: null });
+        dispatch({ type: "DISC_TASK_PATCH", patch: { status: "cancelled", completedAt: new Date().toISOString() } });
+        dispatch({ type: "DISC_SET_STAGE", stage: "cancelled" });
+        break;
+      case "provider.unavailable":
+        dispatch({ type: "RUNTIME", patch: { providerAvailable: false } });
+        break;
+      default:
+        break;
+    }
+  }, []);
+  analysisEventRef.current = processAnalysisEvent;
 
   // ---------- Copilot 帮助 ----------
 
@@ -597,27 +826,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [s.lang, pushSystem]
   );
 
-  const openProject = useCallback(async (id: string) => {
+  const hydrateProject = useCallback(async (id: string): Promise<ProjectHydrationSnapshot | null> => {
+    const sequence = ++hydrationSeq.current;
     try {
-      const p = await clientApi.getProject(id);
-      if (!p) throw new ApiError(404, "not_found", "Project not found");
-      dispatch({ type: "OPEN_PROJECT", id: p.id, name: p.name });
-      // S5B：打开项目 → 拉取真实 stale marks（侧栏点/横幅/门禁与服务端一致）
-      await refreshStaleMarks(id);
-      // S7：真实工具链检测 + 构建事件订阅（日志流/终态）
-      void checkToolchain();
-      buildRef.current.close?.();
-      buildRef.current.close = subscribeBuildEvents(id);
-      // S9：设备事件 + 串口遥测流订阅
-      deviceRef.current.close?.();
-      deviceRef.current.close = subscribeDeviceEvents(id);
-      serialRef.current.close?.();
-      serialRef.current.close = subscribeSerialStream();
-      return true;
+      const project = await clientApi.getProject(id);
+      if (!project) throw new ApiError(404, "not_found", "Project not found");
+      const [artifacts, proposals, tasks, stale, device, toolchain] = await Promise.all([
+        clientApi.listArtifacts(id),
+        clientApi.listProposals(id),
+        clientApi.listTasks(id),
+        clientApi.getStaleMarks(id).catch(() => ({ marks: [] })),
+        clientApi.getDeviceState(id).catch(() => ({ lastDevice: null })),
+        clientApi.checkToolchain().catch(() => null),
+      ]);
+      const hydratedArtifacts = await Promise.all(artifacts.map(async (artifact) => {
+        const versions = await clientApi.listVersions(artifact.id);
+        const selected = (artifact.currentVersionId ? versions.find((version) => version.id === artifact.currentVersionId) : undefined) ?? versions.at(-1) ?? null;
+        const detail = selected ? await clientApi.getVersion(selected.id) : null;
+        const builds = selected && artifact.kind === "firmware" ? await clientApi.getBuilds(selected.id) : [];
+        return { artifact, versions, version: selected, content: detail?.content ?? null, builds };
+      }));
+      const snapshot: ProjectHydrationSnapshot = {
+        project,
+        artifacts: hydratedArtifacts,
+        proposals,
+        tasks,
+        staleMarks: stale.marks.map((mark) => ({ kind: mark.kind, level: mark.level })),
+        device,
+      toolchain: { available: toolchain?.available ?? null },
+      };
+      if (sequence === hydrationSeq.current) dispatch({ type: "HYDRATE_PROJECT", snapshot });
+      return snapshot;
     } catch {
-      return false;
+      if (sequence === hydrationSeq.current) dispatch({ type: "RUNTIME", patch: { online: false } });
+      return null;
     }
-  }, [refreshStaleMarks, checkToolchain, subscribeBuildEvents, subscribeDeviceEvents, subscribeSerialStream]);
+  }, []);
+
+  const openProject = useCallback(async (id: string) => {
+    dispatch({ type: "OPEN_PROJECT", id, name: "" });
+    const snapshot = await hydrateProject(id);
+    if (!snapshot) return false;
+    taskRef.current.close?.();
+    taskRef.current.taskId = latestTask(snapshot.tasks, "analyze_requirement")?.id ?? "";
+    taskRef.current.roundId = 0;
+    taskRef.current.close = subscribeProjectEvents(id, {
+      onEvent: (type, data) => analysisEventRef.current(id, type, data),
+      onReconnect: () => { void hydrateProject(id); },
+    });
+    buildRef.current.close?.();
+    buildRef.current.close = subscribeBuildEvents(id);
+    deviceRef.current.close?.();
+    deviceRef.current.close = subscribeDeviceEvents(id);
+    serialRef.current.close?.();
+    serialRef.current.close = subscribeSerialStream();
+    // Subscribe first, then reconcile once so an event racing hydration cannot be lost.
+    await hydrateProject(id);
+    return true;
+  }, [hydrateProject, subscribeBuildEvents, subscribeDeviceEvents, subscribeSerialStream]);
 
   /** 归档（D6 语义）：取一次性令牌 → 确认 → 归档（令牌一次性；S9 复用同一机制） */
   const archiveProject = useCallback(
@@ -639,12 +905,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const setSidebar = useCallback((sb: SidebarTab) => dispatch({ type: "SIDEBAR", sidebar: sb }), []);
 
   // ---------- Discovery ----------
-
-  const taskRef = useRef<{ taskId: string; roundId: number; close: (() => void) | null }>({
-    taskId: "",
-    roundId: 0,
-    close: null,
-  });
 
   const toCapability = (c: AnalysisCapabilityDto): DiscoveredRequirement => ({
     id: c.id,
@@ -682,8 +942,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const startDiscovery = useCallback(() => {
-    if (!s.runtime.online) return;
-    if (!s.runtime.providerAvailable) return;
+    if (s.runtime.online !== true) return;
+    if (s.runtime.providerAvailable === false) return;
     const prompt = s.discoveryPrompt.trim();
     if (!prompt) return;
     const projectId = s.project?.id;
@@ -694,6 +954,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const onEvent = (type: string, data: unknown) => {
       switch (type) {
+        case "requirement.analysis.started": {
+          dispatch({ type: "DISC_TASK_PATCH", patch: { status: "running" } });
+          break;
+        }
         case "requirement.analysis.progress": {
           const p = data as { stage: string; chunk?: string };
           if (p.stage === "streaming" && p.chunk) dispatch({ type: "DISC_STREAM", text: p.chunk });
@@ -720,6 +984,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           break;
         }
         case "requirement.analysis.completed": {
+          dispatch({ type: "DISC_TASK_PATCH", patch: { status: "completed", completedAt: new Date().toISOString() } });
           dispatch({ type: "DISC_PHASE", phase: null });
           const d = data as { capabilities: AnalysisCapabilityDto[] };
           dispatch({
@@ -743,11 +1008,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           break;
         }
         case "requirement.analysis.failed": {
+          dispatch({ type: "DISC_TASK_PATCH", patch: { status: "failed", completedAt: new Date().toISOString(), error: (data as { reason?: string }).reason ?? "Analysis failed" } });
           dispatch({ type: "DISC_PHASE", phase: null });
           dispatch({ type: "DISC_ERROR", error: (data as { reason?: string }).reason ?? "Analysis failed" });
           break;
         }
         case "requirement.analysis.cancelled": {
+          dispatch({ type: "DISC_TASK_PATCH", patch: { status: "cancelled", completedAt: new Date().toISOString() } });
           dispatch({ type: "DISC_PHASE", phase: null });
           dispatch({ type: "DISC_SET_STAGE", stage: "cancelled" });
           break;
@@ -762,6 +1029,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    taskRef.current.close?.();
+    taskRef.current.close = subscribeProjectEvents(projectId, {
+      onEvent,
+      onReconnect: () => { void hydrateProject(projectId); },
+    });
+
     void (async () => {
       try {
         const { taskId } = await clientApi.analyzeRequirement(projectId, prompt, {
@@ -770,18 +1043,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
           partialNext: s.discovery.partialNext,
         });
         taskRef.current.taskId = taskId;
-        // 订阅 SSE（无 replay：重连后 Query 状态恢复由刷新/重试承担）
-        taskRef.current.close?.();
-        taskRef.current.close = subscribeProjectEvents(projectId, { onEvent });
+        dispatch({ type: "RUNTIME", patch: { online: true, providerAvailable: true } });
+        const durableTask = await clientApi.getTask(taskId);
+        dispatch({ type: "DISC_TASK", task: durableTask });
       } catch (err) {
         dispatch({ type: "DISC_ERROR", error: err instanceof ApiError ? err.message : "Analysis failed to start" });
       }
     })();
-  }, [s.runtime.online, s.runtime.providerAvailable, s.runtime.slowMode, s.discoveryPrompt, s.discovery.nextFails, s.discovery.partialNext, s.project?.id]);
+  }, [s.runtime.online, s.runtime.providerAvailable, s.runtime.slowMode, s.discoveryPrompt, s.discovery.nextFails, s.discovery.partialNext, s.project?.id, hydrateProject]);
 
   const cancelDiscovery = useCallback(() => {
     cancelRef.current.discovery = true;
     dispatch({ type: "DISC_SET_STAGE", stage: "cancelled" });
+    dispatch({ type: "DISC_TASK_PATCH", patch: { status: "cancelled", completedAt: new Date().toISOString() } });
     pushSystem("Discovery cancelled — no artifacts were modified.");
     if (taskRef.current.taskId) {
       void clientApi.cancelTask(taskRef.current.taskId).catch(() => undefined);

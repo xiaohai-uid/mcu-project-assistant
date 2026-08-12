@@ -41,7 +41,7 @@ export const CompanionView: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 bg-[var(--control-bg)] px-2.5 py-1 rounded border border-[var(--panel-border-subtle)] text-xs font-mono text-[#007aff] dark:text-[#0a84ff]">
-            <span>{project?.port ?? "companion-local"} @ 115200 baud</span>
+            <span>{project?.port ?? "—"} @ 115200 baud</span>
           </div>
           {!deviceOk ? (
             <button onClick={detectBoard} className="px-3 py-1.5 mac-button-primary rounded-md text-xs flex items-center gap-1.5">
@@ -105,14 +105,15 @@ export const CompanionView: React.FC = () => {
                 <span>{t(lang, "soilMoistureTitle")}</span>
               </h3>
               <span className="font-mono text-[11px] text-[#007aff] dark:text-[#0a84ff] font-semibold px-1.5 py-0.5 bg-[#007aff]/10 rounded border border-[#007aff]/20">
-                {companion.moisture}%
+                {companion.moisture === null ? "—" : `${companion.moisture}%`}
               </span>
             </div>
             <input
               type="range"
               min={0}
               max={100}
-              value={companion.moisture}
+              value={companion.moisture ?? 0}
+              disabled={companion.moisture === null}
               onChange={(e) => simulateMoisture(Number(e.target.value))}
               className="w-full accent-[#007aff]"
             />
@@ -158,7 +159,7 @@ export const CompanionView: React.FC = () => {
                 <span>{t(lang, "tempTitle")}</span>
               </h3>
               <span className="font-mono text-[11px] text-[#007aff] dark:text-[#0a84ff] font-semibold px-1.5 py-0.5 bg-[#007aff]/10 rounded border border-[#007aff]/20">
-                {companion.temperature.toFixed(1)}°C
+                {companion.temperature === null ? "—" : `${companion.temperature.toFixed(1)}°C`}
               </span>
             </div>
             <button
@@ -194,7 +195,7 @@ export const CompanionView: React.FC = () => {
       <ConfirmDialog
         open={confirmFlash}
         title={t(lang, "flashConfirmTitle")}
-        desc={t(lang, "flashConfirmDesc").replace("{device}", `${project?.target ?? "ESP32-S3"} (${project?.port ?? "companion-local"})`)}
+        desc={t(lang, "flashConfirmDesc").replace("{device}", `${project?.target ?? "—"} (${project?.port ?? "—"})`)}
         confirmLabel={t(lang, "flashConfirmYes")}
         cancelLabel={t(lang, "flashConfirmNo")}
         onConfirm={() => {

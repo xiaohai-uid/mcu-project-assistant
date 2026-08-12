@@ -59,6 +59,8 @@ export interface PersistencePort {
   listVersions(artifactId: string): Promise<ArtifactVersion[]>;
   // S3A
   getTask(id: string): Promise<TaskRecord | null>;
+  /** 项目范围内的任务真相；projectId 由任务 input 的既有字段关联，不改表结构。 */
+  listTasks?(projectId: string): Promise<TaskRecord[]>;
   /** 最近完成任务的 output（S3B：requirements 聚合的 capabilities 来源） */
   latestTaskOutput(capability: string): Promise<string | null>;
   // S3B

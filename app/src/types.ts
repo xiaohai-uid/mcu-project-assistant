@@ -1,5 +1,6 @@
 // ============================================================
 import type { DeviceTruthDto } from "@/src/shared-contracts/types";
+import type { TaskDto } from "./api/client";
 // MCU Project Assistant — Mock Product Types
 // UI-First Mock：这些类型描述"用户认知中的对象与状态"，
 // 不是后端 schema。后端契约在 UI Frozen 之后定义。
@@ -260,9 +261,9 @@ export interface CopilotChatMessage {
 // ---------- 全局运行时状态（Mock 可触发） ----------
 
 export interface RuntimeFlags {
-  online: boolean;             // Offline
-  providerAvailable: boolean;  // AI 供应商不可用
-  toolchainAvailable: boolean; // 工具链缺失
+  online: boolean | null;             // null = 未从服务端确认
+  providerAvailable: boolean | null;  // null = 未从服务端确认
+  toolchainAvailable: boolean | null; // null = 未从服务端确认
   deviceStage: DeviceStage;
   deviceTruth: DeviceTruthDto | null;
   slowMode: boolean;           // 长任务可取消演示
@@ -281,7 +282,7 @@ export interface AppState {
   theme: ThemeMode;
 
   // 项目
-  project: { id: string; name: string; target: string; port: string } | null;
+  project: { id: string; name: string; target: string | null; port: string | null } | null;
   projects: ProjectCard[];   // Home 列表（含空态演示）
 
   // Artifact 状态总表
@@ -296,6 +297,7 @@ export interface AppState {
     clarification: Clarification | null;
     error: string | null;
     streamedText: string;
+    analysisTask: TaskDto | null;
     analysisPhase: {
       phase: "provider_waiting" | "provider_streaming" | "processing";
       operation: "stream_text" | "generate_structured" | "application";
@@ -348,8 +350,8 @@ export interface AppState {
   companion: {
     stage: CompanionStage;
     serialLines: string[];
-    moisture: number;
-    temperature: number;
+    moisture: number | null;
+    temperature: number | null;
     pumpActive: boolean;
     flashProgress: number;
   };

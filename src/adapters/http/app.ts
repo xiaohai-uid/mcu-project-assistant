@@ -437,6 +437,12 @@ export function createApp(deps: AppDeps): Express {
     res.json(task);
   };
 
+  const handleListTasks = async (req: Request, res: Response) => {
+    const project = await getProjectCapability({ id: req.params.projectId as string }, capDeps);
+    if (!project) throw new ApiError(404, "not_found", "Project not found");
+    res.json(await deps.persistence.listTasks?.(project.id) ?? []);
+  };
+
   const handleEvents = (req: Request, res: Response) => {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -589,6 +595,21 @@ export function createApp(deps: AppDeps): Express {
     res.json(device);
   };
 
+  const handleDeviceState = async (req: Request, res: Response) => {
+    const project = await getProjectCapability({ id: req.params.projectId as string }, capDeps);
+    if (!project) throw new ApiError(404, "not_found", "Project not found");
+    const raw = await deps.persistence.getPreference("last_device");
+    if (!raw) {
+      res.json({ lastDevice: null });
+      return;
+    }
+    try {
+      res.json({ lastDevice: JSON.parse(raw) });
+    } catch {
+      res.json({ lastDevice: null });
+    }
+  };
+
   const handleFlashToken = async (req: Request, res: Response) => {
     const deviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId : "";
     if (!deviceId) throw new ApiError(400, "invalid_capability", "deviceId required");
@@ -692,6 +713,7 @@ export function createApp(deps: AppDeps): Express {
   app.post("/api/v1/versions/:versionId/validations", withErrorHandler(handleValidateWiring));
   app.get("/api/v1/versions/:versionId/validations", withErrorHandler(handleLatestValidation));
   app.post("/api/v1/projects/:projectId/commands", withErrorHandler(handleCommands));
+  app.get("/api/v1/projects/:projectId/tasks", withErrorHandler(handleListTasks));
   app.get("/api/v1/projects/:projectId/proposals", withErrorHandler(handleListProposals));
   app.post("/api/v1/projects/:projectId/requirements/commit", withErrorHandler(handleCommitRequirements));
   app.post("/api/v1/proposals/:proposalId/decision", withErrorHandler(handleResolveProposal));
@@ -706,6 +728,7 @@ export function createApp(deps: AppDeps): Express {
   app.get("/api/v1/versions/:versionId/builds", withErrorHandler(handleListBuilds));
   app.get("/api/v1/toolchain", withErrorHandler(handleToolchain));
   app.post("/api/v1/device/detect", withErrorHandler(handleDetectDevice));
+  app.get("/api/v1/projects/:projectId/device-state", withErrorHandler(handleDeviceState));
   app.post("/api/v1/device/flash-token", withErrorHandler(handleFlashToken));
   app.post("/api/v1/device/flash", withErrorHandler(handleFlash));
   app.post("/api/v1/device/disconnect", withErrorHandler(handleDisconnect));

@@ -305,6 +305,7 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
   );
   const selectProposals = db.prepare("SELECT * FROM proposals WHERE project_id = ? ORDER BY created_at ASC, rowid ASC");
   const selectTask = db.prepare("SELECT * FROM tasks WHERE id = ?");
+  const selectTasks = db.prepare("SELECT * FROM tasks ORDER BY created_at ASC, rowid ASC");
   const selectLatestOutput = db.prepare(
     "SELECT output FROM tasks WHERE capability = ? AND status = 'completed' ORDER BY completed_at DESC, rowid DESC LIMIT 1",
   );
@@ -526,6 +527,15 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
       const row = selectTask.get(id) as TaskRow | undefined;
       return row ? toTask(row) : null;
     },
+    listTasks: async (projectId: string) =>
+      (selectTasks.all() as TaskRow[]).flatMap((row) => {
+        try {
+          const input = JSON.parse(row.input) as { projectId?: unknown };
+          return input.projectId === projectId ? [toTask(row)] : [];
+        } catch {
+          return [];
+        }
+      }),
     latestTaskOutput: async (capability: string) => {
       const row = selectLatestOutput.get(capability) as { output: string | null } | undefined;
       return row?.output ?? null;

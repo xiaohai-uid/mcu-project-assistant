@@ -245,7 +245,7 @@ export async function flashDevice(
 
   // 4. 烧录执行（in-process 任务；进度事件 → SSE；deferred 等待任务终态以返回 sessionId）
   const taskId = await deps.tasks.submit(
-    { capability: "flash_device", input: JSON.stringify({ deviceId: input.deviceId, firmwareVersionId: input.firmwareVersionId, executionReality: input.executionReality }) },
+    { capability: "flash_device", input: JSON.stringify({ projectId, deviceId: input.deviceId, firmwareVersionId: input.firmwareVersionId, executionReality: input.executionReality }) },
   );
 
   const runtime = deps.tasks as TaskExecutionPort & {

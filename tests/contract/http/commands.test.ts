@@ -74,6 +74,24 @@ describe("S3A commands surface", () => {
     expect(["queued", "running", "completed", "failed", "cancelled"]).toContain(task.status);
   });
 
+  it("项目任务查询只返回该项目的持久化任务结果", async () => {
+    const first = await createProject();
+    const second = await createProject();
+    const started = await request(app)
+      .post(`/api/v1/projects/${first.id}/commands`)
+      .send({ capability: "analyze_requirement", payload: { description: "first project" } });
+    await request(app)
+      .post(`/api/v1/projects/${second.id}/commands`)
+      .send({ capability: "analyze_requirement", payload: { description: "second project" } });
+
+    const list = await request(app).get(`/api/v1/projects/${first.id}/tasks`);
+    expect(list.status).toBe(200);
+    expect(list.body).toHaveLength(1);
+    expect(list.body[0]).toMatchObject({ id: started.body.taskId, capability: "analyze_requirement" });
+    expect(list.body[0]).toHaveProperty("output");
+    expect((await request(app).get("/api/v1/projects/missing/tasks")).status).toBe(404);
+  });
+
   it("空描述 → 400 invalid_description", async () => {
     const p = await createProject();
     const res = await request(app)

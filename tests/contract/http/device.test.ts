@@ -104,6 +104,20 @@ async function seedFirmware(projectId: string): Promise<string> {
 }
 
 describe("S9 device surface", () => {
+  it("项目设备状态只读 last_device，不启动检测或恢复串口会话", async () => {
+    boot();
+    const projectId = await createProject();
+    const before = await request(app).get(`/api/v1/projects/${projectId}/device-state`);
+    expect(before.status).toBe(200);
+    expect(before.body).toEqual({ lastDevice: null });
+
+    const detected = await request(app).post("/api/v1/device/detect");
+    const after = await request(app).get(`/api/v1/projects/${projectId}/device-state`);
+    expect(after.status).toBe(200);
+    expect(after.body.lastDevice).toMatchObject({ id: detected.body.id, truth: { executionReality: "companion", physicalVerified: false } });
+    expect(after.body.lastDevice).not.toHaveProperty("session");
+  });
+
   it("检测 → 令牌 → Flash 完成（202 + .evidence 证据）→ 串口命令回显", async () => {
     boot();
     const projectId = await createProject();
@@ -152,6 +166,8 @@ describe("S9 device surface", () => {
     const lastDevice = JSON.parse((await freshStore.getPreference("last_device")) ?? "{}");
     expect(lastDevice.truth).toMatchObject({ executionReality: "companion", physicalVerified: false, adapter: "companion-local" });
     freshDb.close();
+    const projectTasks = await request(app).get(`/api/v1/projects/${projectId}/tasks`);
+    expect(projectTasks.body.find((task: { id: string }) => task.id === taskRow.id)).toMatchObject({ capability: "flash_device" });
 
     // 串口命令（连接后）
     const serial = await request(app).post("/api/v1/device/serial/send").send({ command: "GET_STATUS" });

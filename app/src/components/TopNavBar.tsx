@@ -32,8 +32,8 @@ export const TopNavBar: React.FC = () => {
         {nav !== "Home" && (
           <div className="hidden lg:flex items-center gap-2 border-l border-[var(--panel-border)] pl-3 h-4">
             <div className="flex items-center gap-1.5 text-[11px] font-mono text-[var(--text-secondary)]">
-              <span className={`w-1.5 h-1.5 rounded-full ${runtime.online ? "bg-emerald-500" : "bg-rose-500"}`}></span>
-              <span>{runtime.online ? t(lang, "bridgeOnline") : t(lang, "bridgeOffline")}</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${runtime.online === true ? "bg-emerald-500" : runtime.online === false ? "bg-rose-500" : "bg-slate-400"}`}></span>
+              <span>{runtime.online === true ? t(lang, "bridgeOnline") : runtime.online === false ? t(lang, "bridgeOffline") : "Unknown"}</span>
             </div>
             <span className="text-[var(--text-muted)]">•</span>
             <div className="flex items-center gap-1.5 text-[11px] font-mono text-[var(--text-secondary)]">

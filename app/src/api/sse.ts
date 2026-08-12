@@ -45,11 +45,14 @@ const KNOWN_TYPES: SseEventType[] = [
 export interface SseHandler {
   onEvent: (type: SseEventType, data: unknown) => void;
   onError?: (err: unknown) => void;
+  /** Fires only after the initial connection has already opened and then reconnects. */
+  onReconnect?: () => void;
 }
 
 /** 订阅项目事件流；返回关闭函数（断线自动重连由 EventSource 内建 retry 承担） */
 export function subscribeProjectEvents(projectId: string, handler: SseHandler): () => void {
   const es = new EventSource(`/api/v1/projects/${projectId}/events`);
+  let opened = false;
   for (const type of KNOWN_TYPES) {
     es.addEventListener(type, (ev) => {
       try {
@@ -63,6 +66,10 @@ export function subscribeProjectEvents(projectId: string, handler: SseHandler): 
     handler.onError?.(err);
     // EventSource 自动重连（默认 ~3s）；M1 无 Last-Event-ID / 无 replay：
     // 重连后由客户端 Query 任务状态恢复（调用方负责）
+  };
+  es.onopen = () => {
+    if (opened) handler.onReconnect?.();
+    opened = true;
   };
   return () => es.close();
 }

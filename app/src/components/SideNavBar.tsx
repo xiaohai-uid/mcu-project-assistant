@@ -79,7 +79,7 @@ export const SideNavBar: React.FC = () => {
             </div>
             <div className="text-[11px] font-mono text-[var(--text-secondary)] truncate flex items-center gap-1.5 mt-0.5">
               <span className={`w-1.5 h-1.5 rounded-full ${runtime.deviceStage === "connected" ? "bg-emerald-500" : "bg-[var(--text-muted)]"}`}></span>
-              <span>{project ? `${project.target} · ${project.port}` : "No project"}</span>
+              <span>{project ? `${project.target ?? "—"} · ${project.port ?? "—"}` : "No project"}</span>
             </div>
           </div>
         </div>
