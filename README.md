@@ -1,6 +1,6 @@
 # MCU Project Assistant
 
-Local-first engineering assistant for microcontroller projects: requirements discovery → hardware selection → pin/wiring constraints → firmware generation → build/validation → companion device flash + serial telemetry. TypeScript modular monolith (Node 20 + Express + SQLite + React/Vite).
+Local-first engineering assistant for microcontroller projects: requirements discovery → hardware selection → pin/wiring constraints → firmware generation → build/validation → companion device flash + serial telemetry. TypeScript modular monolith (Node.js 20.x + Express + SQLite + React/Vite).
 
 ## Architecture
 
@@ -40,7 +40,7 @@ Key domain rules (see `docs/rebuild/domain-contract.md` for the frozen set):
 
 ## Running
 
-Requirements: Node 20 (npm). The production server requires an explicit `MCU_DEVICE_PROVIDER=companion|physical`; physical mode uses the configured Arduino CLI for current ESP32-S3 discovery and upload and never falls back to Companion. Tests may inject deterministic adapters.
+Requirements: Node.js 20.x (npm). The production server requires an explicit `MCU_DEVICE_PROVIDER=companion|physical`; physical mode uses the configured Arduino CLI for current ESP32-S3 discovery and upload and never falls back to Companion. Tests may inject deterministic adapters.
 
 ```bash
 npm install
