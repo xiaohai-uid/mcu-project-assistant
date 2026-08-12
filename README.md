@@ -47,15 +47,14 @@ npm install
 MCU_DEVICE_PROVIDER=companion MCU_AI_PROVIDER=sensenova SENSENOVA_API_KEY=... SENSENOVA_BASE_URL=https://token.sensenova.cn/v1 SENSENOVA_CHAT_MODEL=deepseek-v4-flash npm run dev
 ```
 
-Production-style build + start:
+Production build + start (single process serves API/SSE and the built React UI):
 
 ```bash
-npm run build        # typecheck + vite build (app/dist)
-MCU_DEVICE_PROVIDER=companion MCU_AI_PROVIDER=sensenova SENSENOVA_API_KEY=... SENSENOVA_BASE_URL=https://token.sensenova.cn/v1 SENSENOVA_CHAT_MODEL=deepseek-v4-flash node --import tsx src/infrastructure/server.ts   # API server (http://127.0.0.1:3000; GET /api/v1/health)
-npx vite preview --config app/vite.config.ts     # serve the built UI
+npm run build        # typecheck + backend artifact (dist/server) + frontend (app/dist)
+MCU_DEVICE_PROVIDER=companion MCU_AI_PROVIDER=sensenova SENSENOVA_API_KEY=... SENSENOVA_BASE_URL=https://token.sensenova.cn/v1 SENSENOVA_CHAT_MODEL=deepseek-v4-flash MCU_DB_PATH=C:\\absolute\\path\\mcu.db MCU_WORKSPACE_DIR=C:\\absolute\\path\\workspace npm start   # http://127.0.0.1:3000
 ```
 
-Configuration: use `.env.example` as a reference for the environment passed to the server (`MCU_PORT`, `MCU_DB_PATH`, `MCU_WORKSPACE_DIR`, explicit `MCU_DEVICE_PROVIDER=companion`, and the required explicit real AI provider settings). The server does not auto-load a `.env` file and refuses to start when the provider, device provider, or provider credentials are missing or malformed; physical device mode is unavailable and never falls back to Companion; deterministic mock adapters are test fixtures only.
+Configuration: use `.env.example` as a reference for the environment passed to the server (`MCU_PORT`, absolute `MCU_DB_PATH`, absolute `MCU_WORKSPACE_DIR`, explicit `MCU_DEVICE_PROVIDER=companion`, and the required explicit real AI provider settings). The server does not auto-load a `.env` file and refuses to start when the provider, device provider, storage paths, or provider credentials are missing or malformed; physical device mode is unavailable and never falls back to Companion; deterministic mock adapters are test fixtures only. The production server resolves its built frontend relative to the server artifact, not the launch cwd.
 
 ## Testing
 

@@ -62,6 +62,30 @@ function extractJson(text: string): unknown {
   }
 }
 
+async function readWithAbort<T>(
+  reader: ReadableStreamDefaultReader<T>,
+  signal: AbortSignal,
+): Promise<ReadableStreamReadResult<T>> {
+  if (signal.aborted) throw new DOMException("The operation was aborted", "AbortError");
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      void reader.cancel();
+      reject(new DOMException("The operation was aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    void reader.read().then(
+      (result) => {
+        signal.removeEventListener("abort", abort);
+        resolve(result);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
+
 export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIProviderPort {
   const baseUrl = opts.baseUrl.replace(/\/$/, "");
   const timeoutMs = opts.timeoutMs ?? 240_000;
@@ -69,6 +93,46 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
   const workBody = { thinking: { type: "enabled" } };
   let lastStatusAt = 0;
   let lastStatus: ProviderStatus = "unavailable";
+
+  function timedSignal(parent: AbortSignal): { signal: AbortSignal; dispose: () => void; didTimeout: () => boolean } {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+    const abort = () => controller.abort();
+    parent.addEventListener("abort", abort, { once: true });
+    return {
+      signal: controller.signal,
+      dispose: () => {
+        clearTimeout(timer);
+        parent.removeEventListener("abort", abort);
+      },
+      didTimeout: () => timedOut,
+    };
+  }
+
+  async function readResponseText(response: Response, signal: AbortSignal): Promise<string> {
+    if (!response.body) return "";
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const chunks: string[] = [];
+    const abort = () => { void reader.cancel(); };
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      for (;;) {
+        const { done, value } = await readWithAbort(reader, signal);
+        if (done) break;
+        chunks.push(decoder.decode(value, { stream: true }));
+      }
+      chunks.push(decoder.decode());
+      return chunks.join("");
+    } finally {
+      signal.removeEventListener("abort", abort);
+      reader.releaseLock();
+    }
+  }
 
   async function chat(body: Record<string, unknown>, signal: AbortSignal): Promise<Response> {
     const controller = new AbortController();
@@ -119,51 +183,63 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
     },
 
     async streamText(req: StreamTextRequest): Promise<void> {
-      const response = await chat(
-        {
-          ...workBody,
-          model: opts.model,
-          messages: [{ role: "user", content: req.prompt }],
-          stream: true,
-          max_tokens: 2048,
-        },
-        req.signal,
-      );
-      if (!response.ok) {
-        const body = await response.text().catch(() => "");
-        throw new ProviderUnavailableError(`sensenova HTTP ${response.status}: ${body.slice(0, 200)}`);
-      }
-      if (!response.body) throw new ProviderUnavailableError("sensenova: empty stream body");
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+      const operation = timedSignal(req.signal);
       try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let index: number;
-          while ((index = buffer.indexOf("\n")) >= 0) {
-            const line = buffer.slice(0, index).trim();
-            buffer = buffer.slice(index + 1);
-            if (!line.startsWith("data:")) continue;
-            const payload = line.slice(5).trim();
-            if (payload === "[DONE]") break;
-            try {
-              const parsed = JSON.parse(payload) as {
-                choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>;
-              };
-              const content = parsed.choices?.[0]?.delta?.content;
-              if (content && !req.signal.aborted) req.onChunk(content);
-            } catch {
-              // Ignore malformed SSE frames; the provider's final response remains authoritative.
-            }
-          }
-          if (req.signal.aborted) throw new Error("aborted");
+        const response = await chat(
+          {
+            ...workBody,
+            model: opts.model,
+            messages: [{ role: "user", content: req.prompt }],
+            stream: true,
+            max_tokens: 2048,
+          },
+          operation.signal,
+        );
+        if (!response.ok) {
+          const body = await response.text().catch(() => "");
+          throw new ProviderUnavailableError(`sensenova HTTP ${response.status}: ${body.slice(0, 200)}`);
         }
+        if (!response.body) throw new ProviderUnavailableError("sensenova: empty stream body");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        const abort = () => { void reader.cancel(); };
+        operation.signal.addEventListener("abort", abort, { once: true });
+        try {
+          for (;;) {
+            const { done, value } = await readWithAbort(reader, operation.signal);
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            let index: number;
+            while ((index = buffer.indexOf("\n")) >= 0) {
+              const line = buffer.slice(0, index).trim();
+              buffer = buffer.slice(index + 1);
+              if (!line.startsWith("data:")) continue;
+              const payload = line.slice(5).trim();
+              if (payload === "[DONE]") return;
+              try {
+                const parsed = JSON.parse(payload) as {
+                  choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>;
+                };
+                const content = parsed.choices?.[0]?.delta?.content;
+                if (content && !req.signal.aborted) req.onChunk(content);
+              } catch {
+                // Ignore malformed SSE frames; the provider's final response remains authoritative.
+              }
+            }
+            if (req.signal.aborted) throw new Error("aborted");
+          }
+        } finally {
+          operation.signal.removeEventListener("abort", abort);
+          reader.releaseLock();
+        }
+        if (operation.didTimeout()) throw new ProviderUnavailableError(`sensenova stream timed out after ${timeoutMs}ms`);
+      } catch (error) {
+        if (operation.didTimeout()) throw new ProviderUnavailableError(`sensenova stream timed out after ${timeoutMs}ms`);
+        throw error;
       } finally {
-        reader.releaseLock();
+        operation.dispose();
       }
     },
 
@@ -174,6 +250,7 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
       let lastError: unknown = null;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         if (req.signal.aborted) throw new Error("aborted");
+        const operation = timedSignal(req.signal);
         try {
           const response = await chat(
             {
@@ -186,13 +263,15 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
               response_format: { type: "json_object" },
               max_tokens: 4096,
             },
-            req.signal,
+            operation.signal,
           );
           if (!response.ok) {
             const body = await response.text().catch(() => "");
             throw new ProviderUnavailableError(`sensenova HTTP ${response.status}: ${body.slice(0, 200)}`);
           }
-          const payload = (await response.json()) as {
+          const responseText = await readResponseText(response, operation.signal);
+          if (operation.didTimeout()) throw new ProviderUnavailableError(`sensenova response timed out after ${timeoutMs}ms`);
+          const payload = JSON.parse(responseText) as {
             choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
           };
           const content = payload.choices?.[0]?.message?.content?.trim();
@@ -204,7 +283,10 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
           return { data: parsed };
         } catch (error) {
           if (error instanceof ProviderUnavailableError) throw error;
+          if (operation.didTimeout()) throw new ProviderUnavailableError(`sensenova response timed out after ${timeoutMs}ms`);
           lastError = error;
+        } finally {
+          operation.dispose();
         }
       }
       throw new ProviderUnavailableError(`sensenova structured output failed: ${String(lastError)}`);

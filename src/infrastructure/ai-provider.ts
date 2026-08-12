@@ -18,6 +18,7 @@ export interface AiProviderEnvironment {
   SENSENOVA_API_KEY?: string;
   SENSENOVA_BASE_URL?: string;
   SENSENOVA_CHAT_MODEL?: string;
+  SENSENOVA_TIMEOUT_MS?: string;
 }
 
 function requireUrl(value: string | undefined, name: string): string {
@@ -38,6 +39,13 @@ function requireValue(value: string | undefined, name: string): string {
   return raw;
 }
 
+function optionalTimeout(value: string | undefined, name: string): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) throw new AiProviderConfigurationError(`${name} must be a positive number`);
+  return parsed;
+}
+
 export function createAiProvider(env: AiProviderEnvironment = process.env): AIProviderPort {
   const provider = env.MCU_AI_PROVIDER?.trim();
 
@@ -53,7 +61,12 @@ export function createAiProvider(env: AiProviderEnvironment = process.env): AIPr
     const apiKey = requireValue(env.SENSENOVA_API_KEY, "SENSENOVA_API_KEY");
     const baseUrl = requireUrl(env.SENSENOVA_BASE_URL, "SENSENOVA_BASE_URL");
     const model = requireValue(env.SENSENOVA_CHAT_MODEL, "SENSENOVA_CHAT_MODEL");
-    return createSenseNovaAiProvider({ apiKey, baseUrl, model });
+    return createSenseNovaAiProvider({
+      apiKey,
+      baseUrl,
+      model,
+      timeoutMs: optionalTimeout(env.SENSENOVA_TIMEOUT_MS, "SENSENOVA_TIMEOUT_MS"),
+    });
   }
 
   if (!provider) {

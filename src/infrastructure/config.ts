@@ -1,5 +1,6 @@
 // infrastructure/config.ts — 本地配置（M1 单用户；app-data 由未来 Slice 管理）
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface AppConfig {
   host: string;
@@ -9,8 +10,10 @@ export interface AppConfig {
   deviceProvider: "companion";
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const root = process.cwd();
+const APPLICATION_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot = APPLICATION_ROOT): AppConfig {
+  const root = applicationRoot;
   const rawHost = env.MCU_HOST;
   if (rawHost !== undefined && !rawHost.trim()) throw new Error("MCU_HOST must not be empty");
   const host = rawHost?.trim() || "127.0.0.1";
@@ -25,8 +28,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error("MCU_PORT must be an integer from 1 to 65535");
   }
 
-  const dbPath = resolve(root, env.MCU_DB_PATH?.trim() || join("data", "mcu.db"));
-  const workspaceDir = resolve(root, env.MCU_WORKSPACE_DIR?.trim() || "workspace");
+  const rawDbPath = env.MCU_DB_PATH?.trim();
+  const rawWorkspaceDir = env.MCU_WORKSPACE_DIR?.trim();
+  if (rawDbPath && !isAbsolute(rawDbPath)) throw new Error("MCU_DB_PATH must be an absolute path");
+  if (rawWorkspaceDir && !isAbsolute(rawWorkspaceDir)) throw new Error("MCU_WORKSPACE_DIR must be an absolute path");
+
+  const dbPath = rawDbPath ? resolve(rawDbPath) : join(root, "data", "mcu.db");
+  const workspaceDir = rawWorkspaceDir ? resolve(rawWorkspaceDir) : join(root, "workspace");
   const workspaceRelativeDbPath = relative(workspaceDir, dbPath);
   if (workspaceRelativeDbPath === "" || (!workspaceRelativeDbPath.startsWith("..") && !isAbsolute(workspaceRelativeDbPath))) {
     throw new Error("MCU_DB_PATH must not be inside MCU_WORKSPACE_DIR");

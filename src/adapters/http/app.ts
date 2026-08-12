@@ -1,6 +1,7 @@
 // adapters/http/app.ts — HTTP surface（S1 projects + S2 artifacts/versions + S3A commands/SSE）
 // /commands 是 HTTP 收口；Application 内部调用明确函数（analyzeRequirement()…），禁止 CommandBus/Registry 框架。
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import express, { type Express, type Request, type Response } from "express";
 import {
   AlreadyArchivedError,
@@ -118,6 +119,7 @@ export interface AppDeps {
   compiler: CompilerPort;
   device: DevicePort;
   ai: AIProviderPort;
+  frontendDist?: string;
   now?: () => Date;
 }
 
@@ -735,6 +737,20 @@ export function createApp(deps: AppDeps): Express {
   app.post("/api/v1/device/serial/send", withErrorHandler(handleSendSerial));
   app.get("/api/v1/device/serial/stream", handleSerialStream);
   app.get("/api/v1/projects/:projectId/events", handleEvents);
+
+  if (deps.frontendDist) {
+    app.use("/api", (_req, res) => {
+      res.status(404).json({ error: { code: "not_found", message: "API route not found" } });
+    });
+    app.use(express.static(deps.frontendDist, { index: "index.html" }));
+    app.get("*", (req, res, next) => {
+      if (req.path.startsWith("/api/")) {
+        next();
+        return;
+      }
+      res.sendFile(join(deps.frontendDist!, "index.html"));
+    });
+  }
 
   return app;
 }

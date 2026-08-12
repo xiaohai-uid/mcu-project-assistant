@@ -7,8 +7,8 @@ describe("production runtime configuration", () => {
   const valid = {
     MCU_HOST: "127.0.0.1",
     MCU_PORT: "3100",
-    MCU_DB_PATH: "./data/test-config.db",
-    MCU_WORKSPACE_DIR: "./workspace/test-config",
+    MCU_DB_PATH: resolve("C:/mcu-config-test/data/test-config.db"),
+    MCU_WORKSPACE_DIR: resolve("C:/mcu-config-test/workspace/test-config"),
     MCU_DEVICE_PROVIDER: "companion",
   };
 
@@ -18,14 +18,19 @@ describe("production runtime configuration", () => {
     expect(config).toEqual({
       host: "127.0.0.1",
       port: 3100,
-      dbPath: resolve(process.cwd(), "data/test-config.db"),
-      workspaceDir: resolve(process.cwd(), "workspace/test-config"),
+      dbPath: resolve("C:/mcu-config-test/data/test-config.db"),
+      workspaceDir: resolve("C:/mcu-config-test/workspace/test-config"),
       deviceProvider: "companion",
     });
   });
 
   it.each(["0", "65536", "3000.5", "not-a-port"])('rejects malformed port "%s"', (port) => {
     expect(() => loadConfig({ ...valid, MCU_PORT: port })).toThrow(/MCU_PORT/i);
+  });
+
+  it("rejects relative production storage paths instead of binding them to the current cwd", () => {
+    expect(() => loadConfig({ ...valid, MCU_DB_PATH: "./data/relative.db" })).toThrow(/absolute path/i);
+    expect(() => loadConfig({ ...valid, MCU_WORKSPACE_DIR: "./workspace/relative" })).toThrow(/absolute path/i);
   });
 
   it("rejects an empty host instead of falling back silently", () => {
@@ -42,19 +47,19 @@ describe("production runtime configuration", () => {
     expect(() =>
       loadConfig({
         ...valid,
-        MCU_DB_PATH: "./workspace/test-config/mcu.db",
-        MCU_WORKSPACE_DIR: "./workspace/test-config",
+        MCU_DB_PATH: resolve("C:/mcu-config-test/workspace/test-config/mcu.db"),
+        MCU_WORKSPACE_DIR: resolve("C:/mcu-config-test/workspace/test-config"),
       }),
     ).toThrow(/MCU_DB_PATH|workspace/i);
   });
 
   it("requires tests and production to provide distinct explicit database paths", () => {
-    const production = loadConfig({ ...valid, MCU_DB_PATH: "./data/mcu.db" });
-    const test = loadConfig({ ...valid, MCU_DB_PATH: "./data/test-config.db" });
+    const production = loadConfig({ ...valid, MCU_DB_PATH: resolve("C:/mcu-config-test/data/mcu.db") });
+    const test = loadConfig({ ...valid, MCU_DB_PATH: resolve("C:/mcu-config-test/data/test-config.db") });
 
     expect(production.dbPath).not.toBe(test.dbPath);
-    expect(production.dbPath).toBe(resolve(process.cwd(), "data/mcu.db"));
-    expect(test.dbPath).toBe(resolve(process.cwd(), "data/test-config.db"));
+    expect(production.dbPath).toBe(resolve("C:/mcu-config-test/data/mcu.db"));
+    expect(test.dbPath).toBe(resolve("C:/mcu-config-test/data/test-config.db"));
   });
 
   it("keeps environment files ignored while retaining the checked-in example", () => {

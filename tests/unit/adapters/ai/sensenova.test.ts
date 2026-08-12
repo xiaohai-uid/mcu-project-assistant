@@ -87,4 +87,17 @@ describe("sensenova adapter (real AIProviderPort)", () => {
       provider.streamText({ prompt: "p", signal: new AbortController().signal, onChunk: () => {} }),
     ).rejects.toBeInstanceOf(ProviderUnavailableError);
   });
+
+  it("bounds a streaming response whose body never reaches DONE", async () => {
+    const provider = createSenseNovaAiProvider({ apiKey: "k", baseUrl: "https://example/v1", model: "m", timeoutMs: 20 });
+    fetchMock.mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(sseChunk({ reasoning_content: "still thinking" })));
+      },
+    }), { status: 200 }));
+
+    await expect(
+      provider.streamText({ prompt: "p", signal: new AbortController().signal, onChunk: () => {} }),
+    ).rejects.toMatchObject({ message: expect.stringContaining("timed out") });
+  });
 });

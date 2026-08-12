@@ -8,6 +8,7 @@ type SettingsTab = "General" | "Appearance" | "Language" | "AI Provider" | "Loca
 export const SettingsView: React.FC = () => {
   const { state, dispatch, selectMcu, detectBoard } = useApp();
   const { lang, theme, runtime, selectedMcu, project } = state;
+  const developmentToolsEnabled = import.meta.env.DEV;
   const [activeTab, setActiveTab] = useState<SettingsTab>("General");
   const [providerTest, setProviderTest] = useState<"idle" | "ok" | "fail">("idle");
 
@@ -17,7 +18,7 @@ export const SettingsView: React.FC = () => {
     { id: "Language", label: t(lang, "languageTab"), icon: "language" },
     { id: "AI Provider", label: t(lang, "aiProviderTab"), icon: "auto_awesome" },
     { id: "Local Companion", label: t(lang, "companionTabSettings"), icon: "hub" },
-    { id: "Advanced", label: t(lang, "advancedTab"), icon: "tune" },
+    ...(developmentToolsEnabled ? [{ id: "Advanced" as const, label: t(lang, "advancedTab"), icon: "tune" }] : []),
   ];
 
   return (
@@ -184,7 +185,7 @@ export const SettingsView: React.FC = () => {
             </div>
           )}
 
-          {activeTab === "Advanced" && (
+          {developmentToolsEnabled && activeTab === "Advanced" && (
             <StateLab />
           )}
         </div>

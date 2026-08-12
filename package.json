@@ -12,7 +12,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e:golden": "vitest run tests/e2e",
-    "build": "tsc --noEmit && vite build --config app/vite.config.ts"
+    "build:server": "vite build --config vite.server.config.ts",
+    "build:app": "vite build --config app/vite.config.ts",
+    "build": "npm run typecheck && npm run build:server && npm run build:app",
+    "start": "node dist/server/server.js"
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",

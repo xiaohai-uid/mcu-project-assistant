@@ -96,6 +96,7 @@ function Workspace() {
 function AppInner() {
   const { state, dispatch, setNav } = useApp();
   const { lang, theme, nav, labOpen } = state;
+  const developmentToolsEnabled = import.meta.env.DEV;
 
   // 主题应用（System / Light / Dark）
   useEffect(() => {
@@ -121,23 +122,27 @@ function AppInner() {
 
       {nav === "Home" ? <HomeDashboardView /> : <Workspace />}
 
-      {/* State Lab 浮动入口（Mock 专用） */}
-      <button
-        onClick={() => dispatch({ type: "LAB_OPEN", open: !labOpen })}
-        title={labOpen ? t(lang, "labOff") : t(lang, "labOn")}
-        className={`fixed bottom-4 left-4 z-[90] w-9 h-9 rounded-full flex items-center justify-center shadow-md transition-all ${
-          labOpen
-            ? "bg-[#007aff] text-white"
-            : "bg-[var(--panel-solid)] border border-[var(--panel-border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-        }`}
-      >
-        <span className="material-symbols-outlined text-[18px]">science</span>
-      </button>
+      {developmentToolsEnabled && (
+        <>
+          {/* State Lab 浮动入口（Mock 专用；开发构建才可达） */}
+          <button
+            onClick={() => dispatch({ type: "LAB_OPEN", open: !labOpen })}
+            title={labOpen ? t(lang, "labOff") : t(lang, "labOn")}
+            className={`fixed bottom-4 left-4 z-[90] w-9 h-9 rounded-full flex items-center justify-center shadow-md transition-all ${
+              labOpen
+                ? "bg-[#007aff] text-white"
+                : "bg-[var(--panel-solid)] border border-[var(--panel-border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            }`}
+          >
+            <span className="material-symbols-outlined text-[18px]">science</span>
+          </button>
 
-      {labOpen && (
-        <div className="fixed bottom-16 left-4 z-[90] w-[360px] mac-card shadow-xl max-h-[70vh] overflow-y-auto">
-          <StateLab />
-        </div>
+          {labOpen && (
+            <div className="fixed bottom-16 left-4 z-[90] w-[360px] mac-card shadow-xl max-h-[70vh] overflow-y-auto">
+              <StateLab />
+            </div>
+          )}
+        </>
       )}
 
       {/* 未登录 Home 的快捷入口提示 */}

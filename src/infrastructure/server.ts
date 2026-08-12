@@ -1,6 +1,7 @@
 // infrastructure/server.ts — 引导：DB → migrate → HTTP（Modular Monolith 入口）
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createApp } from "@/src/adapters/http/app";
 import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
 import { createSseEvents } from "@/src/adapters/events/sse";
@@ -14,6 +15,7 @@ import { createAiProvider } from "./ai-provider";
 import { loadConfig } from "./config";
 
 const config = loadConfig();
+const frontendDist = fileURLToPath(new URL("../../app/dist/", import.meta.url));
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 mkdirSync(config.workspaceDir, { recursive: true });
@@ -40,6 +42,7 @@ async function startServer(): Promise<void> {
     compiler,
     device,
     ai,
+    frontendDist,
   });
 
   // Recovery claims/schedules before listen; long executions continue after HTTP is exposed.
