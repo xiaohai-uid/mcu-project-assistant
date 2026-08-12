@@ -33,7 +33,7 @@ export interface TaskContext {
 export interface TaskExecutionPort {
   /** 提交持久化任务；normal/recovery 均由同一 persisted-task executor 执行。 */
   submit(input: { capability: string; input: string }): Promise<string>;
-  /** 取消：仅 running 可取消；返回是否成功取消 */
+  /** 取消 queued/running task；返回是否赢得取消 */
   cancel(taskId: string): Promise<boolean>;
   getTask(taskId: string): Promise<TaskRecord | null>;
 }

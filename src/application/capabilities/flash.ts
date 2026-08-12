@@ -153,6 +153,8 @@ export async function executeFlashTask(
     );
     sessionId.value = result.sessionId;
     if (ctx.signal.aborted || result.exitCode !== 0) {
+      await ctx.setOutput(JSON.stringify({ exitCode: result.exitCode, sessionId: "", truth: result.truth } satisfies PersistedFlashOutput));
+      if (ctx.signal.aborted) return;
       ctx.emit({
         type: "device.flash_failed",
         projectId,
@@ -160,7 +162,6 @@ export async function executeFlashTask(
         message: "Flash aborted",
         truth: result.truth,
       });
-      await ctx.setOutput(JSON.stringify({ exitCode: result.exitCode, sessionId: "", truth: result.truth } satisfies PersistedFlashOutput));
       return;
     }
     if (sessionId.value) {
@@ -168,10 +169,13 @@ export async function executeFlashTask(
       mkdirSync(join(deps.workspaceDir, ".evidence"), { recursive: true });
       appendFileSync(evidencePath, lines.join("\n") + "\n", "utf8");
     }
-    ctx.emit({ type: "device.flashed", projectId, deviceId: input.deviceId, sessionId: sessionId.value, truth: result.truth });
     await ctx.setOutput(JSON.stringify({ exitCode: result.exitCode, sessionId: sessionId.value, truth: result.truth } satisfies PersistedFlashOutput));
+    if (ctx.signal.aborted) return;
+    ctx.emit({ type: "device.flashed", projectId, deviceId: input.deviceId, sessionId: sessionId.value, truth: result.truth });
   } catch (err) {
     const truth: DeviceTruth = { ...deps.device.session().truth, verification: "failed" };
+    await ctx.setOutput(JSON.stringify({ exitCode: 1, sessionId: "", truth } satisfies PersistedFlashOutput));
+    if (ctx.signal.aborted) return;
     ctx.emit({
       type: "device.flash_failed",
       projectId,
@@ -179,7 +183,6 @@ export async function executeFlashTask(
       message: err instanceof Error ? err.message : String(err),
       truth,
     });
-    await ctx.setOutput(JSON.stringify({ exitCode: 1, sessionId: "", truth } satisfies PersistedFlashOutput));
   }
   void now;
 }

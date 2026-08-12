@@ -83,7 +83,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
   return { ...port, mem };
 }
 
-function fakeTasks(execute?: (task: TaskRecord, ctx: TaskContext) => Promise<void>): TaskExecutionPort & { tasks: Map<string, TaskRecord> } {
+function fakeTasks(execute?: (task: TaskRecord, ctx: TaskContext) => Promise<void>, emit: (event: LogicalEvent) => void = () => {}): TaskExecutionPort & { tasks: Map<string, TaskRecord> } {
   const tasks = new Map<string, TaskRecord>();
   const controllers = new Map<string, AbortController>();
   let seq = 0;
@@ -106,7 +106,7 @@ function fakeTasks(execute?: (task: TaskRecord, ctx: TaskContext) => Promise<voi
       // 立即执行（fake 同步语义，取消信号可中止）
       const ctrl = new AbortController();
       controllers.set(id, ctrl);
-      const ctx: TaskContext = { taskId: id, signal: ctrl.signal, emit: () => {}, setOutput: async () => {} };
+      const ctx: TaskContext = { taskId: id, signal: ctrl.signal, emit, setOutput: async () => {} };
       tasks.set(id, { ...record, status: "running", startedAt: NOW });
       (execute ? execute(record, ctx) : Promise.resolve()).then(
         () => {
@@ -195,8 +195,7 @@ function deps(over: Partial<Parameters<typeof analyzeRequirement>[1]> = {}) {
       JSON.parse(task.input) as { projectId: string; description: string; lab?: Record<string, unknown> },
       ctx,
       { persistence, ai, events, now },
-    ),
-  );
+    ), events.publish);
   return {
     persistence,
     tasks,

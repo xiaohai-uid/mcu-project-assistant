@@ -13,7 +13,7 @@ import { ToolchainUnavailableError } from "@/src/ports/compiler";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort } from "@/src/ports/task-execution";
-import type { BuildRecordDto } from "@/src/shared-contracts/types";
+import type { BuildRecordDto, BuildStatusDto } from "@/src/shared-contracts/types";
 
 export class ProjectNotFoundError extends Error {
   constructor() {
@@ -96,11 +96,11 @@ export async function executeBuildTask(
       request,
       (line) => {
         appendLog(deps.workspaceDir, input.buildId, line);
-        deps.events.publish({ type: "build.output", projectId: input.projectId, buildId: input.buildId, line });
+        ctx.emit({ type: "build.output", projectId: input.projectId, buildId: input.buildId, line });
       },
       ctx.signal,
     );
-    const status = ctx.signal.aborted ? "cancelled" : result.exitCode === 0 ? "succeeded" : "failed";
+    const status: BuildStatusDto = ctx.signal.aborted ? "cancelled" : result.exitCode === 0 ? "succeeded" : "failed";
     const finalized = finalizeBuildRecord(currentRecord, {
       status,
       completedAt: now().toISOString(),
@@ -109,13 +109,24 @@ export async function executeBuildTask(
     });
     await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
     if (status === "succeeded") {
-      deps.events.publish({ type: "build.succeeded", projectId: input.projectId, buildId: input.buildId, exitCode: result.exitCode });
+      ctx.emit({ type: "build.succeeded", projectId: input.projectId, buildId: input.buildId, exitCode: result.exitCode });
     } else if (status === "failed") {
-      deps.events.publish({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, exitCode: result.exitCode });
+      ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, exitCode: result.exitCode });
     } else {
-      deps.events.publish({ type: "build.cancelled", projectId: input.projectId, buildId: input.buildId });
+      ctx.emit({ type: "build.cancelled", projectId: input.projectId, buildId: input.buildId });
     }
   } catch (err) {
+    if (ctx.signal.aborted) {
+      const finalized = finalizeBuildRecord(currentRecord, {
+        status: "cancelled",
+        completedAt: now().toISOString(),
+        stdoutRef: buildLogRef(input.buildId),
+        exitCode: 1,
+      });
+      await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
+      ctx.emit({ type: "build.cancelled", projectId: input.projectId, buildId: input.buildId });
+      return;
+    }
     const finalized = finalizeBuildRecord(currentRecord, {
       status: "failed",
       completedAt: now().toISOString(),
@@ -124,7 +135,7 @@ export async function executeBuildTask(
       diagnostics: [{ code: "BUILD_START_FAILED", severity: "error", message: (err as Error).message }],
     });
     await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
-    deps.events.publish({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, exitCode: 1 });
+    ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, exitCode: 1 });
   }
 }
 

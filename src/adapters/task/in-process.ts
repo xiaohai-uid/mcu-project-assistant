@@ -43,6 +43,26 @@ export function createInProcessTasks(deps: InProcessTaskDeps): InProcessTaskRunt
   let executor = deps.executeTask;
   let stopping = false;
 
+  const isTerminal = (status: TaskRecord["status"]): boolean =>
+    status === "completed" || status === "failed" || status === "cancelled";
+
+  async function updateTaskIfStatus(task: TaskRecord, fromStatuses: TaskRecord["status"][]): Promise<boolean> {
+    return deps.persistence.withTransaction((uow) => {
+      if (uow.updateTaskIfStatus) return uow.updateTaskIfStatus(task, fromStatuses);
+      uow.updateTask(task);
+      return true;
+    });
+  }
+
+  async function persistTerminal(task: TaskRecord, status: "completed" | "failed" | "cancelled", error: string | null = null): Promise<{ record: TaskRecord; changed: boolean }> {
+    const next = { ...task, status, completedAt: now().toISOString(), error, output: status === "cancelled" ? null : task.output };
+    const changed = await updateTaskIfStatus(next, status === "cancelled" ? ["queued", "running"] : ["running"]);
+    const persisted = await deps.persistence.getTask(task.id);
+    const result = persisted ?? next;
+    records.set(task.id, result);
+    return { record: result, changed };
+  }
+
   async function executeTask(task: TaskRecord, mode: "new" | "recovery"): Promise<void> {
     const ctrl = new AbortController();
     controllers.set(task.id, ctrl);
@@ -50,46 +70,72 @@ export function createInProcessTasks(deps: InProcessTaskDeps): InProcessTaskRunt
       taskId: task.id,
       mode,
       signal: ctrl.signal,
-      emit: (event: LogicalEvent) => deps.events.publish(event),
+      emit: (event: LogicalEvent) => {
+        const current = records.get(task.id);
+        const isCancellationProjection = event.type === "requirement.analysis.cancelled" || event.type === "build.cancelled";
+        if (isCancellationProjection && ctrl.signal.aborted && current?.status === "cancelled") {
+          deps.events.publish(event);
+          return;
+        }
+        if (ctrl.signal.aborted || (current && isTerminal(current.status))) return;
+        deps.events.publish(event);
+      },
       setOutput: async (output: string) => {
-        const current = await deps.persistence.getTask(task.id);
-        const next = { ...(current ?? records.get(task.id) ?? task), output };
+        const persisted = await deps.persistence.getTask(task.id);
+        const current = persisted ?? records.get(task.id) ?? task;
+        if (isTerminal(current.status) || ctrl.signal.aborted) return;
+        const next = { ...current, output };
         records.set(task.id, next);
-        if (current) await deps.persistence.withTransaction((uow) => uow.updateTask(next));
+        if (persisted) {
+          await updateTaskIfStatus(next, ["running"]);
+          const afterWrite = await deps.persistence.getTask(task.id);
+          if (afterWrite) records.set(task.id, afterWrite);
+        }
       },
     };
 
     try {
-      const current = await deps.persistence.getTask(task.id);
+      const persisted = await deps.persistence.getTask(task.id);
+      const current = persisted ?? records.get(task.id) ?? task;
+      if (isTerminal(current.status)) {
+        records.set(task.id, current);
+        return;
+      }
       const running = {
-        ...(current ?? records.get(task.id) ?? task),
+        ...current,
         status: "running" as const,
-        startedAt: current?.startedAt ?? records.get(task.id)?.startedAt ?? now().toISOString(),
+        startedAt: current.startedAt ?? now().toISOString(),
       };
       records.set(task.id, running);
-      if (current && current.status !== "running") {
-        await deps.persistence.withTransaction((uow) => uow.updateTask(running));
+      if (persisted && current.status !== "running") {
+        const changed = await updateTaskIfStatus(running, ["queued"]);
+        const afterRunning = await deps.persistence.getTask(task.id);
+        if (!changed || !afterRunning || afterRunning.status !== "running") {
+          records.set(task.id, afterRunning ?? running);
+          return;
+        }
+        records.set(task.id, afterRunning);
       }
       if (!executor) throw new Error("Task runtime executor is not configured");
       await executor(task, ctx);
       const currentAfterExecution = await deps.persistence.getTask(task.id);
-      const completed = {
-        ...(currentAfterExecution ?? records.get(task.id) ?? task),
-        status: "completed" as const,
-        completedAt: now().toISOString(),
-      };
-      records.set(task.id, completed);
-      if (currentAfterExecution) await deps.persistence.withTransaction((uow) => uow.updateTask(completed));
+      const afterExecution = currentAfterExecution ?? records.get(task.id) ?? task;
+      if (isTerminal(afterExecution.status)) {
+        records.set(task.id, afterExecution);
+        return;
+      }
+      await persistTerminal(afterExecution, "completed");
     } catch (err) {
-      const currentAfterFailure = await deps.persistence.getTask(task.id);
-      const failed = {
-        ...(currentAfterFailure ?? records.get(task.id) ?? task),
-        status: (ctrl.signal.aborted ? "cancelled" : "failed") as "cancelled" | "failed",
-        completedAt: now().toISOString(),
-        error: ctrl.signal.aborted ? null : err instanceof Error ? err.message : String(err),
-      };
-      records.set(task.id, failed);
-      if (currentAfterFailure) await deps.persistence.withTransaction((uow) => uow.updateTask(failed));
+      const currentAfterFailure = await deps.persistence.getTask(task.id) ?? records.get(task.id) ?? task;
+      if (isTerminal(currentAfterFailure.status)) {
+        records.set(task.id, currentAfterFailure);
+        return;
+      }
+      await persistTerminal(
+        currentAfterFailure,
+        ctrl.signal.aborted ? "cancelled" : "failed",
+        ctrl.signal.aborted ? null : err instanceof Error ? err.message : String(err),
+      );
     } finally {
       controllers.delete(task.id);
     }
@@ -132,9 +178,12 @@ export function createInProcessTasks(deps: InProcessTaskDeps): InProcessTaskRunt
 
     async cancel(taskId: string): Promise<boolean> {
       const ctrl = controllers.get(taskId);
-      if (!ctrl) return false;
-      ctrl.abort();
-      return true;
+      const current = await deps.persistence.getTask(taskId) ?? records.get(taskId);
+      if (!current || isTerminal(current.status)) return false;
+      const transition = persistTerminal(current, "cancelled");
+      const result = await transition;
+      if (result.changed) ctrl?.abort();
+      return result.changed;
     },
 
     async getTask(id: string): Promise<TaskRecord | null> {
@@ -162,7 +211,7 @@ export function createInProcessTasks(deps: InProcessTaskDeps): InProcessTaskRunt
 
     async stop(): Promise<void> {
       stopping = true;
-      for (const ctrl of controllers.values()) ctrl.abort();
+      await Promise.all([...controllers.keys()].map((taskId) => this.cancel(taskId)));
       await this.waitForIdle();
     },
 

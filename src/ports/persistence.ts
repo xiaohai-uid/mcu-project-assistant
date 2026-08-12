@@ -24,6 +24,8 @@ export interface UnitOfWork {
   // S3A
   saveTask(t: TaskRecord): void;
   updateTask(t: TaskRecord): void;
+  /** Atomic task transition; returns false when the persisted status is not in fromStatuses. */
+  updateTaskIfStatus?(t: TaskRecord, fromStatuses: TaskRecord["status"][]): boolean;
   /** 取最早 queued → 置 running；恢复流程先把遗留 running 重新排回 queued。 */
   claimNextTask(): TaskRecord | null;
   /** 启动恢复前将上一进程遗留的 running 任务重新置为 queued。 */

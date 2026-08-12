@@ -427,7 +427,7 @@ export function createApp(deps: AppDeps): Express {
 
   const handleCancel = async (req: Request, res: Response) => {
     const ok = await cancelAnalysisCapability({ taskId: req.params.taskId as string }, analysisDeps);
-    if (!ok) throw new ApiError(409, "invalid_analysis_state", "Task is not cancellable (not running)");
+    if (!ok) throw new ApiError(409, "invalid_analysis_state", "Task is not cancellable (already terminal or missing)");
     res.status(202).json({ taskId: req.params.taskId, status: "cancelled" });
   };
 

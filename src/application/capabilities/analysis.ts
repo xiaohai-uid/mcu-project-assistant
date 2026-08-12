@@ -85,8 +85,8 @@ export async function executeRequirementAnalysis(
       status = "unavailable";
     }
     if (status !== "available") {
-      deps.events.publish({ type: "provider.unavailable", provider: deps.ai.name, reason: "provider status != available" });
-      deps.events.publish({
+      ctx.emit({ type: "provider.unavailable", provider: deps.ai.name, reason: "provider status != available" });
+      ctx.emit({
         type: "requirement.analysis.failed",
         projectId: input.projectId,
         analysisId,
@@ -95,7 +95,7 @@ export async function executeRequirementAnalysis(
       throw new ProviderUnavailableError("AI provider is unavailable");
     }
 
-    deps.events.publish({
+    ctx.emit({
       type: "requirement.analysis.started",
       projectId: input.projectId,
       analysisId,
@@ -108,7 +108,7 @@ export async function executeRequirementAnalysis(
       signal: ctx.signal,
       onChunk: (chunk) => {
         if (ctx.signal.aborted) return;
-        deps.events.publish({
+        ctx.emit({
           type: "requirement.analysis.progress",
           projectId: input.projectId,
           analysisId,
@@ -131,7 +131,7 @@ export async function executeRequirementAnalysis(
       output = data;
 
       for (const cap of data.capabilities) {
-        deps.events.publish({
+        ctx.emit({
           type: "requirement.analysis.progress",
           projectId: input.projectId,
           analysisId,
@@ -152,7 +152,7 @@ export async function executeRequirementAnalysis(
         ctx.signal.addEventListener("abort", () => reject(new Error("analysis aborted")), { once: true }),
       );
       gates.set(ctx.taskId, { roundId, answer: answerPromise, resolve: resolveGate });
-      deps.events.publish({
+      ctx.emit({
         type: "requirement.analysis.clarification.requested",
         projectId: input.projectId,
         analysisId,
@@ -165,32 +165,34 @@ export async function executeRequirementAnalysis(
     }
 
     if (!output) throw new Error("analysis produced no output");
-    deps.events.publish({
-      type: "requirement.analysis.completed",
-      projectId: input.projectId,
-      analysisId,
-      capabilities: output.capabilities,
-    });
     await ctx.setOutput(JSON.stringify({ capabilities: output.capabilities }));
 
     if (output.proposals && output.proposals.length > 0) {
       const { createProposalsFromAnalysis } = await import("@/src/application/capabilities/proposals");
+      if (ctx.signal.aborted) throw new Error("analysis aborted");
       await createProposalsFromAnalysis(
         { projectId: input.projectId, proposals: output.proposals, now },
         { persistence: deps.persistence, now },
       );
     }
+    if (ctx.signal.aborted) throw new Error("analysis aborted");
+    ctx.emit({
+      type: "requirement.analysis.completed",
+      projectId: input.projectId,
+      analysisId,
+      capabilities: output.capabilities,
+    });
   } catch (err) {
     gates.delete(ctx.taskId);
     if (ctx.signal.aborted) {
-      deps.events.publish({
+      ctx.emit({
         type: "requirement.analysis.cancelled",
         projectId: input.projectId,
         analysisId,
       });
     } else if (err instanceof ProviderUnavailableError) {
-      deps.events.publish({ provider: deps.ai.name, type: "provider.unavailable", reason: err.message });
-      deps.events.publish({
+      ctx.emit({ provider: deps.ai.name, type: "provider.unavailable", reason: err.message });
+      ctx.emit({
         type: "requirement.analysis.failed",
         projectId: input.projectId,
         analysisId,

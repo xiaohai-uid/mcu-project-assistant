@@ -233,8 +233,32 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
      VALUES (@id, @capability, @input, @status, @created_at, @started_at, @completed_at, @error, @output)`,
   );
   const updateTaskStmt = db.prepare(
-    `UPDATE tasks SET status = @status, started_at = @started_at, completed_at = @completed_at, error = @error, output = @output WHERE id = @id`,
+    `UPDATE tasks
+     SET status = @status, started_at = @started_at, completed_at = @completed_at, error = @error, output = @output
+     WHERE id = @id AND (
+       (status = 'queued' AND @status IN ('running', 'cancelled')) OR
+       (status = 'running' AND @status IN ('running', 'completed', 'failed', 'cancelled'))
+     )`,
   );
+  function updateTaskIfStatus(t: TaskRecord, fromStatuses: TaskRecord["status"][]): boolean {
+    if (fromStatuses.length === 0) return false;
+    const params = fromStatuses.map((_, index) => `@from_${index}`);
+    const stmt = db.prepare(
+      `UPDATE tasks
+       SET status = @status, started_at = @started_at, completed_at = @completed_at, error = @error, output = @output
+       WHERE id = @id AND status IN (${params.join(", ")})`,
+    );
+    const values: Record<string, string | null> = {
+      id: t.id,
+      status: t.status,
+      started_at: t.startedAt,
+      completed_at: t.completedAt,
+      error: t.error,
+      output: t.output,
+    };
+    fromStatuses.forEach((status, index) => { values[`from_${index}`] = status; });
+    return Number(stmt.run(values).changes) === 1;
+  }
   const insertProposal = db.prepare(
     `INSERT INTO proposals (id, project_id, artifact_id, base_version_id, type, payload, diff, impacts, reason, status, created_by, created_at, decided_at, decision_history)
      VALUES (@id, @project_id, @artifact_id, @base_version_id, @type, @payload, @diff, @impacts, @reason, @status, @created_by, @created_at, @decided_at, @decision_history)`,
@@ -363,6 +387,7 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
         output: t.output,
       });
     },
+    updateTaskIfStatus,
     saveStaleMarks(marks: StaleMarkDto[]): void {
       for (const m of marks) {
         // 合并语义（stale-semantics §3：一个下游可同时多个上游 Stale 源 → 级别取最高）：

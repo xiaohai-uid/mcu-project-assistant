@@ -78,6 +78,7 @@ describe("durable in-process task recovery", () => {
     });
 
     await expect(tasks.recover()).resolves.toEqual({ recovered: 2, failed: 0 });
+    await tasks.waitForIdle();
     expect(executed).toEqual(["t1", "t2"]);
     expect((await tasks.getTask("t1"))?.status).toBe("completed");
     expect((await tasks.getTask("t2"))?.status).toBe("completed");
