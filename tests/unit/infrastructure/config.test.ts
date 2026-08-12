@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { loadConfig } from "@/src/infrastructure/config";
 
 describe("production runtime configuration", () => {
@@ -33,6 +33,29 @@ describe("production runtime configuration", () => {
   it("rejects relative production storage paths instead of binding them to the current cwd", () => {
     expect(() => loadConfig({ ...valid, MCU_DB_PATH: "./data/relative.db" })).toThrow(/absolute path/i);
     expect(() => loadConfig({ ...valid, MCU_WORKSPACE_DIR: "./workspace/relative" })).toThrow(/absolute path/i);
+  });
+
+  it("keeps the checked-in storage examples absolute and accepted by production config", () => {
+    const template = readFileSync(resolve(process.cwd(), ".env.example"), "utf8");
+    const dbPath = /^# MCU_DB_PATH=([^\s#]+)/m.exec(template)?.[1];
+    const workspaceDir = /^# MCU_WORKSPACE_DIR=([^\s#]+)/m.exec(template)?.[1];
+
+    expect(dbPath).toBeTruthy();
+    expect(workspaceDir).toBeTruthy();
+    expect(isAbsolute(dbPath!)).toBe(true);
+    expect(isAbsolute(workspaceDir!)).toBe(true);
+    expect(loadConfig({ ...valid, MCU_DB_PATH: dbPath, MCU_WORKSPACE_DIR: workspaceDir })).toMatchObject({
+      dbPath: resolve(dbPath!),
+      workspaceDir: resolve(workspaceDir!),
+    });
+  });
+
+  it("retains documented application-root storage defaults when paths are omitted", () => {
+    const applicationRoot = resolve("C:/mcu-config-test/application");
+    const config = loadConfig({ ...valid, MCU_DB_PATH: undefined, MCU_WORKSPACE_DIR: undefined }, applicationRoot);
+
+    expect(config.dbPath).toBe(join(applicationRoot, "data", "mcu.db"));
+    expect(config.workspaceDir).toBe(join(applicationRoot, "workspace"));
   });
 
   it("rejects an empty host instead of falling back silently", () => {

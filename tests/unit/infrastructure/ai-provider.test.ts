@@ -119,6 +119,30 @@ describe("AI provider composition", () => {
     ).toBe("sensenova");
   });
 
+  it("accepts a positive SenseNova timeout override", () => {
+    expect(
+      createAiProvider({
+        MCU_AI_PROVIDER: "sensenova",
+        SENSENOVA_API_KEY: "test-key",
+        SENSENOVA_BASE_URL: "https://example.invalid/v1",
+        SENSENOVA_CHAT_MODEL: "deepseek-v4-flash",
+        SENSENOVA_TIMEOUT_MS: "240000",
+      }).name,
+    ).toBe("sensenova");
+  });
+
+  it.each(["0", "-1", "not-a-timeout"])("rejects malformed SenseNova timeout %s", (timeout) => {
+    expect(() =>
+      createAiProvider({
+        MCU_AI_PROVIDER: "sensenova",
+        SENSENOVA_API_KEY: "test-key",
+        SENSENOVA_BASE_URL: "https://example.invalid/v1",
+        SENSENOVA_CHAT_MODEL: "deepseek-v4-flash",
+        SENSENOVA_TIMEOUT_MS: timeout,
+      }),
+    ).toThrow(/SENSENOVA_TIMEOUT_MS/i);
+  });
+
   it("rejects malformed real-provider URLs without exposing credentials", () => {
     expect(() =>
       createAiProvider({
