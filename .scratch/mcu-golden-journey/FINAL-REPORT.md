@@ -147,19 +147,20 @@ ebca0d1 feat: implement flash confirmation and serial slice (S9)
 | 物理开发板 | **不存在**（唯一串口 COM1 为主板 ACPI 虚拟口）→ 真实烧录 BLOCKED（无硬件） |
 | pyserial 3.5 | 存在（Python 3.12）——真实串口代码路径可跑，但无目标设备 |
 
-### 13.2 真实 AI 适配器（commit `e894d2a`）
+### 13.2 真实 AI 适配器（commit `e894d2a` + `a721a6d`）
 
-- `src/adapters/ai/zhipu-glm.ts`：AIProviderPort 真实实现（SSE 流式、json_object 结构化、status 探测缓存、thinking disabled 提速）。`MCU_AI_PROVIDER=zhipu` + `MCU_ZHIPU_API_KEY` 显式注入，无 fallback。
+- `src/adapters/ai/zhipu-glm.ts`：AIProviderPort 真实实现（SSE 流式、json_object 结构化、status 探测缓存）。`MCU_AI_PROVIDER=zhipu` + `MCU_ZHIPU_API_KEY` 显式注入，无 fallback。
+- **思考模式（产品硬要求，commit `a721a6d`）**：所有生成请求 `thinking:{type:"enabled"}`（测试锁定断言）。真实代价已实测：需求分析 **162s**（reasoning 链）；曾用 `disabled` 换 +99% 速度（0.4s 级）——该取舍被否决，推理质量优先。配套：timeoutMs 默认 240s、max_tokens 主请求 4096/流式与补充 2048（reasoning_content 占预算）。
 - **实测发现并修复**：
-  1. reasoning 模型 60s 超时 → `thinking:{type:"disabled"}` 后 0.4s 返回（真实数据：+99% 提速）；
+  1. reasoning 模型 60s 超时（初版未开 thinking 也慢）→ 超时上调 + token 预算承载；
   2. glm-4.5-flash 主请求倾向**省略/空 proposals 数组**（指令遵循不足）→ 组合模式：补充一次聚焦请求回填提案（仍纯 AI 输出）；
   3. `no_accepted_proposals` 门禁在 0 提案时阻塞（mock 永远有 3 提案）——真实模型必须靠组合模式保证提案，已解决。
-- **真实 golden journey 验证**（`ai=zhipu-glm` server）：
-  - analyze_requirement → completed，4-5 能力卡 + 2-3 提案/轮（真实内容：Soil Moisture Sensing / Water Pump Control / Display Interface / Wireless；提案如 Automated Irrigation System / Remote Monitoring Dashboard / Power management）——无澄清（真实模型判定描述无歧义，与 mock 行为契约不同，属预期差异）；
-  - proposals 落库 16 行 pending → accept 2 → requirements v1 committed（真实 LLM 内容）；
+- **真实 golden journey 验证**（`ai=zhipu-glm` server，thinking ON）：
+  - analyze_requirement → completed（162s），4-5 能力卡 + 提案/轮（真实内容：Soil Moisture Sensing / Water Pump Control / Display Interface / Wireless；提案如 Automated Irrigation System / Remote Monitoring Dashboard / Power management / Data logging / Automation logic）——无澄清（真实模型判定描述无歧义，与 mock 行为契约不同，属预期差异）；
+  - proposals 落库（实测 21 行，18 pending）→ accept 2 → requirements v1 committed（真实 LLM 内容）；
   - recommend_mcu（知识求值）→ ESP32-S3/RP2040/STM32F401RE 三候选；select_mcu → hardware v1；
   - generate_pin_map → IO4/IO12/IO8/IO9 + IO12 strapping 冲突；generate_firmware → IO12→IO21 提案 accepted（firmware v1）；
-  - 后续真实 build/flash 受 §14.1 BLOCKED。
+  - 后续真实 build/flash 受 §13.1 BLOCKED。
 - **真实数据 vs mock 契约差异（已记录）**：真实 LLM 内容不固定、无澄清不产假问题；S3B 提案依赖已通过组合模式保证。测试 313 全绿（+9 适配器测试），typecheck/lint 干净。
 
 ### 13.3 真实/确定性/阻塞终态
