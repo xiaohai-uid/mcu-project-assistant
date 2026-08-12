@@ -1,7 +1,7 @@
 // ports/events.ts — EventPort（implementation-spec §9；ISSUE-002 §3/§9；ISSUE-003 §3）
 // 逻辑事件（logical-events 域；传输无关）。M1 无 Event Store / 无 replay。
 // S2：EventPort 占位（publish 记录到内存/日志）；S3A：SSE 适配器（/projects/:id/events，断线→Query 续流）。
-import type { AnalysisCapabilityDto, ArtifactKind } from "@/src/shared-contracts/types";
+import type { AnalysisCapabilityDto, ArtifactKind, DeviceTruthDto } from "@/src/shared-contracts/types";
 
 export type LogicalEvent =
   | {
@@ -57,8 +57,8 @@ export type LogicalEvent =
   | { type: "diagnosis.completed"; projectId: string; buildId: string; cause: string }
   // ---------- S9 Device / Flash ----------
   | { type: "device.flashing"; projectId: string; deviceId: string; percent: number; message?: string }
-  | { type: "device.flashed"; projectId: string; deviceId: string; sessionId: string }
-  | { type: "device.flash_failed"; projectId: string; deviceId: string; message?: string }
+  | { type: "device.flashed"; projectId: string; deviceId: string; sessionId: string; truth: DeviceTruthDto }
+  | { type: "device.flash_failed"; projectId: string; deviceId: string; message?: string; truth: DeviceTruthDto }
   | { type: "provider.unavailable"; provider: string; reason: string };
 
 export interface EventPort {

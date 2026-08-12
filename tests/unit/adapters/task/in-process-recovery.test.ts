@@ -188,14 +188,32 @@ describe("durable in-process task recovery", () => {
     });
     let invocations = 0;
     const device: DevicePort = {
-      detectBoard: async () => ({ id: "dev-1", model: "test", port: "COM1", baudRate: 115200 }),
+      detectBoard: async () => ({
+        id: "dev-1",
+        model: "test",
+        port: "COM1",
+        baudRate: 115200,
+        truth: { executionReality: "companion", verification: "verified", physicalVerified: false, adapter: "test" },
+      }),
       disconnect: () => undefined,
       flash: async () => {
         invocations += 1;
-        return { exitCode: 0, sessionId: "should-not-exist" };
+        return {
+          exitCode: 0,
+          sessionId: "should-not-exist",
+          truth: { executionReality: "companion", verification: "verified", physicalVerified: false, adapter: "test" },
+        };
       },
-      session: () => ({ device: null, stage: "connected", serialLines: [] }),
-      sendSerial: () => "",
+      session: () => ({
+        device: null,
+        stage: "connected",
+        truth: { executionReality: "companion", verification: "verified", physicalVerified: false, adapter: "test" },
+        serialLines: [],
+      }),
+      sendSerial: () => ({
+        response: "",
+        truth: { executionReality: "companion", verification: "verified", physicalVerified: false, adapter: "test" },
+      }),
       tickSerial: () => undefined,
     };
     const tasks = createInProcessTasks({ persistence, events });

@@ -210,8 +210,8 @@ export const BuildView: React.FC = () => {
         <div className="px-3.5 py-2.5 border-b border-[var(--panel-border-subtle)] bg-[var(--control-bg)] flex items-center justify-between">
           <span className="text-xs font-semibold text-[var(--text-primary)] font-mono">serial @ 115200 baud</span>
           {deviceOk && (
-            <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[10px] font-mono">
-              {t(lang, "serialOpened")}
+            <span className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-mono">
+              {runtime.deviceTruth ? `${runtime.deviceTruth.executionReality} · ${runtime.deviceTruth.physicalVerified ? "physical verified" : "physical not verified"}` : "truth unavailable"}
             </span>
           )}
         </div>

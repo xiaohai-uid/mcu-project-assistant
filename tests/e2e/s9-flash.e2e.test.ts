@@ -134,6 +134,7 @@ describe("S9 Golden Journey — Flash Confirmation + Serial end-to-end（真实 
     const decoder = new TextDecoder();
     let buffer = "";
     const serialLines: string[] = [];
+    const serialFrames: Array<{ line: string; truth?: { executionReality: string; physicalVerified: boolean; adapter: string } }> = [];
     const streamPromise = (async () => {
       try {
         while (true) {
@@ -145,8 +146,15 @@ describe("S9 Golden Journey — Flash Confirmation + Serial end-to-end（真实 
             const raw = buffer.slice(0, idx);
             buffer = buffer.slice(idx + 2);
             const dataLine = raw.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("\n");
-            if (dataLine) serialLines.push(dataLine);
-            if (serialLines.some((l) => l.includes("Moisture Raw"))) {
+            if (dataLine) {
+              serialLines.push(dataLine);
+              try {
+                serialFrames.push(JSON.parse(dataLine) as { line: string; truth?: { executionReality: string; physicalVerified: boolean; adapter: string } });
+              } catch {
+                // Ignore malformed frames; the existing line assertion below still guards the smoke.
+              }
+            }
+            if (serialFrames.some((frame) => frame.line.includes("Moisture Raw"))) {
               streamCtrl.abort();
               return;
             }
@@ -158,12 +166,16 @@ describe("S9 Golden Journey — Flash Confirmation + Serial end-to-end（真实 
     })();
     await waitFor(async () => {
       await new Promise((r) => setTimeout(r, 100));
-      return serialLines.some((l) => l.includes("Moisture Raw"));
+      return serialFrames.some((frame) => frame.line.includes("Moisture Raw"));
     });
     void streamPromise;
+    const telemetryFrame = serialFrames.find((frame) => frame.line.includes("Moisture Raw"));
+    expect(telemetryFrame?.truth).toMatchObject({ executionReality: "companion", physicalVerified: false, adapter: "companion-local" });
     const send = await post("/api/v1/device/serial/send", { command: "GET_STATUS" });
     expect(send.status).toBe(200);
-    expect(((await send.json()) as { response: string }).response).toContain("STATUS moisture=");
+    const serialResponse = (await send.json()) as { response: string; truth: { executionReality: string; physicalVerified: boolean; adapter: string } };
+    expect(serialResponse.response).toContain("STATUS moisture=");
+    expect(serialResponse.truth).toMatchObject({ executionReality: "companion", physicalVerified: false, adapter: "companion-local" });
 
     // 4. 安全拒绝全组（HTTP 信封）
     // 无令牌 → 403 confirmation_missing

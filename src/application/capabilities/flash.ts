@@ -5,7 +5,8 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { DevicePort, DeviceInfo } from "@/src/ports/device";
+import type { DevicePort, DeviceInfo, DeviceTruth } from "@/src/ports/device";
+import type { DeviceExecutionReality, FlashResultDto } from "@/src/shared-contracts/types";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort } from "@/src/ports/task-execution";
@@ -49,6 +50,13 @@ export class FirmwareVersionNotFoundError extends Error {
   constructor() {
     super("Firmware version not found");
     this.name = "FirmwareVersionNotFoundError";
+  }
+}
+
+export class PhysicalFlashBlockedError extends Error {
+  constructor() {
+    super("PHYSICAL_FLASH_BLOCKED: no physical device adapter is configured");
+    this.name = "PhysicalFlashBlockedError";
   }
 }
 
@@ -108,7 +116,10 @@ export type FlashTaskDeps = Pick<FlashCapabilityDeps, "persistence" | "events" |
 export interface PersistedFlashTaskInput {
   deviceId: string;
   firmwareVersionId: string;
+  executionReality?: DeviceExecutionReality;
 }
+
+export type PersistedFlashOutput = FlashResultDto;
 
 export async function executeFlashTask(
   input: PersistedFlashTaskInput,
@@ -122,6 +133,11 @@ export async function executeFlashTask(
   const projectId = artifact?.projectId ?? "";
   const sessionId = { value: "" };
   const lines: string[] = [];
+
+  const actualTruth = deps.device.session().truth;
+  if (input.executionReality && input.executionReality !== actualTruth.executionReality) {
+    throw new PhysicalFlashBlockedError();
+  }
 
   try {
     const result = await deps.device.flash(
@@ -137,8 +153,14 @@ export async function executeFlashTask(
     );
     sessionId.value = result.sessionId;
     if (ctx.signal.aborted || result.exitCode !== 0) {
-      ctx.emit({ type: "device.flash_failed", projectId, deviceId: input.deviceId, message: "Flash aborted" });
-      await ctx.setOutput(JSON.stringify({ sessionId: "" }));
+      ctx.emit({
+        type: "device.flash_failed",
+        projectId,
+        deviceId: input.deviceId,
+        message: "Flash aborted",
+        truth: result.truth,
+      });
+      await ctx.setOutput(JSON.stringify({ exitCode: result.exitCode, sessionId: "", truth: result.truth } satisfies PersistedFlashOutput));
       return;
     }
     if (sessionId.value) {
@@ -146,16 +168,18 @@ export async function executeFlashTask(
       mkdirSync(join(deps.workspaceDir, ".evidence"), { recursive: true });
       appendFileSync(evidencePath, lines.join("\n") + "\n", "utf8");
     }
-    ctx.emit({ type: "device.flashed", projectId, deviceId: input.deviceId, sessionId: sessionId.value });
-    await ctx.setOutput(JSON.stringify({ sessionId: sessionId.value }));
+    ctx.emit({ type: "device.flashed", projectId, deviceId: input.deviceId, sessionId: sessionId.value, truth: result.truth });
+    await ctx.setOutput(JSON.stringify({ exitCode: result.exitCode, sessionId: sessionId.value, truth: result.truth } satisfies PersistedFlashOutput));
   } catch (err) {
+    const truth: DeviceTruth = { ...deps.device.session().truth, verification: "failed" };
     ctx.emit({
       type: "device.flash_failed",
       projectId,
       deviceId: input.deviceId,
       message: err instanceof Error ? err.message : String(err),
+      truth,
     });
-    await ctx.setOutput(JSON.stringify({ sessionId: "" }));
+    await ctx.setOutput(JSON.stringify({ exitCode: 1, sessionId: "", truth } satisfies PersistedFlashOutput));
   }
   void now;
 }
@@ -187,9 +211,9 @@ export async function issueFlashToken(
  * 烧录执行（进度事件流）→ 完成写 .evidence/<sessionId>.log；中断不留半成品证据。
  */
 export async function flashDevice(
-  input: { deviceId: string; confirmationToken: string; firmwareVersionId: string },
+  input: { deviceId: string; confirmationToken: string; firmwareVersionId: string; executionReality?: DeviceExecutionReality },
   deps: FlashCapabilityDeps,
-): Promise<{ sessionId: string }> {
+): Promise<PersistedFlashOutput> {
   const now = deps.now ?? (() => new Date());
 
   // 1. 令牌校验（一次性；AI/Companion/重试无令牌一律拒绝）
@@ -198,6 +222,12 @@ export async function flashDevice(
   if (verdict === "expired") throw new ConfirmationExpiredError();
   if (verdict === "reused") throw new TokenReusedError();
   if (verdict === "device_mismatch") throw new DeviceMismatchError();
+
+  // A requested physical operation must never silently execute on companion.
+  const actualTruth = deps.device.session().truth;
+  if (input.executionReality && input.executionReality !== actualTruth.executionReality) {
+    throw new PhysicalFlashBlockedError();
+  }
 
   // 2. L3 Stale 门禁（I-8：L3 禁 Flash）
   const version = await deps.persistence.getVersion(input.firmwareVersionId);
@@ -212,7 +242,7 @@ export async function flashDevice(
 
   // 4. 烧录执行（in-process 任务；进度事件 → SSE；deferred 等待任务终态以返回 sessionId）
   const taskId = await deps.tasks.submit(
-    { capability: "flash_device", input: JSON.stringify({ deviceId: input.deviceId, firmwareVersionId: input.firmwareVersionId }) },
+    { capability: "flash_device", input: JSON.stringify({ deviceId: input.deviceId, firmwareVersionId: input.firmwareVersionId, executionReality: input.executionReality }) },
   );
 
   const runtime = deps.tasks as TaskExecutionPort & {
@@ -228,7 +258,9 @@ export async function flashDevice(
         }
       })();
   if (!task) throw new Error(`Flash task ${taskId} disappeared before reaching a terminal state`);
-  return task.output ? (JSON.parse(task.output) as { sessionId: string }) : { sessionId: "" };
+  return task.output
+    ? (JSON.parse(task.output) as PersistedFlashOutput)
+    : { exitCode: 1, sessionId: "", truth: { ...actualTruth, verification: "failed" } };
 }
 
 export async function disconnectDevice(deps: Pick<FlashCapabilityDeps, "device">): Promise<void> {
@@ -238,8 +270,8 @@ export async function disconnectDevice(deps: Pick<FlashCapabilityDeps, "device">
 export async function sendSerial(
   input: { command: string },
   deps: Pick<FlashCapabilityDeps, "device">,
-): Promise<{ echo: string; response: string }> {
+): Promise<{ echo: string; response: string; truth: DeviceTruth }> {
   const echo = `> ${input.command.trim()}`;
-  const response = deps.device.sendSerial(input.command);
-  return { echo, response };
+  const result = deps.device.sendSerial(input.command);
+  return { echo, response: result.response, truth: result.truth };
 }

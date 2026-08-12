@@ -1,4 +1,5 @@
 // ============================================================
+import type { DeviceTruthDto } from "@/src/shared-contracts/types";
 // MCU Project Assistant — Mock Product Types
 // UI-First Mock：这些类型描述"用户认知中的对象与状态"，
 // 不是后端 schema。后端契约在 UI Frozen 之后定义。
@@ -263,6 +264,7 @@ export interface RuntimeFlags {
   providerAvailable: boolean;  // AI 供应商不可用
   toolchainAvailable: boolean; // 工具链缺失
   deviceStage: DeviceStage;
+  deviceTruth: DeviceTruthDto | null;
   slowMode: boolean;           // 长任务可取消演示
 }
 

@@ -76,7 +76,7 @@ import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort } from "@/src/ports/task-execution";
 import type { InProcessTaskRuntime } from "@/src/adapters/task/in-process";
 import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
-import type { ArtifactKind, ArtifactVersionDto } from "@/src/shared-contracts/types";
+import type { ArtifactKind, ArtifactVersionDto, DeviceExecutionReality } from "@/src/shared-contracts/types";
 import { ApiError, withErrorHandler } from "./error";
 import { writeProjectMirror } from "@/src/infrastructure/workspace";
 import {
@@ -97,6 +97,7 @@ import {
   ConfirmationExpiredError,
   ConfirmationMissingError,
   DeviceDisconnectedError,
+  PhysicalFlashBlockedError,
   DeviceMismatchError,
   detectDevice as detectDeviceCapability,
   disconnectDevice as disconnectDeviceCapability,
@@ -598,8 +599,15 @@ export function createApp(deps: AppDeps): Express {
     const deviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId : "";
     const confirmationToken = typeof req.body?.confirmationToken === "string" ? req.body.confirmationToken : "";
     const firmwareVersionId = typeof req.body?.firmwareVersionId === "string" ? req.body.firmwareVersionId : "";
+    const requestedReality = req.body?.executionReality;
+    const executionReality: DeviceExecutionReality | undefined =
+      requestedReality === "simulation" || requestedReality === "companion" || requestedReality === "physical"
+        ? requestedReality
+        : requestedReality === undefined
+          ? undefined
+          : (() => { throw new ApiError(400, "invalid_capability", "executionReality must be simulation, companion, or physical"); })();
     try {
-      const result = await flashDeviceCapability({ deviceId, confirmationToken, firmwareVersionId }, flashDeps);
+      const result = await flashDeviceCapability({ deviceId, confirmationToken, firmwareVersionId, executionReality }, flashDeps);
       res.status(202).json(result);
     } catch (err) {
       if (err instanceof ConfirmationMissingError) throw new ApiError(403, "confirmation_missing", err.message);
@@ -607,6 +615,7 @@ export function createApp(deps: AppDeps): Express {
       if (err instanceof TokenReusedError) throw new ApiError(403, "token_reused", err.message);
       if (err instanceof DeviceMismatchError) throw new ApiError(403, "device_mismatch", err.message);
       if (err instanceof DeviceDisconnectedError) throw new ApiError(409, "device_disconnected", err.message);
+      if (err instanceof PhysicalFlashBlockedError) throw new ApiError(409, "physical_flash_blocked", err.message);
       if (err instanceof BlockingStaleError) throw new ApiError(409, "blocking_stale", err.message);
       if (err instanceof FirmwareVersionNotFoundError) throw new ApiError(404, "not_found", err.message);
       throw err;
@@ -648,7 +657,7 @@ export function createApp(deps: AppDeps): Express {
       while (cursor < lines.length) {
         const line = lines[cursor];
         cursor += 1;
-        res.write(`event: serial.line\ndata: ${JSON.stringify({ line })}\n\n`);
+        res.write(`event: serial.line\ndata: ${JSON.stringify({ line, truth: session.truth })}\n\n`);
       }
     }, 800);
     req.on("close", () => clearInterval(timer));

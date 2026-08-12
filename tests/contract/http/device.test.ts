@@ -8,11 +8,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import request from "supertest";
 import { createApp, type AppDeps } from "@/src/adapters/http/app";
 import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
-import { createNoopEvents } from "@/src/adapters/events/noop";
 import { createInProcessTasks } from "@/src/adapters/task/in-process";
 import { createMockAiProvider } from "@/src/adapters/ai/mock";
 import { createMockCompiler } from "@/src/adapters/compiler/mock";
 import { createCompanionLocalDevice } from "@/src/adapters/device/companion-local";
+import type { DevicePort } from "@/src/ports/device";
+import type { LogicalEvent } from "@/src/ports/events";
 import { openDatabase, type SqliteDb } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
@@ -21,6 +22,8 @@ let dir: string;
 let db: SqliteDb;
 let ws: string;
 let app: ReturnType<typeof createApp>;
+let flashInvocations = 0;
+let publishedEvents: LogicalEvent[] = [];
 
 function boot() {
   dir = mkdtempSync(join(tmpdir(), "mcu-s9-http-"));
@@ -28,7 +31,17 @@ function boot() {
   db = openDatabase(join(dir, "test.db"));
   migrate(db);
   const persistence = createProjectStore(db);
-  const events = createNoopEvents();
+  publishedEvents = [];
+  const events = { publish: (event: LogicalEvent) => publishedEvents.push(event) };
+  const companion = createCompanionLocalDevice();
+  flashInvocations = 0;
+  const device: DevicePort = {
+    ...companion,
+    flash: async (...args) => {
+      flashInvocations += 1;
+      return companion.flash(...args);
+    },
+  };
   const deps: AppDeps = {
     persistence,
     workspaceDir: ws,
@@ -36,7 +49,7 @@ function boot() {
     events,
     tasks: createInProcessTasks({ persistence, events }),
     compiler: createMockCompiler(),
-    device: createCompanionLocalDevice(),
+    device,
     ai: createMockAiProvider({ slow: false }),
     now: () => new Date("2026-08-11T12:00:00.000Z"),
   };
@@ -100,6 +113,12 @@ describe("S9 device surface", () => {
     expect(detect.status).toBe(200);
     const device = detect.body as { id: string; model: string; port: string };
     expect(device.port).toBe("COM6");
+    expect(detect.body.truth).toMatchObject({
+      executionReality: "companion",
+      verification: "verified",
+      physicalVerified: false,
+      adapter: "companion-local",
+    });
 
     const tokenRes = await request(app).post("/api/v1/device/flash-token").send({ deviceId: device.id });
     expect(tokenRes.status).toBe(200);
@@ -112,12 +131,33 @@ describe("S9 device surface", () => {
     expect(flash.status).toBe(202);
     const { sessionId } = flash.body as { sessionId: string };
     expect(sessionId).toBeTruthy();
+    expect(flash.body.truth).toMatchObject({ executionReality: "companion", verification: "verified", physicalVerified: false });
+    expect(publishedEvents.filter((event) => event.type === "device.flashed").at(-1)).toMatchObject({
+      type: "device.flashed",
+      truth: { executionReality: "companion", verification: "verified", physicalVerified: false, adapter: "companion-local" },
+    });
     expect(existsSync(join(ws, ".evidence", `${sessionId}.log`))).toBe(true);
+
+    // Flash truth is durable task output and remains readable through a fresh store wrapper.
+    const taskRow = db.prepare("SELECT id, output FROM tasks WHERE capability = 'flash_device' ORDER BY rowid DESC LIMIT 1").get() as { id: string; output: string };
+    const freshDb = openDatabase(join(dir, "test.db"));
+    migrate(freshDb);
+    const freshStore = createProjectStore(freshDb);
+    const persisted = await freshStore.getTask(taskRow.id);
+    expect(JSON.parse(persisted?.output ?? "{}").truth).toMatchObject({
+      executionReality: "companion",
+      verification: "verified",
+      physicalVerified: false,
+    });
+    const lastDevice = JSON.parse((await freshStore.getPreference("last_device")) ?? "{}");
+    expect(lastDevice.truth).toMatchObject({ executionReality: "companion", physicalVerified: false, adapter: "companion-local" });
+    freshDb.close();
 
     // 串口命令（连接后）
     const serial = await request(app).post("/api/v1/device/serial/send").send({ command: "GET_STATUS" });
     expect(serial.status).toBe(200);
     expect((serial.body as { response: string }).response).toContain("STATUS moisture=");
+    expect(serial.body.truth).toMatchObject({ executionReality: "companion", physicalVerified: false });
   });
 
   it("安全拒绝：无令牌 403 / 伪造令牌 403 / 复用 403 / 错误设备 403 / 未检测 409", async () => {
@@ -135,6 +175,18 @@ describe("S9 device surface", () => {
     expect(((noDevice.body as { error: { code: string } }).error).code).toBe("device_disconnected");
 
     await request(app).post("/api/v1/device/detect");
+
+    // Physical requests are explicitly blocked and must not invoke the companion adapter.
+    const physicalToken = ((await request(app).post("/api/v1/device/flash-token").send({ deviceId })).body) as { token: string };
+    const beforePhysical = flashInvocations;
+    const physical = await request(app)
+      .post("/api/v1/device/flash")
+      .send({ deviceId, confirmationToken: physicalToken.token, firmwareVersionId: versionId, executionReality: "physical" });
+    expect(physical.status).toBe(409);
+    expect(((physical.body as { error: { code: string } }).error).code).toBe("physical_flash_blocked");
+    expect(flashInvocations).toBe(beforePhysical);
+    expect(db.prepare("SELECT COUNT(*) AS count FROM tasks WHERE capability = 'flash_device'").get()).toEqual({ count: 0 });
+    expect(publishedEvents.some((event) => event.type === "device.flashed")).toBe(false);
     // 无令牌 → 403 confirmation_missing
     const noToken = await request(app)
       .post("/api/v1/device/flash")

@@ -12,6 +12,9 @@ export const CompanionView: React.FC = () => {
   const deviceOk = runtime.deviceStage === "connected";
   const firmwareOk = artifacts.firmware.version > 0;
   const flashing = runtime.deviceStage === "flashing";
+  const truthLabel = runtime.deviceTruth
+    ? `${runtime.deviceTruth.executionReality.toUpperCase()} · ${runtime.deviceTruth.physicalVerified ? "physical verified" : "physical not verified"}`
+    : "truth unavailable";
 
   return (
     <div className="flex-1 px-6 py-6 max-w-[1100px] mx-auto flex flex-col gap-5 pb-20">
@@ -30,6 +33,7 @@ export const CompanionView: React.FC = () => {
               <span className={`w-1.5 h-1.5 rounded-full ${deviceOk ? "bg-emerald-500" : "bg-[var(--text-muted)]"}`}></span>
               {deviceOk ? t(lang, "telemetryStream") : t(lang, "deviceNotConnected")}
             </span>
+            {deviceOk && <span className="px-2 py-0.5 rounded border border-amber-500/20 bg-amber-500/10 text-[11px] font-mono text-amber-600 dark:text-amber-400">{truthLabel}</span>}
           </div>
           <h1 className="text-sm font-semibold text-[var(--text-primary)]">{t(lang, "companionTitle")}</h1>
           <p className="text-xs text-[var(--text-secondary)]">{t(lang, "companionSubtitle")}</p>

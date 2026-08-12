@@ -40,7 +40,7 @@ export const TopNavBar: React.FC = () => {
               <span className={`w-1.5 h-1.5 rounded-full ${deviceConnected ? "bg-emerald-500" : "bg-rose-500"}`}></span>
               <span>
                 {deviceConnected
-                  ? format(t(lang, "mcuConnected"), { name: project?.target ?? "—" })
+                  ? `${format(t(lang, "mcuConnected"), { name: project?.target ?? "—" })}${runtime.deviceTruth ? ` · ${runtime.deviceTruth.executionReality} / ${runtime.deviceTruth.physicalVerified ? "physical verified" : "physical not verified"}` : " · execution source unavailable"}`
                   : t(lang, "mcuDisconnected")}
               </span>
             </div>

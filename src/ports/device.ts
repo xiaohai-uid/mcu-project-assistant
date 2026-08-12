@@ -1,18 +1,22 @@
 // ports/device.ts — DevicePort（ADR-0009 Companion 边界；ISSUE-011 §3/§9）
 // 隔离硬件外部系统；DeviceSession = **运行时状态**（适配器内存态；持久化仅 last_device → preferences）。
 // companion-local 适配器（M1 最小：检测/烧录/串口；确定性模拟——禁止真实硬件作为完成前提）。
-export interface DeviceInfo {
-  id: string;
-  model: string;
-  port: string;
-  baudRate: number;
-}
+import type {
+  DeviceInfoDto,
+  DeviceTruthDto,
+  FlashResultDto,
+  SerialResultDto,
+} from "@/src/shared-contracts/types";
+
+export type DeviceTruth = DeviceTruthDto;
+export type DeviceInfo = DeviceInfoDto;
 
 export type DeviceStage = "none" | "connected" | "flashing" | "disconnected";
 
 export interface DeviceSession {
   device: DeviceInfo | null;
   stage: DeviceStage;
+  truth: DeviceTruth;
   /** 串口行缓冲（遥测/回显；SSE 流读取） */
   serialLines: string[];
 }
@@ -22,10 +26,8 @@ export type FlashEvent =
   | { type: "line"; line: string }
   | { type: "done"; exitCode: number };
 
-export interface FlashResult {
-  exitCode: number;
-  sessionId: string;
-}
+export type FlashResult = FlashResultDto;
+export type SerialResult = SerialResultDto;
 
 export interface DevicePort {
   /** 检测开发板（确定性模拟：ESP32-S3 @ COM6；真实硬件接入为后续项） */
@@ -37,7 +39,7 @@ export interface DevicePort {
   /** 运行时会话（内存态；非持久业务数据） */
   session(): DeviceSession;
   /** 发送串口命令（回显 + 遥测响应） */
-  sendSerial(command: string): string;
+  sendSerial(command: string): SerialResult;
   /** 遥测生成（连接后周期调用；Moisture/Pump 行） */
   tickSerial(): void;
 }

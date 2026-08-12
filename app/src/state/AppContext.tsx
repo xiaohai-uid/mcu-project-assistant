@@ -27,6 +27,7 @@ import type {
   SidebarTab,
   ThemeMode,
 } from "../types";
+import type { DeviceTruthDto } from "@/src/shared-contracts/types";
 import {
   DEFAULT_PROMPT,
   sleep,
@@ -115,6 +116,7 @@ function initialState(): AppState {
       providerAvailable: true,
       toolchainAvailable: true,
       deviceStage: "none",
+      deviceTruth: null,
       slowMode: false,
     },
     labOpen: false,
@@ -491,15 +493,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
               break;
             }
             case "device.flashed": {
-              dispatch({ type: "RUNTIME", patch: { deviceStage: "connected" } });
+              const { truth } = data as { truth?: DeviceTruthDto };
+              dispatch({ type: "RUNTIME", patch: { deviceStage: "connected", deviceTruth: truth ?? null } });
               dispatch({ type: "COMPANION_STAGE", stage: "serial" });
               dispatch({ type: "COMPANION_TELEMETRY", flashProgress: 100 });
               dispatch({ type: "ARTIFACT", kind: "debug", status: "validated", version: (s.artifacts.debug.version || 0) + 1 });
-              pushCopilot({ sender: "copilot", text: "Flash complete — firmware written to ESP32-S3. Telemetry stream active." });
+              pushCopilot({
+                sender: "copilot",
+                text: truth?.executionReality === "companion"
+                  ? "Companion flash complete — execution verified by the local companion; physical hardware is not verified. Telemetry source: companion."
+                  : "Flash complete — execution truth recorded. Physical hardware verification is not asserted without physical evidence.",
+              });
               break;
             }
             case "device.flash_failed": {
-              dispatch({ type: "RUNTIME", patch: { deviceStage: "connected" } });
+              const { truth } = data as { truth?: DeviceTruthDto };
+              dispatch({ type: "RUNTIME", patch: { deviceStage: "connected", deviceTruth: truth ?? null } });
               dispatch({ type: "COMPANION_STAGE", stage: "serial" });
               pushSystem("Flash failed — no half-written evidence.");
               break;
@@ -517,8 +526,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const es = new EventSource("/api/v1/device/serial/stream");
     es.addEventListener("serial.line", (ev) => {
       try {
-        const { line } = JSON.parse((ev as MessageEvent).data) as { line: string };
+        const { line, truth } = JSON.parse((ev as MessageEvent).data) as { line: string; truth?: DeviceTruthDto };
         dispatch({ type: "COMPANION_SERIAL", line });
+        if (truth) dispatch({ type: "RUNTIME", patch: { deviceTruth: truth } });
       } catch {
         // 帧解析失败忽略
       }
@@ -1216,9 +1226,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         const device = await clientApi.detectDevice();
-        dispatch({ type: "RUNTIME", patch: { deviceStage: "connected" } });
+        dispatch({ type: "RUNTIME", patch: { deviceStage: "connected", deviceTruth: device.truth } });
         dispatch({ type: "COMPANION_STAGE", stage: "serial" });
-        pushCopilot({ sender: "copilot", text: `Board detected: ${device.model} on ${device.port} @ ${device.baudRate} baud.` });
+          pushCopilot({
+            sender: "copilot",
+            text: device.truth.executionReality === "companion"
+              ? `Board detected through companion-local: ${device.model} on ${device.port} @ ${device.baudRate} baud. Physical hardware is not verified.`
+              : `Board detected: ${device.model} on ${device.port} @ ${device.baudRate} baud.`,
+          });
       } catch (err) {
         dispatch({ type: "COMPANION_STAGE", stage: "idle" });
         pushSystem(err instanceof ApiError ? `Detect failed: ${err.code}` : "Detect failed");
@@ -1273,7 +1288,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Progressive Swap（ISSUE-011 §5）：内存回显 → 真实 /device/serial/send（回显 + 遥测响应）
       void (async () => {
         try {
-          const { echo, response } = await clientApi.sendSerial(cmd);
+          const { echo, response, truth } = await clientApi.sendSerial(cmd);
+          dispatch({ type: "RUNTIME", patch: { deviceTruth: truth } });
           dispatch({ type: "COMPANION_SERIAL", line: echo });
           dispatch({ type: "COMPANION_SERIAL", line: response });
         } catch (err) {

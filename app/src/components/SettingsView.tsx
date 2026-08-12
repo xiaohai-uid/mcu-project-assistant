@@ -170,7 +170,7 @@ export const SettingsView: React.FC = () => {
               <label className="text-xs font-semibold text-[var(--text-primary)]">{t(lang, "companionTabSettings")}</label>
               <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
                 <span className={`w-1.5 h-1.5 rounded-full ${runtime.deviceStage === "connected" ? "bg-emerald-500" : "bg-[var(--text-muted)]"}`}></span>
-                {runtime.deviceStage === "connected" ? `${t(lang, "deviceConnected")} · ${project?.target ?? "ESP32-S3"} (${project?.port ?? "COM6"})` : t(lang, "deviceNotConnected")}
+                {runtime.deviceStage === "connected" ? `${t(lang, "deviceConnected")} · ${project?.target ?? "ESP32-S3"} (${project?.port ?? "COM6"})${runtime.deviceTruth ? ` · ${runtime.deviceTruth.executionReality} / ${runtime.deviceTruth.physicalVerified ? "physical verified" : "physical not verified"}` : " · execution source unavailable"}` : t(lang, "deviceNotConnected")}
               </div>
               {runtime.deviceStage !== "connected" && (
                 <button onClick={detectBoard} className="px-3 py-1.5 mac-button-primary rounded-md text-xs w-fit">

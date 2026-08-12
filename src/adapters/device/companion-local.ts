@@ -1,12 +1,20 @@
 // adapters/device/companion-local.ts — DevicePort companion-local 适配器（ADR-0009；ISSUE-011 §3）
 // M1 最小五能力中的设备侧：检测/烧录/串口——确定性模拟（无真实硬件；ticket §14 允许 mock/模拟验收）。
 // DeviceSession 为运行时内存态（不建表）；断线/烧录中断不留半成品证据（烧录证据由 capability 写 .evidence/）。
-import type { DeviceInfo, DevicePort, DeviceSession, FlashEvent, FlashResult } from "@/src/ports/device";
+import type { DeviceInfo, DevicePort, DeviceSession, DeviceTruth, FlashEvent, FlashResult } from "@/src/ports/device";
+
+const companionTruth = (verification: DeviceTruth["verification"] = "verified"): DeviceTruth => ({
+  executionReality: "companion",
+  verification,
+  physicalVerified: false,
+  adapter: "companion-local",
+});
 
 export function createCompanionLocalDevice(opts?: { device?: DeviceInfo }): DevicePort {
   const session: DeviceSession = {
     device: null,
     stage: "none",
+    truth: companionTruth("blocked"),
     serialLines: [],
   };
   let tick = 0;
@@ -14,15 +22,25 @@ export function createCompanionLocalDevice(opts?: { device?: DeviceInfo }): Devi
   return {
     async detectBoard(): Promise<DeviceInfo> {
       // 确定性模拟设备（M1 固定：ESP32-S3 @ COM6 @ 115200；真实检测为后续项）
-      const device: DeviceInfo = opts?.device ?? { id: "esp32s3-com6", model: "ESP32-S3 WROOM-1", port: "COM6", baudRate: 115200 };
+      const device: DeviceInfo = opts?.device ?? {
+        id: "esp32s3-com6",
+        model: "ESP32-S3 WROOM-1",
+        port: "COM6",
+        baudRate: 115200,
+        truth: companionTruth(),
+      };
+      device.truth = companionTruth();
       session.device = device;
       session.stage = "connected";
+      session.truth = device.truth;
       session.serialLines.push(`[system] Board detected: ${device.model} on ${device.port} @ ${device.baudRate} baud`);
       tick = 0;
       return device;
     },
     disconnect(): void {
       session.stage = "disconnected";
+      session.truth = companionTruth("blocked");
+      if (session.device) session.device = { ...session.device, truth: session.truth };
       session.serialLines.push("[system] Device disconnected");
     },
     async flash(input: { deviceId: string }, onEvent: (e: FlashEvent) => void, signal: AbortSignal): Promise<FlashResult> {
@@ -39,22 +57,24 @@ export function createCompanionLocalDevice(opts?: { device?: DeviceInfo }): Devi
         if (signal.aborted) {
           // 中断：不留半成品证据（capability 不写 .evidence）
           session.stage = "connected";
-          return { exitCode: 1, sessionId: "" };
+          session.truth = companionTruth("failed");
+          return { exitCode: 1, sessionId: "", truth: companionTruth("failed") };
         }
         onEvent({ type: "progress", percent: s.p, message: s.m });
         onEvent({ type: "line", line: `[flash] ${s.m}` });
         await new Promise((r) => setTimeout(r, 60));
       }
       session.stage = "connected";
-      session.serialLines.push("[system] Firmware flashed successfully — telemetry stream starting");
-      return { exitCode: 0, sessionId: `session-${Date.now().toString(36)}` };
+      session.truth = companionTruth();
+      session.serialLines.push("[system] Companion firmware execution succeeded — telemetry stream starting");
+      return { exitCode: 0, sessionId: `session-${Date.now().toString(36)}`, truth: companionTruth() };
     },
     session() {
       return session;
     },
-    sendSerial(command: string): string {
+    sendSerial(command: string) {
       const trimmed = command.trim();
-      if (!trimmed) return "";
+      if (!trimmed) return { response: "", truth: session.truth };
       const echo = `> ${trimmed}`;
       const upper = trimmed.toUpperCase();
       let response: string;
@@ -67,7 +87,7 @@ export function createCompanionLocalDevice(opts?: { device?: DeviceInfo }): Devi
       }
       session.serialLines.push(echo, response);
       tick += 1;
-      return response;
+      return { response, truth: session.truth };
     },
     tickSerial(): void {
       tick += 1;

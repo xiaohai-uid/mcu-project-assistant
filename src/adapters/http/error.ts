@@ -28,6 +28,7 @@ export type ErrorCode =
   | "token_reused"
   | "device_mismatch"
   | "device_disconnected"
+  | "physical_flash_blocked"
   | "already_archived"
   | "archived_read_only"
   | "internal";

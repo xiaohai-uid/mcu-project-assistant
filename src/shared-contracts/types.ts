@@ -85,6 +85,43 @@ export interface ValidationRecordDto {
   completedAt: string | null;
 }
 
+// ---------- S9 Device truth boundary ----------
+
+export type DeviceExecutionReality = "simulation" | "companion" | "physical";
+export type DeviceVerification = "verified" | "blocked" | "failed";
+
+/**
+ * Evidence about where a device operation actually ran.  `physicalVerified`
+ * is deliberately separate from operation verification: a companion-local
+ * operation may be verified as a deterministic companion operation without
+ * proving that physical hardware was touched.
+ */
+export interface DeviceTruthDto {
+  executionReality: DeviceExecutionReality;
+  verification: DeviceVerification;
+  physicalVerified: boolean;
+  adapter: string;
+}
+
+export interface DeviceInfoDto {
+  id: string;
+  model: string;
+  port: string;
+  baudRate: number;
+  truth: DeviceTruthDto;
+}
+
+export interface FlashResultDto {
+  exitCode: number;
+  sessionId: string;
+  truth: DeviceTruthDto;
+}
+
+export interface SerialResultDto {
+  response: string;
+  truth: DeviceTruthDto;
+}
+
 // ---------- S7 Build ----------
 
 export type BuildStatusDto = "running" | "succeeded" | "failed" | "cancelled";
