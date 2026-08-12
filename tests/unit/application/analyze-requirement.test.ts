@@ -142,6 +142,7 @@ function fakeAi(): AIProviderPort & {
   clarifyRounds: number;
 } {
   return {
+    name: "mock",
     chunks: ["Parsing…", "Detected analog sensing."],
     caps: [
       { id: "req-1", title: "Soil moisture", status: "complete" },

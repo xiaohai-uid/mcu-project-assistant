@@ -100,7 +100,7 @@ export async function analyzeRequirement(
           status = "unavailable";
         }
         if (status !== "available") {
-          deps.events.publish({ type: "provider.unavailable", provider: "mock", reason: "provider status != available" });
+          deps.events.publish({ type: "provider.unavailable", provider: deps.ai.name, reason: "provider status != available" });
           deps.events.publish({
             type: "requirement.analysis.failed",
             projectId: input.projectId,
@@ -215,7 +215,7 @@ export async function analyzeRequirement(
           });
         } else if (err instanceof ProviderUnavailableError) {
           // 运行中 provider 故障：显式降级事件（ADR-0010；不 fallback mock）
-          deps.events.publish({ type: "provider.unavailable", provider: "mock", reason: err.message });
+          deps.events.publish({ type: "provider.unavailable", provider: deps.ai.name, reason: err.message });
           deps.events.publish({
             type: "requirement.analysis.failed",
             projectId: input.projectId,

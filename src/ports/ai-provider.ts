@@ -1,7 +1,7 @@
 // ports/ai-provider.ts — AIProviderPort（ADR-0010；ISSUE-003 §3/§9）
 // 端口能力 = streaming / cancellation / structured output（schema 约束）/ provider unavailable（显式错误）。
 // 领域能力只依赖 Port + 提示/响应契约（结构 schema）；Mock 适配器贯穿开发与测试（State Lab 同源）。
-// 真实 provider 适配器（openai-compatible/gemini）留待后续 Slice——本票只有 mock 适配器 + Port 接口。
+// 真实 provider 适配器：zhipu-glm（2026-08-12 接入，揭露真实数据）——openai-compatible 端点。
 
 export type ProviderStatus = "available" | "unavailable" | "offline";
 
@@ -29,6 +29,8 @@ export interface StructuredRequest {
 }
 
 export interface AIProviderPort {
+  /** 适配器名（provider.unavailable 事件等使用；mock = "mock"，真实 = "zhipu-glm"） */
+  readonly name: string;
   status(): Promise<ProviderStatus>;
   /** 流式文本生成（可取消：signal.aborted 时抛 AbortError） */
   streamText(req: StreamTextRequest): Promise<void>;

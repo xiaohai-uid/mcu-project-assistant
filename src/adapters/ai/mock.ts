@@ -111,6 +111,8 @@ function hintOf(opts: MockAiProviderOptions, hint?: Record<string, unknown>): Mo
 
 export function createMockAiProvider(opts: MockAiProviderOptions = {}): AIProviderPort {
   return {
+    name: "mock",
+
     async status(): Promise<ProviderStatus> {
       return opts.providerDown ? "unavailable" : "available";
     },
