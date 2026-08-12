@@ -134,6 +134,43 @@ ebca0d1 feat: implement flash confirmation and serial slice (S9)
 5aa7b86 docs: mark ISSUE-012 resolved with S10 delivery record
 ```
 
-## 13. git status
+## 13. 真实数据揭露（2026-08-12 补充验证）
+
+对 DETERMINISTIC 标注逐项实测（真实环境 vs 适配器），接入真实 LLM provider：
+
+### 13.1 环境清查（实测）
+
+| 项 | 实测结果 |
+|---|---|
+| 真实 LLM 渠道 | **Zhipu GLM 可用**（`open.bigmodel.cn/api/paas/v4`，`glm-4.5-flash`，key 在 WSL `~/.config/luma-mcp/env`）；SenseNova 渠道（`token.sensenova.cn`，`deepseek-v4-flash`）→ **`insufficient_quota`**（key 存在但配额耗尽） |
+| arduino-cli / PlatformIO | **不存在**；尝试从 GitHub 下载 → 网络 ~10KB/s 且 zip 损坏（EOCD 缺失）→ 真实构建链 BLOCKED（网络） |
+| 物理开发板 | **不存在**（唯一串口 COM1 为主板 ACPI 虚拟口）→ 真实烧录 BLOCKED（无硬件） |
+| pyserial 3.5 | 存在（Python 3.12）——真实串口代码路径可跑，但无目标设备 |
+
+### 13.2 真实 AI 适配器（commit `e894d2a`）
+
+- `src/adapters/ai/zhipu-glm.ts`：AIProviderPort 真实实现（SSE 流式、json_object 结构化、status 探测缓存、thinking disabled 提速）。`MCU_AI_PROVIDER=zhipu` + `MCU_ZHIPU_API_KEY` 显式注入，无 fallback。
+- **实测发现并修复**：
+  1. reasoning 模型 60s 超时 → `thinking:{type:"disabled"}` 后 0.4s 返回（真实数据：+99% 提速）；
+  2. glm-4.5-flash 主请求倾向**省略/空 proposals 数组**（指令遵循不足）→ 组合模式：补充一次聚焦请求回填提案（仍纯 AI 输出）；
+  3. `no_accepted_proposals` 门禁在 0 提案时阻塞（mock 永远有 3 提案）——真实模型必须靠组合模式保证提案，已解决。
+- **真实 golden journey 验证**（`ai=zhipu-glm` server）：
+  - analyze_requirement → completed，4-5 能力卡 + 2-3 提案/轮（真实内容：Soil Moisture Sensing / Water Pump Control / Display Interface / Wireless；提案如 Automated Irrigation System / Remote Monitoring Dashboard / Power management）——无澄清（真实模型判定描述无歧义，与 mock 行为契约不同，属预期差异）；
+  - proposals 落库 16 行 pending → accept 2 → requirements v1 committed（真实 LLM 内容）；
+  - recommend_mcu（知识求值）→ ESP32-S3/RP2040/STM32F401RE 三候选；select_mcu → hardware v1；
+  - generate_pin_map → IO4/IO12/IO8/IO9 + IO12 strapping 冲突；generate_firmware → IO12→IO21 提案 accepted（firmware v1）；
+  - 后续真实 build/flash 受 §14.1 BLOCKED。
+- **真实数据 vs mock 契约差异（已记录）**：真实 LLM 内容不固定、无澄清不产假问题；S3B 提案依赖已通过组合模式保证。测试 313 全绿（+9 适配器测试），typecheck/lint 干净。
+
+### 13.3 真实/确定性/阻塞终态
+
+| 阶段 | 终态 |
+|---|---|
+| 需求分析/提案/固件生成 | **REAL**（真实 GLM；固件模板为确定性 domain service） |
+| MCU 推荐/引脚/校验/Stale | REAL（knowledge/规则求值） |
+| 构建/诊断/烧录/串口 | **BLOCKED**（无 arduino-cli/物理板；网络不可装）→ 适配器路径仍 DETERMINISTIC 可用 |
+| 解除路径 | 换网络安装 arduino-cli + ESP32 core → 接真实开发板 → `MCU_AI_PROVIDER=zhipu` 全链 REAL |
+
+## 14. git status
 
 `git status --short`：**空**（工作树干净）。数据/workspace 为 gitignore 运行时数据。
