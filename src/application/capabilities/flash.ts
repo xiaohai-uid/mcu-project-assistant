@@ -313,7 +313,7 @@ export async function flashDevice(
   await assertNotBlocking({ projectId, action: "flash" }, deps);
 
   // 3. 设备连接（运行时状态）
-  if (deps.device.session().stage !== "connected") throw new DeviceDisconnectedError();
+  if (!["detected", "connected"].includes(deps.device.session().stage)) throw new DeviceDisconnectedError();
 
   // 4. 烧录执行（in-process 任务；进度事件 → SSE；deferred 等待任务终态以返回 sessionId）
   const taskId = await deps.tasks.submit(
@@ -339,14 +339,14 @@ export async function flashDevice(
 }
 
 export async function disconnectDevice(deps: Pick<FlashCapabilityDeps, "device">): Promise<void> {
-  deps.device.disconnect();
+  await deps.device.disconnect();
 }
 
 export async function sendSerial(
-  input: { command: string },
+  input: { sessionId: string; command: string },
   deps: Pick<FlashCapabilityDeps, "device">,
-): Promise<{ echo: string; response: string; truth: DeviceTruth }> {
+): Promise<{ echo: string; response: string | null; truth: DeviceTruth }> {
   const echo = `> ${input.command.trim()}`;
-  const result = deps.device.sendSerial(input.command);
+  const result = await deps.device.writeSerial(input.sessionId, input.command);
   return { echo, response: result.response, truth: result.truth };
 }

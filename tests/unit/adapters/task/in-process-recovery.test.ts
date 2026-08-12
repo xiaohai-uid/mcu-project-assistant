@@ -196,7 +196,7 @@ describe("durable in-process task recovery", () => {
         baudRate: 115200,
         truth: { executionReality: "companion", verification: "verified", physicalVerified: false, adapter: "test" },
       }),
-      disconnect: () => undefined,
+      disconnect: async () => undefined,
       flash: async () => {
         invocations += 1;
         return {
@@ -209,13 +209,17 @@ describe("durable in-process task recovery", () => {
         device: null,
         stage: "connected",
         truth: { executionReality: "companion", verification: "verified", physicalVerified: false, adapter: "test" },
+        serialStage: "disconnected",
+        serialSessionId: null,
         serialLines: [],
       }),
-      sendSerial: () => ({
-        response: "",
-        truth: { executionReality: "companion", verification: "verified", physicalVerified: false, adapter: "test" },
-      }),
+      openSerialSession: async () => { throw new Error("not used"); },
+      closeSerialSession: async () => undefined,
+      getSerialSession: () => null,
+      subscribeSerialSession: () => () => undefined,
+      writeSerial: async () => { throw new Error("not used"); },
       tickSerial: () => undefined,
+      shutdown: async () => undefined,
     };
     const tasks = createInProcessTasks({ persistence, events });
     tasks.setExecutor(createProductionTaskExecutor({

@@ -1,6 +1,6 @@
 // app/src/api/client.ts — Capability HTTP 客户端（S1：projects 面；随 Slice 扩展）
 // Progressive Swap：替换 Mock 引擎的 create/open/archive 路径（ISSUE-001 §5）
-import type { BuildOutputEvidenceDto, DeviceInfoDto, FlashResultDto, SerialResultDto } from "@/src/shared-contracts/types";
+import type { BuildOutputEvidenceDto, DeviceInfoDto, FlashResultDto, SerialResultDto, SerialSessionDto } from "@/src/shared-contracts/types";
 
 export class ApiError extends Error {
   constructor(
@@ -244,8 +244,16 @@ export const api = {
       body: JSON.stringify(input),
     }),
   disconnectDevice: () => request<{ status: string }>("/api/v1/device/disconnect", { method: "POST" }),
-  sendSerial: (command: string) =>
-    request<{ echo: string } & SerialResultDto>("/api/v1/device/serial/send", {
+  openSerial: (projectId: string, deviceId: string, baudRate?: number) =>
+    request<SerialSessionDto>(`/api/v1/projects/${projectId}/device/serial/session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deviceId, ...(baudRate === undefined ? {} : { baudRate }) }),
+    }),
+  closeSerial: (projectId: string, sessionId: string) =>
+    request<{ status: string; sessionId: string }>(`/api/v1/projects/${projectId}/device/serial/session/${sessionId}`, { method: "DELETE" }),
+  sendSerial: (projectId: string, sessionId: string, command: string) =>
+    request<{ echo: string } & SerialResultDto>(`/api/v1/projects/${projectId}/device/serial/session/${sessionId}/write`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command }),

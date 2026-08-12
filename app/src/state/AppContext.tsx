@@ -192,6 +192,8 @@ function initialState(): AppState {
       deviceStage: "none",
       deviceId: null,
       deviceTruth: null,
+      serialStage: "disconnected",
+      serialSession: null,
       slowMode: false,
     },
     labOpen: false,
@@ -254,7 +256,7 @@ type Action =
   | { type: "RUNTIME"; patch: Partial<AppState["runtime"]> }
   | { type: "COMPANION_STAGE"; stage: AppState["companion"]["stage"] }
   | { type: "COMPANION_SERIAL"; line: string }
-  | { type: "COMPANION_TELEMETRY"; moisture?: number; temperature?: number; pumpActive?: boolean; flashProgress?: number }
+  | { type: "COMPANION_TELEMETRY"; moisture?: number | null; temperature?: number | null; pumpActive?: boolean; flashProgress?: number }
   | { type: "FLASH_PROGRESS"; pct: number }
   | { type: "COPILOT_PUSH"; msg: CopilotChatMessage }
   | { type: "COPILOT_UPDATE"; id: string; patch: Partial<CopilotChatMessage> };
@@ -280,7 +282,7 @@ function reducer(state: AppState, a: Action): AppState {
         build: initialState().build,
         companion: initialState().companion,
         selectedMcu: "",
-        runtime: { ...state.runtime, online: true, providerAvailable: null, toolchainAvailable: null, deviceStage: "none", deviceId: null, deviceTruth: null },
+        runtime: { ...state.runtime, online: true, providerAvailable: null, toolchainAvailable: null, deviceStage: "none", deviceId: null, deviceTruth: null, serialStage: "disconnected", serialSession: null },
         copilotMessages: [
           { id: `sys-${Date.now()}`, sender: "system", text: `Project "${a.name}" created. Start with Requirements discovery.` },
         ],
@@ -373,7 +375,7 @@ function reducer(state: AppState, a: Action): AppState {
         firmware: { ...state.firmware, stage: firmwareStage, code: firmwareCode, proposal: null, version: firmwareVersion },
         build,
         companion: { ...state.companion, stage: "idle", serialLines: [], moisture: null, temperature: null, pumpActive: false, flashProgress: 0 },
-        runtime: { ...state.runtime, online: true, providerAvailable: null, toolchainAvailable: snapshot.toolchain.available, deviceStage: "none", deviceId: snapshot.device.lastDevice?.id ?? null, deviceTruth: lastKnownTruth },
+        runtime: { ...state.runtime, online: true, providerAvailable: null, toolchainAvailable: snapshot.toolchain.available, deviceStage: "none", deviceId: snapshot.device.lastDevice?.id ?? null, deviceTruth: lastKnownTruth, serialStage: "disconnected", serialSession: null },
         nav: "Draft",
         sidebar: "Requirements",
       };
@@ -574,6 +576,8 @@ interface AppApi {
   runDiagnosis: () => void;
   applyFix: () => void;
   detectBoard: () => void;
+  openSerial: () => void;
+  closeSerial: () => Promise<void>;
   sendSerial: (cmd: string) => void;
   simulateMoisture: (v: number) => void;
   togglePump: () => void;
@@ -597,6 +601,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const buildRef = useRef<{ buildId: string | null; close?: () => void }>({ buildId: null });
   const deviceRef = useRef<{ close?: () => void }>({});
   const serialRef = useRef<{ close?: () => void }>({});
+  const serialSessionRef = useRef<{ projectId: string; sessionId: string } | null>(null);
   const taskRef = useRef<{ taskId: string; roundId: number; close: (() => void) | null }>({ taskId: "", roundId: 0, close: null });
   const hydrationSeq = useRef(0);
   const analysisEventRef = useRef<(projectId: string, type: string, data: unknown) => void>(() => undefined);
@@ -741,8 +746,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
             case "device.flashed": {
               const { truth } = data as { truth?: DeviceTruthDto };
-              dispatch({ type: "RUNTIME", patch: { deviceStage: "connected", deviceTruth: truth ?? null } });
-              dispatch({ type: "COMPANION_STAGE", stage: "serial" });
+              dispatch({ type: "RUNTIME", patch: { deviceStage: "detected", deviceTruth: truth ?? null, serialStage: "disconnected", serialSession: null } });
+              dispatch({ type: "COMPANION_STAGE", stage: "idle" });
               dispatch({ type: "COMPANION_TELEMETRY", flashProgress: 100 });
               dispatch({ type: "ARTIFACT", kind: "debug", status: "validated", version: (s.artifacts.debug.version || 0) + 1 });
               pushCopilot({
@@ -755,8 +760,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
             case "device.flash_failed": {
               const { truth } = data as { truth?: DeviceTruthDto };
-              dispatch({ type: "RUNTIME", patch: { deviceStage: "connected", deviceTruth: truth ?? null } });
-              dispatch({ type: "COMPANION_STAGE", stage: "serial" });
+              dispatch({ type: "RUNTIME", patch: { deviceStage: "detected", deviceTruth: truth ?? null, serialStage: "disconnected", serialSession: null } });
+              dispatch({ type: "COMPANION_STAGE", stage: "idle" });
               pushSystem("Flash failed — no half-written evidence.");
               break;
             }
@@ -769,19 +774,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   /** 串口遥测流订阅（EventSource /device/serial/stream → serial.line 帧） */
-  const subscribeSerialStream = useCallback(() => {
-    const es = new EventSource("/api/v1/device/serial/stream");
+  const subscribeSerialStream = useCallback((projectId: string, sessionId: string) => {
+    const es = new EventSource(`/api/v1/projects/${projectId}/device/serial/session/${sessionId}/events`);
     es.addEventListener("serial.line", (ev) => {
       try {
-        const { line, truth } = JSON.parse((ev as MessageEvent).data) as { line: string; truth?: DeviceTruthDto };
+        const { line } = JSON.parse((ev as MessageEvent).data) as { line: string };
         dispatch({ type: "COMPANION_SERIAL", line });
-        if (truth) dispatch({ type: "RUNTIME", patch: { deviceTruth: truth } });
       } catch {
         // 帧解析失败忽略
       }
     });
-    es.addEventListener("device.disconnected", () => {
-      dispatch({ type: "RUNTIME", patch: { deviceStage: "disconnected" } });
+    es.addEventListener("serial.session.closed", () => {
+      if (serialSessionRef.current?.projectId === projectId && serialSessionRef.current.sessionId === sessionId) serialSessionRef.current = null;
+      dispatch({ type: "RUNTIME", patch: { serialStage: "disconnected", serialSession: null } });
+      dispatch({ type: "COMPANION_TELEMETRY", moisture: null, temperature: null, pumpActive: false });
+      dispatch({ type: "COMPANION_STAGE", stage: "idle" });
+      es.close();
+    });
+    es.addEventListener("serial.session.error", () => {
+      if (serialSessionRef.current?.projectId === projectId && serialSessionRef.current.sessionId === sessionId) serialSessionRef.current = null;
+      dispatch({ type: "RUNTIME", patch: { serialStage: "error" } });
+      dispatch({ type: "COMPANION_TELEMETRY", moisture: null, temperature: null, pumpActive: false });
+      dispatch({ type: "COMPANION_STAGE", stage: "idle" });
       es.close();
     });
     return () => es.close();
@@ -885,7 +899,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const closeSerial = useCallback(async (): Promise<void> => {
+    serialRef.current.close?.();
+    serialRef.current.close = undefined;
+    const active = serialSessionRef.current;
+    serialSessionRef.current = null;
+    if (active) {
+      try { await clientApi.closeSerial(active.projectId, active.sessionId); } catch { /* already closed or server restarted */ }
+    }
+    dispatch({ type: "RUNTIME", patch: { serialStage: "disconnected", serialSession: null } });
+    dispatch({ type: "COMPANION_TELEMETRY", moisture: null, temperature: null, pumpActive: false });
+    dispatch({ type: "COMPANION_STAGE", stage: "idle" });
+  }, []);
+
   const openProject = useCallback(async (id: string) => {
+    await closeSerial();
     dispatch({ type: "OPEN_PROJECT", id, name: "" });
     const snapshot = await hydrateProject(id);
     if (!snapshot) return false;
@@ -900,12 +928,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     buildRef.current.close = subscribeBuildEvents(id);
     deviceRef.current.close?.();
     deviceRef.current.close = subscribeDeviceEvents(id);
-    serialRef.current.close?.();
-    serialRef.current.close = subscribeSerialStream();
     // Subscribe first, then reconcile once so an event racing hydration cannot be lost.
     await hydrateProject(id);
     return true;
-  }, [hydrateProject, subscribeBuildEvents, subscribeDeviceEvents, subscribeSerialStream]);
+  }, [closeSerial, hydrateProject, subscribeBuildEvents, subscribeDeviceEvents]);
 
   /** 归档（D6 语义）：取一次性令牌 → 确认 → 归档（令牌一次性；S9 复用同一机制） */
   const archiveProject = useCallback(
@@ -1531,13 +1557,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // ---------- Companion（S9：真实 DevicePort——检测/烧录/串口） ----------
 
   const detectBoard = useCallback(() => {
+    void closeSerial();
     dispatch({ type: "COMPANION_STAGE", stage: "detecting" });
     // Progressive Swap（ISSUE-011 §5）：内存模拟 → 真实 /device/detect（DevicePort 检测 + last_device → preferences）
     void (async () => {
       try {
         const device = await clientApi.detectDevice();
-        dispatch({ type: "RUNTIME", patch: { deviceStage: "connected", deviceId: device.id, deviceTruth: device.truth } });
-        dispatch({ type: "COMPANION_STAGE", stage: "serial" });
+        dispatch({ type: "RUNTIME", patch: { deviceStage: "detected", deviceId: device.id, deviceTruth: device.truth, serialStage: "disconnected", serialSession: null } });
+        dispatch({ type: "COMPANION_STAGE", stage: "idle" });
           pushCopilot({
             sender: "copilot",
             text: device.truth.executionReality === "companion"
@@ -1549,11 +1576,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
         pushSystem(err instanceof ApiError ? `Detect failed: ${err.code}` : "Detect failed");
       }
     })();
-  }, [pushCopilot, pushSystem]);
+  }, [closeSerial, pushCopilot, pushSystem]);
+
+  const openSerial = useCallback(() => {
+    const projectId = s.project?.id;
+    const deviceId = s.runtime.deviceId;
+    if (!projectId || !deviceId || (s.runtime.deviceStage !== "detected" && s.runtime.deviceStage !== "connected")) return;
+    void (async () => {
+      try {
+        await closeSerial();
+        dispatch({ type: "RUNTIME", patch: { serialStage: "opening" } });
+        const serial = await clientApi.openSerial(projectId, deviceId);
+        serialSessionRef.current = { projectId, sessionId: serial.sessionId };
+        dispatch({ type: "RUNTIME", patch: { serialStage: "connected", serialSession: serial } });
+        dispatch({ type: "COMPANION_STAGE", stage: "serial" });
+        serialRef.current.close = subscribeSerialStream(projectId, serial.sessionId);
+      } catch (err) {
+        dispatch({ type: "RUNTIME", patch: { serialStage: "error", serialSession: null } });
+        pushSystem(err instanceof ApiError ? `Serial open failed: ${err.code}` : "Serial open failed");
+      }
+    })();
+  }, [closeSerial, pushSystem, s.project?.id, s.runtime.deviceId, s.runtime.deviceStage, subscribeSerialStream]);
 
   const flashDevice = useCallback(
     (token?: string) => {
-      if (s.runtime.deviceStage !== "connected") return;
+      if (s.runtime.deviceStage !== "detected" && s.runtime.deviceStage !== "connected") return;
       const projectId = s.project?.id;
       if (!projectId || !token) return; // 无令牌不执行（Safety Tier 0：AI/Companion/重试不得绕过）
       cancelRef.current.flash = false;
@@ -1575,8 +1622,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           await clientApi.flashDevice({ projectId, deviceId, confirmationToken: token, buildId: s.build.buildId, artifactVersionId: current.id, executionReality });
           // 完成态由 SSE device.flashed 驱动（见 subscribeDeviceEvents）
         } catch (err) {
-          dispatch({ type: "RUNTIME", patch: { deviceStage: "connected" } });
-          dispatch({ type: "COMPANION_STAGE", stage: "serial" });
+          dispatch({ type: "RUNTIME", patch: { deviceStage: "detected" } });
+          dispatch({ type: "COMPANION_STAGE", stage: "idle" });
           pushSystem(err instanceof ApiError ? `Flash failed: ${err.code}` : "Flash failed");
         }
       })();
@@ -1588,7 +1635,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const flashWithConfirmation = useCallback(() => {
     const projectId = s.project?.id;
     if (!projectId) return;
-    if (s.runtime.deviceStage !== "connected") return;
+    if (s.runtime.deviceStage !== "detected" && s.runtime.deviceStage !== "connected") return;
     if (!s.build.outputVerified) return;
     void (async () => {
       try {
@@ -1603,20 +1650,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const sendSerial = useCallback(
     (cmd: string) => {
-      // Progressive Swap（ISSUE-011 §5）：内存回显 → 真实 /device/serial/send（回显 + 遥测响应）
+      // Session-scoped serial write; no command is accepted without an active session.
       void (async () => {
         try {
-          const { echo, response, truth } = await clientApi.sendSerial(cmd);
+          const projectId = s.project?.id;
+          const serial = s.runtime.serialSession;
+          if (!projectId || !serial || s.runtime.serialStage !== "connected") throw new ApiError(409, "serial_session_not_open", "Serial session is not open");
+          const { echo, response, truth } = await clientApi.sendSerial(projectId, serial.sessionId, cmd);
           dispatch({ type: "RUNTIME", patch: { deviceTruth: truth } });
           dispatch({ type: "COMPANION_SERIAL", line: echo });
-          dispatch({ type: "COMPANION_SERIAL", line: response });
+          if (response) dispatch({ type: "COMPANION_SERIAL", line: response });
         } catch (err) {
-          dispatch({ type: "COMPANION_SERIAL", line: `> ${cmd}` });
           pushSystem(err instanceof ApiError ? `Serial failed: ${err.code}` : "Serial failed");
         }
       })();
     },
-    [pushSystem],
+    [pushSystem, s.project?.id, s.runtime.serialSession, s.runtime.serialStage],
   );
 
   const simulateMoisture = useCallback((v: number) => {
@@ -1793,6 +1842,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       runDiagnosis,
       applyFix,
       detectBoard,
+      openSerial,
+      closeSerial,
       sendSerial,
       simulateMoisture,
       togglePump,
@@ -1810,7 +1861,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setProposalDecision, proceedToHardware, selectMcu, refreshMcuCandidates, generatePins, verifyRules,
       editPin, refreshPinmapVersions, generateFirmware, acceptFirmwareProposal, rejectFirmwareProposal,
       startBuild, cancelBuild, retryBuild, runDiagnosis, applyFix, detectBoard,
-      sendSerial, simulateMoisture, togglePump, flashDevice, flashWithConfirmation, revalidateAll, checkToolchain, decideRevalidateProposal,
+      openSerial, closeSerial, sendSerial, simulateMoisture, togglePump, flashDevice, flashWithConfirmation, revalidateAll, checkToolchain, decideRevalidateProposal,
       sendCopilotMessage, runScenario,
     ]
   );

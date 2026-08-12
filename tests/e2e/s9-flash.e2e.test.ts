@@ -141,14 +141,18 @@ describe("S9 Golden Journey — Flash Confirmation + Serial end-to-end（真实 
     expect(existsSync(join(ws, ".evidence", `${sessionId}.log`))).toBe(true);
     expect(readFileSync(join(ws, ".evidence", `${sessionId}.log`), "utf8")).toContain("Flash complete");
 
-    // 3. 串口流（SSE serial.line 帧：遥测 Moisture/Pump）+ 命令回显
+    // 3. 显式打开 Companion 串口 session；随后串口流（SSE raw line）+ 命令回显
+    const serialOpen = await post(`/api/v1/projects/${projectId}/device/serial/session`, { deviceId: device.id });
+    expect(serialOpen.status).toBe(201);
+    const { sessionId: serialSessionId } = (await serialOpen.json()) as { sessionId: string };
+    expect(serialSessionId).toBeTruthy();
     const streamCtrl = new AbortController();
-    const streamRes = await fetch(`${base}/api/v1/device/serial/stream`, { signal: streamCtrl.signal });
+    const streamRes = await fetch(`${base}/api/v1/projects/${projectId}/device/serial/session/${serialSessionId}/events`, { signal: streamCtrl.signal });
     const reader = streamRes.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     const serialLines: string[] = [];
-    const serialFrames: Array<{ line: string; truth?: { executionReality: string; physicalVerified: boolean; adapter: string } }> = [];
+    const serialFrames: Array<{ line: string; executionReality?: string; projectId?: string; sessionId?: string }> = [];
     const streamPromise = (async () => {
       try {
         while (true) {
@@ -163,7 +167,7 @@ describe("S9 Golden Journey — Flash Confirmation + Serial end-to-end（真实 
             if (dataLine) {
               serialLines.push(dataLine);
               try {
-                serialFrames.push(JSON.parse(dataLine) as { line: string; truth?: { executionReality: string; physicalVerified: boolean; adapter: string } });
+                serialFrames.push(JSON.parse(dataLine) as { line: string; executionReality?: string; projectId?: string; sessionId?: string });
               } catch {
                 // Ignore malformed frames; the existing line assertion below still guards the smoke.
               }
@@ -184,8 +188,8 @@ describe("S9 Golden Journey — Flash Confirmation + Serial end-to-end（真实 
     });
     void streamPromise;
     const telemetryFrame = serialFrames.find((frame) => frame.line.includes("Moisture Raw"));
-    expect(telemetryFrame?.truth).toMatchObject({ executionReality: "companion", physicalVerified: false, adapter: "companion-local" });
-    const send = await post("/api/v1/device/serial/send", { command: "GET_STATUS" });
+    expect(telemetryFrame).toMatchObject({ executionReality: "companion", projectId, sessionId: serialSessionId });
+    const send = await post(`/api/v1/projects/${projectId}/device/serial/session/${serialSessionId}/write`, { command: "GET_STATUS" });
     expect(send.status).toBe(200);
     const serialResponse = (await send.json()) as { response: string; truth: { executionReality: string; physicalVerified: boolean; adapter: string } };
     expect(serialResponse.response).toContain("STATUS moisture=");
@@ -209,7 +213,7 @@ describe("S9 Golden Journey — Flash Confirmation + Serial end-to-end（真实 
     console.log("wrong-device resp:", wrong.status, JSON.stringify(await wrong.clone().json()));
     expect(wrong.status).toBe(403);
     expect(((await wrong.json()) as { error: { code: string } }).error.code).toBe("device_mismatch");
-    // 断开 → 串口流终止 + 后续 flash 409
+    // 断开 → session closed + 后续 flash 409
     await post("/api/v1/device/disconnect");
     const afterDisconnect = await post("/api/v1/device/flash", {
       deviceId: device.id,

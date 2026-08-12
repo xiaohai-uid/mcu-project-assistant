@@ -40,6 +40,12 @@ export type ErrorCode =
   | "physical_tool_unavailable"
   | "flash_timeout"
   | "physical_flash_failed"
+  | "serial_session_not_open"
+  | "serial_session_not_found"
+  | "serial_device_not_found"
+  | "serial_device_changed"
+  | "serial_transport_error"
+  | "serial_line_too_large"
   | "already_archived"
   | "archived_read_only"
   | "internal";

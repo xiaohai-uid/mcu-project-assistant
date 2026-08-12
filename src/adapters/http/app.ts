@@ -71,13 +71,13 @@ import { ProviderUnavailableError } from "@/src/ports/ai-provider";
 import type { ArtifactContentPort } from "@/src/ports/artifact-content";
 import type { CompilerPort } from "@/src/ports/compiler";
 import { ToolchainUnavailableError, UnsupportedBuildTargetError } from "@/src/ports/compiler";
-import type { DevicePort } from "@/src/ports/device";
+import type { DevicePort, SerialSession } from "@/src/ports/device";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort } from "@/src/ports/task-execution";
 import type { InProcessTaskRuntime } from "@/src/adapters/task/in-process";
 import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
-import type { ArtifactKind, ArtifactVersionDto, DeviceExecutionReality } from "@/src/shared-contracts/types";
+import type { ArtifactKind, ArtifactVersionDto, DeviceExecutionReality, SerialSessionDto } from "@/src/shared-contracts/types";
 import { ApiError, withErrorHandler } from "./error";
 import { writeProjectMirror } from "@/src/infrastructure/workspace";
 import {
@@ -173,6 +173,8 @@ export function createApp(deps: AppDeps): Express {
     workspaceDir: deps.workspaceDir,
     now,
   };
+
+  const serialDto = (value: SerialSession): SerialSessionDto => ({ ...value });
 
   const taskRuntime = deps.tasks as Partial<InProcessTaskRuntime>;
   taskRuntime.setExecutor?.(
@@ -681,15 +683,59 @@ export function createApp(deps: AppDeps): Express {
     res.json({ status: "disconnected" });
   };
 
-  const handleSendSerial = async (req: Request, res: Response) => {
-    const command = typeof req.body?.command === "string" ? req.body.command : "";
-    if (!command.trim()) throw new ApiError(400, "invalid_capability", "command required");
-    if (deps.device.session().stage !== "connected") throw new ApiError(409, "device_disconnected", "Device is not connected");
-    res.json(await sendSerialCapability({ command }, flashDeps));
+  const handleOpenSerial = async (req: Request, res: Response) => {
+    const projectId = req.params.projectId as string;
+    const project = await getProjectCapability({ id: projectId }, capDeps);
+    if (!project) throw new ApiError(404, "not_found", "Project not found");
+    const deviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId : "";
+    if (!deviceId) throw new ApiError(400, "invalid_capability", "deviceId required");
+    const baudRate = req.body?.baudRate === undefined ? undefined : Number(req.body.baudRate);
+    if (baudRate !== undefined && (!Number.isInteger(baudRate) || baudRate < 1)) throw new ApiError(400, "invalid_capability", "baudRate must be a positive integer");
+    try {
+      res.status(201).json(serialDto(await deps.device.openSerialSession({ projectId, deviceId, baudRate })));
+    } catch (err) {
+      const code = err instanceof Error && "code" in err ? String((err as Error & { code?: unknown }).code) : "";
+      if (code === "SERIAL_DEVICE_NOT_FOUND") throw new ApiError(409, "serial_device_not_found", err instanceof Error ? err.message : String(err));
+      if (code === "SERIAL_DEVICE_CHANGED") throw new ApiError(409, "serial_device_changed", err instanceof Error ? err.message : String(err));
+      throw new ApiError(409, "serial_transport_error", err instanceof Error ? err.message : String(err));
+    }
   };
 
-  // 串口遥测流（SSE：轮询会话缓冲 → 行事件；连接断开后终止）
+  const handleSerialState = async (req: Request, res: Response) => {
+    const value = deps.device.getSerialSession(req.params.projectId as string, req.params.sessionId as string);
+    if (!value) throw new ApiError(404, "serial_session_not_found", "Serial session not found");
+    res.json(serialDto(value));
+  };
+
+  const handleCloseSerial = async (req: Request, res: Response) => {
+    const projectId = req.params.projectId as string;
+    const sessionId = req.params.sessionId as string;
+    if (!deps.device.getSerialSession(projectId, sessionId)) throw new ApiError(404, "serial_session_not_found", "Serial session not found");
+    await deps.device.closeSerialSession(sessionId);
+    res.json({ status: "disconnected", sessionId });
+  };
+
+  const handleWriteSerial = async (req: Request, res: Response) => {
+    const projectId = req.params.projectId as string;
+    const sessionId = req.params.sessionId as string;
+    const command = typeof req.body?.command === "string" ? req.body.command : "";
+    if (!command.trim()) throw new ApiError(400, "invalid_capability", "command required");
+    if (!deps.device.getSerialSession(projectId, sessionId)) throw new ApiError(404, "serial_session_not_found", "Serial session not found");
+    try {
+      res.json(await sendSerialCapability({ sessionId, command }, flashDeps));
+    } catch (err) {
+      const code = err instanceof Error && "code" in err ? String((err as Error & { code?: unknown }).code) : "";
+      if (code === "SERIAL_SESSION_NOT_OPEN") throw new ApiError(409, "serial_session_not_open", err instanceof Error ? err.message : String(err));
+      if (code === "SERIAL_LINE_TOO_LARGE") throw new ApiError(409, "serial_line_too_large", err instanceof Error ? err.message : String(err));
+      throw new ApiError(409, "serial_transport_error", err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const handleSerialStream = (req: Request, res: Response) => {
+    const projectId = req.params.projectId as string;
+    const sessionId = req.params.sessionId as string;
+    const current = deps.device.getSerialSession(projectId, sessionId);
+    if (!current) throw new ApiError(404, "serial_session_not_found", "Serial session not found");
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
@@ -697,25 +743,31 @@ export function createApp(deps: AppDeps): Express {
       "X-Accel-Buffering": "no",
     });
     res.write(": connected\n\n");
-    let cursor = 0;
-    const timer = setInterval(() => {
-      const session = deps.device.session();
-      if (session.stage === "disconnected") {
-        clearInterval(timer);
-        res.write("event: device.disconnected\ndata: {}\n\n");
+    const unsubscribe = deps.device.subscribeSerialSession(projectId, sessionId, (event) => {
+      if (event.type === "line") {
+        res.write(`event: serial.line\ndata: ${JSON.stringify({ sessionId, projectId, deviceId: event.session.deviceId, executionReality: event.session.executionReality, timestamp: event.receivedAt, line: event.line })}\n\n`);
+      } else if (event.type === "error") {
+        res.write(`event: serial.session.error\ndata: ${JSON.stringify({ sessionId, projectId, code: event.code, message: event.message, timestamp: event.receivedAt })}\n\n`);
+      } else {
+        res.write(`event: serial.session.closed\ndata: ${JSON.stringify({ sessionId, projectId, reason: event.reason, timestamp: event.receivedAt })}\n\n`);
         res.end();
+      }
+    });
+    // Companion is deterministic but still models a live serial producer. The
+    // physical adapter's tickSerial is intentionally a no-op: physical lines
+    // can only arrive from OS transport bytes. This timer is stream-scoped and
+    // never replays buffered lines.
+    const timer = setInterval(() => {
+      if (!deps.device.getSerialSession(projectId, sessionId)) {
+        clearInterval(timer);
         return;
       }
-      deps.device.tickSerial(); // 遥测生成（连接后）
-      const lines = session.serialLines;
-      while (cursor < lines.length) {
-        const line = lines[cursor];
-        cursor += 1;
-        res.write(`event: serial.line\ndata: ${JSON.stringify({ line, truth: session.truth })}\n\n`);
-      }
+      deps.device.tickSerial();
     }, 800);
-    req.on("close", () => clearInterval(timer));
-    void req;
+    req.on("close", () => {
+      clearInterval(timer);
+      unsubscribe();
+    });
   };
 
   // S8：诊断（Build FAILED → 原因/建议/Fix 提案；不写版本）
@@ -765,8 +817,11 @@ export function createApp(deps: AppDeps): Express {
   app.post("/api/v1/device/flash-token", withErrorHandler(handleFlashToken));
   app.post("/api/v1/device/flash", withErrorHandler(handleFlash));
   app.post("/api/v1/device/disconnect", withErrorHandler(handleDisconnect));
-  app.post("/api/v1/device/serial/send", withErrorHandler(handleSendSerial));
-  app.get("/api/v1/device/serial/stream", handleSerialStream);
+  app.post("/api/v1/projects/:projectId/device/serial/session", withErrorHandler(handleOpenSerial));
+  app.get("/api/v1/projects/:projectId/device/serial/session/:sessionId", withErrorHandler(handleSerialState));
+  app.delete("/api/v1/projects/:projectId/device/serial/session/:sessionId", withErrorHandler(handleCloseSerial));
+  app.post("/api/v1/projects/:projectId/device/serial/session/:sessionId/write", withErrorHandler(handleWriteSerial));
+  app.get("/api/v1/projects/:projectId/device/serial/session/:sessionId/events", withErrorHandler(handleSerialStream));
   app.get("/api/v1/projects/:projectId/events", handleEvents);
 
   if (deps.frontendDist) {

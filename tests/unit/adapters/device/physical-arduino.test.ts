@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createPhysicalArduinoDevice } from "@/src/adapters/device/physical-arduino";
+import type { SerialTransport } from "@/src/adapters/device/serial-transport";
 
 const FQBN = "esp32:esp32:esp32s3";
 const openDirs: string[] = [];
@@ -41,6 +42,62 @@ function deviceFor(mode: Parameters<typeof fixture>[0], timeoutMs = 500) {
     terminateGraceMs: 100,
   });
   return { ...f, device };
+}
+
+class ControlledSerialTransport implements SerialTransport {
+  isOpen = false;
+  readonly writes: string[] = [];
+  private readonly listeners = new Map<string, Set<(...args: never[]) => void>>();
+
+  on(event: "open", listener: () => void): this;
+  on(event: "data", listener: (chunk: Buffer) => void): this;
+  on(event: "error", listener: (error: Error) => void): this;
+  on(event: "close", listener: (error?: Error) => void): this;
+  on(event: "open" | "data" | "error" | "close", listener: (...args: never[]) => void): this {
+    const listeners = this.listeners.get(event) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(event, listeners);
+    return this;
+  }
+  once(event: "open", listener: () => void): this;
+  once(event: "data", listener: (chunk: Buffer) => void): this;
+  once(event: "error", listener: (error: Error) => void): this;
+  once(event: "close", listener: (error?: Error) => void): this;
+  once(event: "open" | "data" | "error" | "close", listener: (...args: never[]) => void): this {
+    return this.on(event as never, listener as never);
+  }
+  removeListener(event: "open", listener: () => void): this;
+  removeListener(event: "data", listener: (chunk: Buffer) => void): this;
+  removeListener(event: "error", listener: (error: Error) => void): this;
+  removeListener(event: "close", listener: (error?: Error) => void): this;
+  removeListener(event: "open" | "data" | "error" | "close", listener: (...args: never[]) => void): this {
+    this.listeners.get(event)?.delete(listener);
+    return this;
+  }
+  write(data: Buffer | string, callback?: (error?: Error | null) => void): boolean {
+    this.writes.push(Buffer.isBuffer(data) ? data.toString("utf8") : data);
+    callback?.(null);
+    return true;
+  }
+  open(callback?: (error?: Error | null) => void): void {
+    this.isOpen = true;
+    queueMicrotask(() => {
+      this.emit("open");
+      callback?.(null);
+    });
+  }
+  close(callback?: (error?: Error | null) => void): void {
+    this.isOpen = false;
+    queueMicrotask(() => {
+      this.emit("close");
+      callback?.(null);
+    });
+  }
+  emitData(chunk: string | Buffer): void { this.emit("data", (Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)) as never); }
+  emitError(error: Error): void { this.emit("error", error as never); }
+  private emit(event: string, ...values: never[]): void {
+    for (const listener of this.listeners.get(event) ?? []) listener(...values);
+  }
 }
 
 const flashInput = {
@@ -105,5 +162,73 @@ describe("physical Arduino CLI adapter", () => {
     const result = await pending;
     expect(result).toMatchObject({ exitCode: 1, sessionId: "", errorCode: "FLASH_CANCELLED" });
     expect(result.truth).toMatchObject({ executionReality: "physical", verification: "failed", physicalVerified: false });
+  });
+
+  it("opens a fresh physical serial transport and projects only raw incremental lines", async () => {
+    const f = deviceFor("success");
+    const transport = new ControlledSerialTransport();
+    const opens: Array<{ path: string; baudRate: number }> = [];
+    const physical = createPhysicalArduinoDevice({
+      arduinoCliPath: process.execPath,
+      executableArgsPrefix: ["-e", f.script],
+      cwd: f.dir,
+      serialTransportFactory: (input) => { opens.push(input); return transport; },
+    });
+    const detected = await physical.detectBoard();
+    expect(physical.session()).toMatchObject({ stage: "detected", serialStage: "disconnected", serialSessionId: null });
+    const events: string[] = [];
+    const serial = await physical.openSerialSession({ projectId: "project-a", deviceId: detected.id, baudRate: 57600 });
+    const unsubscribe = physical.subscribeSerialSession("project-a", serial.sessionId, (event) => {
+      if (event.type === "line") events.push(event.line);
+    });
+    expect(serial).toMatchObject({ projectId: "project-a", deviceId: detected.id, port: "COM9", baudRate: 57600, executionReality: "physical", status: "connected" });
+    expect(opens).toEqual([{ path: "COM9", baudRate: 57600 }]);
+    transport.emitData("HEL");
+    transport.emitData("LO\r\nNEXT\npartial");
+    expect(events).toEqual(["HELLO", "NEXT"]);
+    expect(physical.session().serialLines).not.toContain("partial");
+    const write = await physical.writeSerial(serial.sessionId, "STATUS");
+    expect(write.response).toBeNull();
+    expect(transport.writes).toEqual(["STATUS\n"]);
+    unsubscribe();
+    await physical.closeSerialSession(serial.sessionId);
+    expect(physical.getSerialSession("project-a", serial.sessionId)).toBeNull();
+    expect(physical.session()).toMatchObject({ serialStage: "disconnected", serialSessionId: null });
+    await expect(physical.writeSerial(serial.sessionId, "STATUS")).rejects.toMatchObject({ code: "SERIAL_SESSION_NOT_OPEN" });
+  });
+
+  it("requires fresh matching discovery before opening a physical port", async () => {
+    const f = deviceFor("changing");
+    const opens: string[] = [];
+    const physical = createPhysicalArduinoDevice({
+      arduinoCliPath: process.execPath,
+      executableArgsPrefix: ["-e", f.script],
+      cwd: f.dir,
+      serialTransportFactory: ({ path }) => { opens.push(path); return new ControlledSerialTransport(); },
+    });
+    const detected = await physical.detectBoard();
+    await expect(physical.openSerialSession({ projectId: "project-a", deviceId: detected.id })).rejects.toMatchObject({ code: "SERIAL_DEVICE_CHANGED" });
+    expect(opens).toEqual([]);
+    expect(physical.session().serialStage).toBe("disconnected");
+  });
+
+  it("closes and clears a physical session on transport error", async () => {
+    const f = deviceFor("success");
+    const transport = new ControlledSerialTransport();
+    const physical = createPhysicalArduinoDevice({
+      arduinoCliPath: process.execPath,
+      executableArgsPrefix: ["-e", f.script],
+      cwd: f.dir,
+      serialTransportFactory: () => transport,
+    });
+    const detected = await physical.detectBoard();
+    const serial = await physical.openSerialSession({ projectId: "project-a", deviceId: detected.id });
+    const events: string[] = [];
+    physical.subscribeSerialSession("project-a", serial.sessionId, (event) => events.push(event.type));
+    transport.emitError(new Error("port disappeared"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(events).toEqual(["error", "closed"]);
+    expect(physical.getSerialSession("project-a", serial.sessionId)).toBeNull();
+    expect(physical.session().serialStage).toBe("error");
   });
 });

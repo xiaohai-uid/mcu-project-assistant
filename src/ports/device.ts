@@ -11,13 +11,53 @@ import type {
 export type DeviceTruth = DeviceTruthDto;
 export type DeviceInfo = DeviceInfoDto;
 
-export type DeviceStage = "none" | "connected" | "flashing" | "disconnected";
+export type DeviceStage = "none" | "detected" | "connected" | "flashing" | "disconnected";
+export type SerialStage = "disconnected" | "opening" | "connected" | "error";
+
+export interface SerialSession {
+  sessionId: string;
+  projectId: string;
+  deviceId: string;
+  executionReality: DeviceTruth["executionReality"];
+  port: string;
+  baudRate: number;
+  adapter: string;
+  openedAt: string;
+  status: "connected" | "error" | "closed";
+}
+
+export type SerialSessionEvent =
+  | { type: "line"; session: SerialSession; line: string; receivedAt: string }
+  | { type: "error"; session: SerialSession; code: string; message: string; receivedAt: string }
+  | { type: "closed"; session: SerialSession; reason: string; receivedAt: string };
+
+export class SerialSessionNotFoundError extends Error {
+  readonly code = "SERIAL_SESSION_NOT_FOUND";
+  constructor() { super("Serial session not found"); this.name = "SerialSessionNotFoundError"; }
+}
+
+export class SerialSessionNotOpenError extends Error {
+  readonly code = "SERIAL_SESSION_NOT_OPEN";
+  constructor() { super("Serial session is not open"); this.name = "SerialSessionNotOpenError"; }
+}
+
+export class SerialDeviceNotFoundError extends Error {
+  readonly code = "SERIAL_DEVICE_NOT_FOUND";
+  constructor() { super("The requested device is not present in fresh discovery"); this.name = "SerialDeviceNotFoundError"; }
+}
+
+export class SerialDeviceChangedError extends Error {
+  readonly code = "SERIAL_DEVICE_CHANGED";
+  constructor() { super("The current physical device changed before serial open"); this.name = "SerialDeviceChangedError"; }
+}
 
 export interface DeviceSession {
   device: DeviceInfo | null;
   stage: DeviceStage;
   truth: DeviceTruth;
-  /** 串口行缓冲（遥测/回显；SSE 流读取） */
+  serialStage: SerialStage;
+  serialSessionId: string | null;
+  /** Legacy in-memory evidence buffer; live production SSE is session-scoped. */
   serialLines: string[];
 }
 
@@ -30,10 +70,10 @@ export type FlashResult = FlashResultDto;
 export type SerialResult = SerialResultDto;
 
 export interface DevicePort {
-  /** 检测 Companion profile（确定性虚拟元数据；真实硬件接入为后续项） */
+  /** Discover a current device. This never opens a serial transport. */
   detectBoard(): Promise<DeviceInfo>;
   /** 断开（烧录中 → 中止；不留半成品证据） */
-  disconnect(): void;
+  disconnect(): Promise<void>;
   /** 烧录执行：只消费应用层已验证的构建证据；signal 中断 → 中止 */
   flash(input: {
     deviceId: string;
@@ -45,8 +85,14 @@ export interface DevicePort {
   }, onEvent: (e: FlashEvent) => void, signal: AbortSignal): Promise<FlashResult>;
   /** 运行时会话（内存态；非持久业务数据） */
   session(): DeviceSession;
-  /** 发送串口命令（回显 + 遥测响应） */
-  sendSerial(command: string): SerialResult;
-  /** 遥测生成（连接后周期调用；Moisture/Pump 行） */
+  /** Explicit serial session; discovery and flash never create one. */
+  openSerialSession(input: { projectId: string; deviceId: string; baudRate?: number }): Promise<SerialSession>;
+  closeSerialSession(sessionId: string): Promise<void>;
+  getSerialSession(projectId: string, sessionId: string): SerialSession | null;
+  subscribeSerialSession(projectId: string, sessionId: string, listener: (event: SerialSessionEvent) => void): () => void;
+  writeSerial(sessionId: string, command: string): Promise<SerialResult>;
+  /** Legacy companion tick seam; only active companion sessions may emit. */
   tickSerial(): void;
+  /** Close every live transport during process shutdown. */
+  shutdown(): Promise<void>;
 }

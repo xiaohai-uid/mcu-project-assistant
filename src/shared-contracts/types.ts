@@ -132,8 +132,30 @@ export interface FlashResultDto {
 }
 
 export interface SerialResultDto {
-  response: string;
+  /** null means the bytes were accepted by a physical transport but no response protocol exists. */
+  response: string | null;
   truth: DeviceTruthDto;
+}
+
+export interface SerialSessionDto {
+  sessionId: string;
+  projectId: string;
+  deviceId: string;
+  executionReality: DeviceExecutionReality;
+  port: string;
+  baudRate: number;
+  adapter: string;
+  openedAt: string;
+  status: "connected" | "error" | "closed";
+}
+
+export interface SerialLineEventDto {
+  sessionId: string;
+  projectId: string;
+  deviceId: string;
+  executionReality: DeviceExecutionReality;
+  timestamp: string;
+  line: string;
 }
 
 // ---------- S7 Build ----------

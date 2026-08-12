@@ -209,7 +209,7 @@ describe("S9 正常路径（检测 → 令牌 → 烧录 → 证据 → 串口�
 
     const device = await detectDevice({}, d.flashDeps);
     expect(device.port).toBe("companion-local");
-    expect(d.device.session().stage).toBe("connected");
+    expect(d.device.session().stage).toBe("detected");
 
     const { token } = await issueFlashToken({ deviceId: device.id }, d.flashDeps);
     const build = [...d.persistence.mem.builds.values()][0];
@@ -236,10 +236,11 @@ describe("S9 正常路径（检测 → 令牌 → 烧录 → 证据 → 串口�
     await flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: token, buildId: build!.id, artifactVersionId: versionId }, d.flashDeps);
     await waitFor(async () => d.published.some((e) => e.type === "device.flashed"));
 
+    const serial = await d.device.openSerialSession({ projectId: "project-1", deviceId: "companion-esp32s3" });
     d.device.tickSerial();
     const session = d.device.session();
     expect(session.serialLines.some((l) => l.includes("Moisture Raw"))).toBe(true);
-    const { echo, response } = await sendSerial({ command: "GET_STATUS" }, d.flashDeps);
+    const { echo, response } = await sendSerial({ sessionId: serial.sessionId, command: "GET_STATUS" }, d.flashDeps);
     expect(echo).toBe("> GET_STATUS");
     expect(response).toContain("STATUS moisture=");
     void projectId;

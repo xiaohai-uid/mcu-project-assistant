@@ -1,5 +1,5 @@
 // ============================================================
-import type { DeviceTruthDto } from "@/src/shared-contracts/types";
+import type { DeviceTruthDto, SerialSessionDto } from "@/src/shared-contracts/types";
 import type { TaskDto } from "./api/client";
 // MCU Project Assistant — Mock Product Types
 // UI-First Mock：这些类型描述"用户认知中的对象与状态"，
@@ -267,6 +267,8 @@ export interface RuntimeFlags {
   deviceStage: DeviceStage;
   deviceId: string | null;
   deviceTruth: DeviceTruthDto | null;
+  serialStage: "disconnected" | "opening" | "connected" | "error";
+  serialSession: SerialSessionDto | null;
   slowMode: boolean;           // 长任务可取消演示
 }
 

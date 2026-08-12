@@ -198,8 +198,15 @@ describe("S9 device surface", () => {
     const projectTasks = await request(app).get(`/api/v1/projects/${projectId}/tasks`);
     expect(projectTasks.body.find((task: { id: string }) => task.id === taskRow.id)).toMatchObject({ capability: "flash_device" });
 
-    // 串口命令（连接后）
-    const serial = await request(app).post("/api/v1/device/serial/send").send({ command: "GET_STATUS" });
+    // 串口命令必须经过显式 session open；detect/flash 不隐式打开串口。
+    const serialOpen = await request(app)
+      .post(`/api/v1/projects/${projectId}/device/serial/session`)
+      .send({ deviceId: device.id });
+    expect(serialOpen.status).toBe(201);
+    const serialSession = serialOpen.body as { sessionId: string };
+    const serial = await request(app)
+      .post(`/api/v1/projects/${projectId}/device/serial/session/${serialSession.sessionId}/write`)
+      .send({ command: "GET_STATUS" });
     expect(serial.status).toBe(200);
     expect((serial.body as { response: string }).response).toContain("STATUS moisture=");
     expect(serial.body.truth).toMatchObject({ executionReality: "companion", physicalVerified: false });

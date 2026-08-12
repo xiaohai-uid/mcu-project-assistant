@@ -4,13 +4,14 @@ import { useApp } from "../state/AppContext";
 import { ConfirmDialog, EmptyState } from "./ui";
 
 export const CompanionView: React.FC = () => {
-  const { state, detectBoard, flashWithConfirmation, simulateMoisture, togglePump } = useApp();
-  const { lang, companion, runtime, project, artifacts, build } = state;
+  const { state, detectBoard, openSerial, closeSerial, flashWithConfirmation, simulateMoisture, togglePump } = useApp();
+  const { lang, companion, runtime, project } = state;
   const [confirmFlash, setConfirmFlash] = useState(false);
   const [calibrating, setCalibrating] = useState(false);
 
-  const deviceOk = runtime.deviceStage === "connected";
-  const firmwareOk = artifacts.firmware.version > 0 && artifacts.firmware.status !== "stale" && build.outputVerified;
+  const deviceOk = runtime.deviceStage === "detected" || runtime.deviceStage === "connected";
+  const serialConnected = runtime.serialStage === "connected" && runtime.serialSession !== null;
+  const companionSerial = serialConnected && runtime.serialSession?.executionReality === "companion";
   const flashing = runtime.deviceStage === "flashing";
   const truthLabel = runtime.deviceTruth
     ? `${runtime.deviceTruth.executionReality.toUpperCase()} · ${runtime.deviceTruth.physicalVerified ? "physical verified" : "physical not verified"}`
@@ -31,7 +32,7 @@ export const CompanionView: React.FC = () => {
                 : "bg-[var(--control-bg)] border-[var(--panel-border-subtle)] text-[var(--text-secondary)]"
             }`}>
               <span className={`w-1.5 h-1.5 rounded-full ${deviceOk ? "bg-emerald-500" : "bg-[var(--text-muted)]"}`}></span>
-              {deviceOk ? t(lang, "telemetryStream") : t(lang, "deviceNotConnected")}
+              {serialConnected ? t(lang, "telemetryStream") : deviceOk ? "Device detected · serial disconnected" : t(lang, "deviceNotConnected")}
             </span>
             {deviceOk && <span className="px-2 py-0.5 rounded border border-amber-500/20 bg-amber-500/10 text-[11px] font-mono text-amber-600 dark:text-amber-400">{truthLabel}</span>}
           </div>
@@ -41,21 +42,22 @@ export const CompanionView: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 bg-[var(--control-bg)] px-2.5 py-1 rounded border border-[var(--panel-border-subtle)] text-xs font-mono text-[#007aff] dark:text-[#0a84ff]">
-            <span>{project?.port ?? "—"} @ 115200 baud</span>
+            <span>{runtime.serialSession ? `${runtime.serialSession.port} @ ${runtime.serialSession.baudRate} baud` : "Serial disconnected"}</span>
           </div>
           {!deviceOk ? (
             <button onClick={detectBoard} className="px-3 py-1.5 mac-button-primary rounded-md text-xs flex items-center gap-1.5">
               <span className="material-symbols-outlined text-[15px]">usb</span>
               {t(lang, "detectBoard")}
             </button>
+          ) : !serialConnected ? (
+            <button onClick={openSerial} className="px-3 py-1.5 mac-button-primary rounded-md text-xs">Open serial</button>
           ) : (
             <button
-              onClick={() => setConfirmFlash(true)}
-              disabled={!firmwareOk}
+              onClick={() => void closeSerial()}
               className="px-3 py-1.5 mac-button-primary rounded-md text-xs flex items-center gap-1.5 disabled:opacity-40"
             >
               <span className="material-symbols-outlined text-[15px]">bolt</span>
-              {t(lang, "flashToDevice")}
+              Close serial
             </button>
           )}
         </div>
@@ -113,7 +115,7 @@ export const CompanionView: React.FC = () => {
               min={0}
               max={100}
               value={companion.moisture ?? 0}
-              disabled={companion.moisture === null}
+              disabled={!companionSerial}
               onChange={(e) => simulateMoisture(Number(e.target.value))}
               className="w-full accent-[#007aff]"
             />
@@ -141,7 +143,8 @@ export const CompanionView: React.FC = () => {
             </div>
             <button
               onClick={togglePump}
-              className="w-full py-1.5 rounded-md text-[11px] font-medium border border-[var(--panel-border-subtle)] bg-[var(--control-bg)] hover:bg-[var(--control-hover)] transition-colors"
+              disabled={!companionSerial}
+              className="w-full py-1.5 rounded-md text-[11px] font-medium border border-[var(--panel-border-subtle)] bg-[var(--control-bg)] hover:bg-[var(--control-hover)] transition-colors disabled:opacity-40"
             >
               {companion.pumpActive ? t(lang, "overrideOff") : t(lang, "overrideOn")}
             </button>
@@ -167,7 +170,8 @@ export const CompanionView: React.FC = () => {
                 setCalibrating(true);
                 setTimeout(() => setCalibrating(false), 800);
               }}
-              className="w-full py-1.5 rounded-md text-[11px] font-medium border border-[var(--panel-border-subtle)] bg-[var(--control-bg)] hover:bg-[var(--control-hover)] transition-colors"
+              disabled={!companionSerial}
+              className="w-full py-1.5 rounded-md text-[11px] font-medium border border-[var(--panel-border-subtle)] bg-[var(--control-bg)] hover:bg-[var(--control-hover)] transition-colors disabled:opacity-40"
             >
               {calibrating ? `${t(lang, "calibration")}…` : t(lang, "calibrate")}
             </button>
@@ -176,7 +180,7 @@ export const CompanionView: React.FC = () => {
       </div>
 
       {/* 串口证据流 */}
-      {deviceOk && companion.serialLines.length > 0 && (
+      {serialConnected && companion.serialLines.length > 0 && (
         <div className="mac-card overflow-hidden">
           <div className="px-3.5 py-2.5 border-b border-[var(--panel-border-subtle)] bg-[var(--control-bg)] text-xs font-semibold text-[var(--text-primary)] font-mono">
             debug-evidence.log

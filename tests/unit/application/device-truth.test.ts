@@ -21,8 +21,10 @@ describe("P0-04 device truth boundary", () => {
 
     const flashed = await device.flash({ deviceId: detected.id, buildId: "build-1", artifactVersionId: "version-1", outputDir: "workspace/.build/build-1/output", firmwarePath: "workspace/.build/build-1/output/firmware.bin", firmwareSha256: "a".repeat(64) }, () => undefined, new AbortController().signal);
     expect(flashed.truth).toMatchObject({ executionReality: "companion", verification: "verified", physicalVerified: false });
-    expect(device.sendSerial("GET_STATUS").truth).toMatchObject({ executionReality: "companion", physicalVerified: false });
-    device.disconnect();
+    const serial = await device.openSerialSession({ projectId: "project-1", deviceId: detected.id });
+    expect(serial.executionReality).toBe("companion");
+    expect((await device.writeSerial(serial.sessionId, "GET_STATUS")).truth).toMatchObject({ executionReality: "companion", physicalVerified: false });
+    await device.disconnect();
     expect(device.session().truth).toMatchObject({ executionReality: "companion", verification: "blocked", physicalVerified: false });
     expect(device.session().device?.truth).toMatchObject({ executionReality: "companion", verification: "blocked", physicalVerified: false });
   });

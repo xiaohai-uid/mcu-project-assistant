@@ -12,6 +12,8 @@ export const BuildView: React.FC = () => {
     runDiagnosis,
     applyFix,
     sendSerial,
+    openSerial,
+    closeSerial,
     flashWithConfirmation,
     checkToolchain,
   } = useApp();
@@ -20,7 +22,8 @@ export const BuildView: React.FC = () => {
   const [confirmFlash, setConfirmFlash] = useState(false);
 
   const firmwareOk = artifacts.firmware.version > 0 && artifacts.firmware.status !== "stale";
-  const deviceOk = runtime.deviceStage === "connected";
+  const deviceOk = runtime.deviceStage === "detected" || runtime.deviceStage === "connected";
+  const serialConnected = runtime.serialStage === "connected" && runtime.serialSession !== null;
   const toolchainOk = runtime.toolchainAvailable === true;
   const building = build.stage === "building";
 
@@ -208,10 +211,10 @@ export const BuildView: React.FC = () => {
       {/* 串口监视器 */}
       <div className="mac-card overflow-hidden">
         <div className="px-3.5 py-2.5 border-b border-[var(--panel-border-subtle)] bg-[var(--control-bg)] flex items-center justify-between">
-          <span className="text-xs font-semibold text-[var(--text-primary)] font-mono">serial @ 115200 baud</span>
+           <span className="text-xs font-semibold text-[var(--text-primary)] font-mono">{runtime.serialSession ? `serial @ ${runtime.serialSession.port} / ${runtime.serialSession.baudRate} baud` : "serial disconnected"}</span>
           {deviceOk && (
             <span className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 text-[10px] font-mono">
-              {runtime.deviceTruth ? `${runtime.deviceTruth.executionReality} · ${runtime.deviceTruth.physicalVerified ? "physical verified" : "physical not verified"}` : "truth unavailable"}
+                {serialConnected ? "serial connected" : "device detected · serial disconnected"}
             </span>
           )}
         </div>
@@ -232,12 +235,14 @@ export const BuildView: React.FC = () => {
             onChange={(e) => setCommandInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             placeholder={t(lang, "sendSerialPlaceholder")}
-            disabled={!deviceOk}
+            disabled={!serialConnected}
             className="flex-1 px-3 py-1.5 rounded-md bg-[var(--panel-solid)] border border-[var(--panel-border-subtle)] text-xs font-mono text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#007aff] disabled:opacity-40"
           />
-          <button onClick={handleSend} disabled={!deviceOk} className="px-3 py-1.5 mac-button-primary rounded-md text-xs disabled:opacity-40">
+          <button onClick={handleSend} disabled={!serialConnected} className="px-3 py-1.5 mac-button-primary rounded-md text-xs disabled:opacity-40">
             {t(lang, "sendBtn")}
           </button>
+          {deviceOk && !serialConnected && <button onClick={openSerial} className="px-3 py-1.5 mac-button-primary rounded-md text-xs">Open serial</button>}
+          {serialConnected && <button onClick={() => void closeSerial()} className="px-3 py-1.5 mac-button-secondary rounded-md text-xs">Close</button>}
         </div>
       </div>
 

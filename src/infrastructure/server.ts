@@ -61,6 +61,7 @@ async function startServer(): Promise<void> {
     shuttingDown = true;
     void (async () => {
       await tasks.stop();
+      await device.shutdown();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       db.close();
     })();
