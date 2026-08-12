@@ -55,7 +55,7 @@ node --import tsx src/infrastructure/server.ts   # API server (http://127.0.0.1:
 npx vite preview --config app/vite.config.ts     # serve the built UI
 ```
 
-Configuration: see `.env.example` (`MCU_PORT`, `MCU_DB_PATH`, `MCU_WORKSPACE_DIR`).
+Configuration: use `.env.example` as a reference for the environment passed to the server (`MCU_PORT`, `MCU_DB_PATH`, `MCU_WORKSPACE_DIR`, and the required explicit real AI provider settings). The server does not auto-load a `.env` file and refuses to start when `MCU_AI_PROVIDER` or its provider credentials are missing; deterministic mock adapters are test fixtures only.
 
 ## Testing
 
