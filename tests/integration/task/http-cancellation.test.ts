@@ -111,6 +111,7 @@ describe("HTTP task cancellation boundary", () => {
     expect(cancelResponse.status).toBe(202);
     await aborted.promise;
     const cancelled = await waitForTask(app, taskId, (task) => task.status === "cancelled");
+    const phaseCountAtCancellation = published.filter((event) => event.type === "requirement.analysis.phase").length;
     expect(cancelled).toMatchObject({ status: "cancelled", output: null });
     expect(providerCalls).toBe(1);
     expect(published.some((event) => event.type === "requirement.analysis.completed")).toBe(false);
@@ -123,6 +124,7 @@ describe("HTTP task cancellation boundary", () => {
     release.resolve();
     await tasks.waitForIdle();
     expect(await persistence.getTask(taskId)).toMatchObject({ status: "cancelled", output: null });
+    expect(published.filter((event) => event.type === "requirement.analysis.phase")).toHaveLength(phaseCountAtCancellation);
     expect(published.some((event) => event.type === "requirement.analysis.cancelled")).toBe(true);
     db.close();
     const freshDb = openDatabase(dbPath);

@@ -19,6 +19,7 @@ export interface ProductionTaskRuntimeDeps {
   compiler: CompilerPort;
   workspaceDir: string;
   now?: () => Date;
+  heartbeatIntervalMs?: number;
   device?: DevicePort;
   tokens?: FlashTokenStore;
 }

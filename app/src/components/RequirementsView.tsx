@@ -19,6 +19,15 @@ export const RequirementsView: React.FC = () => {
 
   const acceptedCount = d.proposals.filter((p) => p.decision === "accepted").length;
   const analyzing = d.stage === "analyzing" || d.stage === "clarifying";
+  const phaseLabel = d.analysisPhase
+    ? d.analysisPhase.phase === "processing"
+      ? (lang === "zh" ? "正在处理 AI 结果…" : "Processing AI result…")
+      : d.analysisPhase.operation === "generate_structured"
+        ? (lang === "zh" ? "等待结构化 AI 结果…" : "Waiting for structured AI result…")
+        : d.analysisPhase.phase === "provider_streaming"
+          ? (lang === "zh" ? "正在接收 AI 响应…" : "Receiving AI response…")
+          : (lang === "zh" ? "等待 AI 服务响应…" : "Waiting for AI provider…")
+    : (lang === "zh" ? "分析任务运行中…" : "Analysis is running…");
 
   const proposalTone = (decision: string) =>
     decision === "accepted"
@@ -72,6 +81,12 @@ export const RequirementsView: React.FC = () => {
             {t(lang, "clearText")}
           </button>
           <div className="flex items-center gap-2">
+            {analyzing && (
+              <div className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)]" role="status">
+                <span className="material-symbols-outlined text-[14px]">hourglass_top</span>
+                <span>{phaseLabel}</span>
+              </div>
+            )}
             {analyzing && (
               <button onClick={cancelDiscovery} className="px-3 py-1.5 mac-button-secondary rounded-md text-xs text-rose-500">
                 {t(lang, "cancel")}

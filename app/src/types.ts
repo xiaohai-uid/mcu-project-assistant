@@ -296,6 +296,11 @@ export interface AppState {
     clarification: Clarification | null;
     error: string | null;
     streamedText: string;
+    analysisPhase: {
+      phase: "provider_waiting" | "provider_streaming" | "processing";
+      operation: "stream_text" | "generate_structured" | "application";
+      timestamp: string;
+    } | null;
     nextFails: boolean;    // Lab：下次解析失败
     partialNext: boolean;  // Lab：部分解析 3/4
   };

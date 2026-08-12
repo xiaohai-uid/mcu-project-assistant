@@ -4,6 +4,7 @@
 // 禁止通用 CommandBus/Registry 框架（/commands 只是 HTTP 收口）。
 
 export type TaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+export type TaskPhase = "provider_waiting" | "provider_streaming" | "processing";
 
 export interface TaskRecord {
   id: string;
@@ -26,6 +27,8 @@ export interface TaskContext {
   signal: AbortSignal;
   /** 任务内发布逻辑事件（经 EventPort；进度/终态） */
   emit: (event: import("@/src/ports/events").LogicalEvent) => void;
+  /** Emits truthful live observability for a long-running provider/application phase. */
+  progress: (phase: TaskPhase, operation: "stream_text" | "generate_structured" | "application", heartbeat?: boolean) => void;
   /** 任务结果暂存（tasks.output；如分析 capabilities，供下游聚合提交） */
   setOutput: (output: string) => Promise<void>;
 }

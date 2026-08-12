@@ -231,4 +231,27 @@ describe("SSE（ADR-0008；implementation-spec §10.3）", () => {
     };
     expect(evt.type).toBe("requirement.analysis.started");
   });
+
+  it("phase SSE frame carries task correlation, ISO timestamp, operation and heartbeat without fake progress", async () => {
+    const p = await createProject();
+    const ssePromise = readEvents(
+      `${base}/api/v1/projects/${p.id}/events`,
+      (frames) => frames.some((f) => f.event === "requirement.analysis.phase"),
+    );
+    await new Promise((r) => setTimeout(r, 100));
+    const res = await fetch(`${base}/api/v1/projects/${p.id}/commands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ capability: "analyze_requirement", payload: { description: "greenhouse" } }),
+    });
+    expect(res.status).toBe(202);
+    const frames = await ssePromise;
+    const phase = frames.find((f) => f.event === "requirement.analysis.phase")?.data as Record<string, unknown>;
+    expect(phase).toMatchObject({ projectId: p.id, phase: "provider_waiting", operation: "stream_text", heartbeat: false });
+    expect(typeof phase.taskId).toBe("string");
+    expect(typeof phase.timestamp).toBe("string");
+    expect(Number.isNaN(Date.parse(phase.timestamp as string))).toBe(false);
+    expect("percentage" in phase).toBe(false);
+    expect("reasoning_content" in phase).toBe(false);
+  });
 });

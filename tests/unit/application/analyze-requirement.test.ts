@@ -106,7 +106,16 @@ function fakeTasks(execute?: (task: TaskRecord, ctx: TaskContext) => Promise<voi
       // 立即执行（fake 同步语义，取消信号可中止）
       const ctrl = new AbortController();
       controllers.set(id, ctrl);
-      const ctx: TaskContext = { taskId: id, signal: ctrl.signal, emit, setOutput: async () => {} };
+      const ctx: TaskContext = {
+        taskId: id,
+        signal: ctrl.signal,
+        emit,
+        progress: (phase, operation, heartbeat = false) => {
+          const projectId = (JSON.parse(record.input) as { projectId?: string }).projectId ?? "";
+          emit({ type: "requirement.analysis.phase", taskId: id, projectId, phase, operation, timestamp: NOW, heartbeat });
+        },
+        setOutput: async () => {},
+      };
       tasks.set(id, { ...record, status: "running", startedAt: NOW });
       (execute ? execute(record, ctx) : Promise.resolve()).then(
         () => {
@@ -202,6 +211,7 @@ function deps(over: Partial<Parameters<typeof analyzeRequirement>[1]> = {}) {
     ai,
     events,
     now,
+    heartbeatIntervalMs: 5,
     ...over,
   } as Parameters<typeof analyzeRequirement>[1] & {
     persistence: ReturnType<typeof fakePersistence>;
@@ -212,6 +222,62 @@ function deps(over: Partial<Parameters<typeof analyzeRequirement>[1]> = {}) {
 }
 
 describe("analyze_requirement（application-contract 2.2；I-12/D7）", () => {
+  it("可观测阶段：stream waiting→streaming→structured waiting→processing，heartbeat 不泄露百分比", async () => {
+    const d = deps();
+    d.ai.clarifyRounds = 1;
+    const project = await seedProject(d.persistence);
+    const { taskId } = await analyzeRequirement({ projectId: project.id, description: "greenhouse", now }, d);
+    await new Promise((r) => setTimeout(r, 15));
+    const phaseEvents = d.events.published.filter((event) => event.type === "requirement.analysis.phase");
+    expect(phaseEvents[0]).toMatchObject({ taskId, phase: "provider_waiting", operation: "stream_text", heartbeat: false });
+    expect(phaseEvents.some((event) => event.type === "requirement.analysis.phase" && event.phase === "provider_streaming" && !event.heartbeat)).toBe(true);
+    expect(phaseEvents.some((event) => event.type === "requirement.analysis.phase" && event.phase === "provider_waiting" && event.operation === "generate_structured")).toBe(true);
+    expect(phaseEvents.some((event) => event.type === "requirement.analysis.phase" && event.phase === "processing" && event.operation === "application")).toBe(true);
+    for (const event of phaseEvents) {
+      expect(event.type).toBe("requirement.analysis.phase");
+      expect("percentage" in event).toBe(false);
+    }
+  });
+
+  it("structured provider silence emits repeated truthful heartbeats and stops after resolve", async () => {
+    const persistence = fakePersistence();
+    const ai = fakeAi();
+    const events = fakeEvents();
+    const project = await seedProject(persistence);
+    let release!: () => void;
+    let started!: () => void;
+    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    ai.generateStructured = async <T>() => {
+      started();
+      await new Promise<void>((resolve) => { release = resolve; });
+      return { data: { capabilities: [], clarification: null, proposals: [] } as T };
+    };
+    const ctrl = new AbortController();
+    const ctx: TaskContext = {
+      taskId: "heartbeat-task",
+      signal: ctrl.signal,
+      emit: events.publish,
+      progress: (phase, operation, heartbeat = false) =>
+        events.publish({ type: "requirement.analysis.phase", taskId: "heartbeat-task", projectId: project.id, phase, operation, timestamp: new Date().toISOString(), heartbeat }),
+      setOutput: async () => {},
+    };
+    const run = executeRequirementAnalysis(
+      { projectId: project.id, description: "greenhouse" },
+      ctx,
+      { persistence, ai, events, now, heartbeatIntervalMs: 3 },
+    );
+    await startedPromise;
+    await new Promise((resolve) => setTimeout(resolve, 35));
+    const beforeRelease = events.published.filter((event) => event.type === "requirement.analysis.phase");
+    expect(beforeRelease.filter((event) => event.type === "requirement.analysis.phase" && event.heartbeat).length).toBeGreaterThanOrEqual(2);
+    expect(beforeRelease.every((event) => event.type !== "requirement.analysis.phase" || !("percentage" in event))).toBe(true);
+    release();
+    await run;
+    const countAfterResolve = events.published.filter((event) => event.type === "requirement.analysis.phase").length;
+    await new Promise((resolve) => setTimeout(resolve, 12));
+    expect(events.published.filter((event) => event.type === "requirement.analysis.phase").length).toBe(countAfterResolve);
+  });
+
   it("流式事件序：started → progress(streaming) → 能力卡 → clarification.requested(roundId=1)", async () => {
     const d = deps();
     const project = await seedProject(d.persistence);
@@ -288,6 +354,17 @@ describe("analyze_requirement（application-contract 2.2；I-12/D7）", () => {
     expect(types).not.toContain("requirement.analysis.completed");
     expect(d.persistence.mem.artifacts.size).toBe(0);
     expect(d.persistence.mem.versions.size).toBe(0);
+  });
+
+  it("取消后不再发布 phase heartbeat", async () => {
+    const d = deps();
+    const project = await seedProject(d.persistence);
+    const { taskId } = await analyzeRequirement({ projectId: project.id, description: "greenhouse", now }, d);
+    await cancelAnalysis({ taskId }, d);
+    const countAtCancel = d.events.published.filter((event) => event.type === "requirement.analysis.phase").length;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(d.events.published.filter((event) => event.type === "requirement.analysis.phase").length).toBe(countAtCancel);
+    expect(d.events.published.some((event) => event.type === "requirement.analysis.completed")).toBe(false);
   });
 
   it("Provider 不可用（预检）：立即拒绝（503 语义；ADR-0010），零任务", async () => {

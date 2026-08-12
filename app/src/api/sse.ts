@@ -3,6 +3,7 @@
 export type SseEventType =
   | "requirement.analysis.started"
   | "requirement.analysis.progress"
+  | "requirement.analysis.phase"
   | "requirement.analysis.clarification.requested"
   | "requirement.analysis.completed"
   | "requirement.analysis.failed"
@@ -23,6 +24,7 @@ export type SseEventType =
 const KNOWN_TYPES: SseEventType[] = [
   "requirement.analysis.started",
   "requirement.analysis.progress",
+  "requirement.analysis.phase",
   "requirement.analysis.clarification.requested",
   "requirement.analysis.completed",
   "requirement.analysis.failed",

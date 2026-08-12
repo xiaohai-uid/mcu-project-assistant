@@ -60,6 +60,14 @@ describe("zhipu-glm adapter (real AIProviderPort)", () => {
     expect(parsed.stream).toBe(true);
   });
 
+  it("streamText: reasoning_content-only delta never reaches onChunk", async () => {
+    const provider = createZhipuAiProvider({ apiKey: "k" });
+    fetchMock.mockResolvedValueOnce(new Response(sseChunk({ reasoning_content: "private reasoning" }) + "data: [DONE]\n\n", { status: 200 }));
+    const chunks: string[] = [];
+    await provider.streamText({ prompt: "hi", signal: new AbortController().signal, onChunk: (chunk) => chunks.push(chunk) });
+    expect(chunks).toEqual([]);
+  });
+
   it("streamText: 非 2xx → ProviderUnavailableError", async () => {
     const provider = createZhipuAiProvider({ apiKey: "k" });
     fetchMock.mockResolvedValueOnce(new Response("boom", { status: 500 }));

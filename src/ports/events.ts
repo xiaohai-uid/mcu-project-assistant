@@ -19,8 +19,19 @@ export type LogicalEvent =
       type: "requirement.analysis.progress";
       projectId: string;
       analysisId: string;
+      taskId: string;
       stage: "streaming" | "capabilities" | "finalizing";
       chunk?: string;
+      timestamp: string;
+    }
+  | {
+      type: "requirement.analysis.phase";
+      taskId: string;
+      projectId: string;
+      phase: "provider_waiting" | "provider_streaming" | "processing";
+      operation: "stream_text" | "generate_structured" | "application";
+      timestamp: string;
+      heartbeat: boolean;
     }
   | {
       type: "requirement.analysis.clarification.requested";

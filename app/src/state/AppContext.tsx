@@ -68,6 +68,7 @@ function initialState(): AppState {
       clarification: null,
       error: null,
       streamedText: "",
+      analysisPhase: null,
       nextFails: false,
       partialNext: false,
     },
@@ -138,6 +139,7 @@ type Action =
   | { type: "SET_PROMPT"; prompt: string }
   | { type: "DISC_SET_STAGE"; stage: AppState["discovery"]["stage"] }
   | { type: "DISC_STREAM"; text: string }
+  | { type: "DISC_PHASE"; phase: AppState["discovery"]["analysisPhase"] }
   | { type: "DISC_CLEAR_RESULTS" }
   | { type: "DISC_CAPABILITY"; cap: AppState["discovery"]["capabilities"][number] }
   | { type: "DISC_CLARIFICATION"; c: AppState["discovery"]["clarification"] }
@@ -210,7 +212,8 @@ function reducer(state: AppState, a: Action): AppState {
     case "SET_PROMPT": return { ...state, discoveryPrompt: a.prompt };
     case "DISC_SET_STAGE": return { ...state, discovery: { ...state.discovery, stage: a.stage } };
     case "DISC_STREAM": return { ...state, discovery: { ...state.discovery, streamedText: state.discovery.streamedText + a.text } };
-    case "DISC_CLEAR_RESULTS": return { ...state, discovery: { ...state.discovery, capabilities: [], proposals: [], clarification: null, error: null, streamedText: "" } };
+    case "DISC_PHASE": return { ...state, discovery: { ...state.discovery, analysisPhase: a.phase } };
+    case "DISC_CLEAR_RESULTS": return { ...state, discovery: { ...state.discovery, capabilities: [], proposals: [], clarification: null, error: null, streamedText: "", analysisPhase: null } };
     case "DISC_CAPABILITY":
       return { ...state, discovery: { ...state.discovery, capabilities: [...state.discovery.capabilities, a.cap] } };
     case "DISC_CLARIFICATION": return { ...state, discovery: { ...state.discovery, clarification: a.c } };
@@ -703,14 +706,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           break;
         }
+        case "requirement.analysis.phase": {
+          const p = data as { phase: "provider_waiting" | "provider_streaming" | "processing"; operation: "stream_text" | "generate_structured" | "application"; timestamp: string };
+          dispatch({ type: "DISC_PHASE", phase: { phase: p.phase, operation: p.operation, timestamp: p.timestamp } });
+          break;
+        }
         case "requirement.analysis.clarification.requested": {
           const c = data as { roundId: number; question: string; detail?: string };
           taskRef.current.roundId = c.roundId;
+          dispatch({ type: "DISC_PHASE", phase: null });
           dispatch({ type: "DISC_CLARIFICATION", c: { question: c.question, detail: c.detail ?? "", answer: "", answered: false } });
           dispatch({ type: "DISC_SET_STAGE", stage: "clarifying" });
           break;
         }
         case "requirement.analysis.completed": {
+          dispatch({ type: "DISC_PHASE", phase: null });
           const d = data as { capabilities: AnalysisCapabilityDto[] };
           dispatch({
             type: "DISC_DONE",
@@ -733,10 +743,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           break;
         }
         case "requirement.analysis.failed": {
+          dispatch({ type: "DISC_PHASE", phase: null });
           dispatch({ type: "DISC_ERROR", error: (data as { reason?: string }).reason ?? "Analysis failed" });
           break;
         }
         case "requirement.analysis.cancelled": {
+          dispatch({ type: "DISC_PHASE", phase: null });
           dispatch({ type: "DISC_SET_STAGE", stage: "cancelled" });
           break;
         }

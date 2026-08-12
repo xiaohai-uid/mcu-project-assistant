@@ -47,6 +47,7 @@ export interface AnalysisCapabilityDeps {
   ai: AIProviderPort;
   events: EventPort;
   now?: () => Date;
+  heartbeatIntervalMs?: number;
 }
 
 interface ClarificationAnswer {
@@ -58,6 +59,30 @@ interface ClarificationGate {
   roundId: number;
   answer: Promise<ClarificationAnswer>;
   resolve: (v: ClarificationAnswer) => void;
+}
+
+const OBSERVABILITY_HEARTBEAT_MS = 8_000;
+
+function withProviderPhase<T>(
+  ctx: import("@/src/ports/task-execution").TaskContext,
+  operation: "stream_text" | "generate_structured",
+  run: (setPhase: (phase: "provider_waiting" | "provider_streaming") => void) => Promise<T>,
+  heartbeatIntervalMs = OBSERVABILITY_HEARTBEAT_MS,
+): Promise<T> {
+  let phase: "provider_waiting" | "provider_streaming" = "provider_waiting";
+  const setPhase = (next: "provider_waiting" | "provider_streaming") => {
+    if (phase === next) return;
+    phase = next;
+    ctx.progress(phase, operation);
+  };
+  ctx.progress(phase, operation);
+  const timer = setInterval(() => ctx.progress(phase, operation, true), heartbeatIntervalMs);
+  const cleanup = () => clearInterval(timer);
+  ctx.signal.addEventListener("abort", cleanup, { once: true });
+  return run(setPhase).finally(() => {
+    cleanup();
+    ctx.signal.removeEventListener("abort", cleanup);
+  });
 }
 
 /** 运行中分析的澄清门（taskId → 当前轮 gate；多轮 D7） */
@@ -72,7 +97,7 @@ export interface PersistedAnalysisTaskInput {
 export async function executeRequirementAnalysis(
   input: PersistedAnalysisTaskInput,
   ctx: import("@/src/ports/task-execution").TaskContext,
-  deps: Pick<AnalysisCapabilityDeps, "persistence" | "ai" | "events" | "now">,
+  deps: Pick<AnalysisCapabilityDeps, "persistence" | "ai" | "events" | "now" | "heartbeatIntervalMs">,
 ): Promise<void> {
   const analysisId = ctx.taskId;
   const lab = input.lab ?? {};
@@ -102,41 +127,54 @@ export async function executeRequirementAnalysis(
       taskId: ctx.taskId,
     });
 
-    await deps.ai.streamText({
+    let streamed = false;
+    await withProviderPhase(ctx, "stream_text", (setPhase) => deps.ai.streamText({
       prompt: input.description,
       hint: lab,
       signal: ctx.signal,
       onChunk: (chunk) => {
         if (ctx.signal.aborted) return;
+        if (!streamed && chunk.trim()) {
+          streamed = true;
+          setPhase("provider_streaming");
+        }
         ctx.emit({
           type: "requirement.analysis.progress",
           projectId: input.projectId,
           analysisId,
+          taskId: ctx.taskId,
           stage: "streaming",
           chunk,
+          timestamp: now().toISOString(),
         });
       },
-    });
+    }), deps.heartbeatIntervalMs);
 
     let roundId = 0;
     let output: RequirementAnalysisOutput | null = null;
     for (;;) {
       if (ctx.signal.aborted) throw new Error("analysis aborted");
-      const { data } = await deps.ai.generateStructured<RequirementAnalysisOutput>({
-        prompt: input.description,
-        schema: "requirement-analysis",
-        context: { ...lab, roundId },
-        signal: ctx.signal,
-      });
+      const { data } = await withProviderPhase(ctx, "generate_structured", () =>
+        deps.ai.generateStructured<RequirementAnalysisOutput>({
+          prompt: input.description,
+          schema: "requirement-analysis",
+          context: { ...lab, roundId },
+          signal: ctx.signal,
+        }),
+        deps.heartbeatIntervalMs,
+      );
       output = data;
+      ctx.progress("processing", "application");
 
       for (const cap of data.capabilities) {
         ctx.emit({
           type: "requirement.analysis.progress",
           projectId: input.projectId,
           analysisId,
+          taskId: ctx.taskId,
           stage: "capabilities",
           chunk: JSON.stringify(cap),
+          timestamp: now().toISOString(),
         });
       }
 

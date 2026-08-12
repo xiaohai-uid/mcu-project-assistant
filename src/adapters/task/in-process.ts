@@ -40,6 +40,7 @@ export function createInProcessTasks(deps: InProcessTaskDeps): InProcessTaskRunt
   // an adapter cannot read the just-written task back immediately. SQLite
   // remains the durable source of truth whenever it is available.
   const records = new Map<string, TaskRecord>();
+  const terminalizing = new Set<string>();
   let executor = deps.executeTask;
   let stopping = false;
 
@@ -66,20 +67,36 @@ export function createInProcessTasks(deps: InProcessTaskDeps): InProcessTaskRunt
   async function executeTask(task: TaskRecord, mode: "new" | "recovery"): Promise<void> {
     const ctrl = new AbortController();
     controllers.set(task.id, ctrl);
+    const projectId = (() => {
+      try { return (JSON.parse(task.input) as { projectId?: string }).projectId ?? ""; } catch { return ""; }
+    })();
+    const publish = (event: LogicalEvent): void => {
+      const current = records.get(task.id);
+      const isCancellationProjection = event.type === "requirement.analysis.cancelled" || event.type === "build.cancelled";
+      if (isCancellationProjection && ctrl.signal.aborted && current?.status === "cancelled") {
+        deps.events.publish(event);
+        return;
+      }
+      if (ctrl.signal.aborted || terminalizing.has(task.id) || (current && isTerminal(current.status))) return;
+      deps.events.publish(event);
+    };
     const ctx: TaskContext = {
       taskId: task.id,
       mode,
       signal: ctrl.signal,
-      emit: (event: LogicalEvent) => {
-        const current = records.get(task.id);
-        const isCancellationProjection = event.type === "requirement.analysis.cancelled" || event.type === "build.cancelled";
-        if (isCancellationProjection && ctrl.signal.aborted && current?.status === "cancelled") {
-          deps.events.publish(event);
-          return;
-        }
-        if (ctrl.signal.aborted || (current && isTerminal(current.status))) return;
-        deps.events.publish(event);
+      progress: (phase, operation, heartbeat = false) => {
+        if (ctrl.signal.aborted || terminalizing.has(task.id)) return;
+        publish({
+          type: "requirement.analysis.phase",
+          taskId: task.id,
+          projectId,
+          phase,
+          operation,
+          timestamp: now().toISOString(),
+          heartbeat,
+        });
       },
+      emit: publish,
       setOutput: async (output: string) => {
         const persisted = await deps.persistence.getTask(task.id);
         const current = persisted ?? records.get(task.id) ?? task;
@@ -180,10 +197,14 @@ export function createInProcessTasks(deps: InProcessTaskDeps): InProcessTaskRunt
       const ctrl = controllers.get(taskId);
       const current = await deps.persistence.getTask(taskId) ?? records.get(taskId);
       if (!current || isTerminal(current.status)) return false;
-      const transition = persistTerminal(current, "cancelled");
-      const result = await transition;
-      if (result.changed) ctrl?.abort();
-      return result.changed;
+      terminalizing.add(taskId);
+      try {
+        const result = await persistTerminal(current, "cancelled");
+        if (result.changed) ctrl?.abort();
+        return result.changed;
+      } finally {
+        terminalizing.delete(taskId);
+      }
     },
 
     async getTask(id: string): Promise<TaskRecord | null> {

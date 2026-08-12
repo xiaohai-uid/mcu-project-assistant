@@ -187,7 +187,7 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
                 choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>;
               };
               const delta = parsed.choices?.[0]?.delta;
-              const text = delta?.content ?? delta?.reasoning_content ?? "";
+              const text = delta?.content ?? "";
               if (text && !req.signal.aborted) req.onChunk(text);
             } catch {
               // 忽略畸形帧
