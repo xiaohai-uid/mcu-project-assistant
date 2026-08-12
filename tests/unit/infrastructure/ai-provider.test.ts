@@ -24,4 +24,45 @@ describe("AI provider composition", () => {
   it("binds zhipu explicitly to the real GLM adapter", () => {
     expect(createAiProvider({ MCU_AI_PROVIDER: "zhipu", MCU_ZHIPU_API_KEY: "test-key" }).name).toBe("zhipu-glm");
   });
+
+  it("rejects SenseNova when the API key is missing", () => {
+    expect(() =>
+      createAiProvider({
+        MCU_AI_PROVIDER: "sensenova",
+        SENSENOVA_BASE_URL: "https://example.invalid/v1",
+        SENSENOVA_CHAT_MODEL: "deepseek-v4-flash",
+      }),
+    ).toThrow(/SENSENOVA_API_KEY/i);
+  });
+
+  it("rejects SenseNova when the base URL is missing", () => {
+    expect(() =>
+      createAiProvider({
+        MCU_AI_PROVIDER: "sensenova",
+        SENSENOVA_API_KEY: "test-key",
+        SENSENOVA_CHAT_MODEL: "deepseek-v4-flash",
+      }),
+    ).toThrow(/SENSENOVA_BASE_URL/i);
+  });
+
+  it("rejects SenseNova when the chat model is missing", () => {
+    expect(() =>
+      createAiProvider({
+        MCU_AI_PROVIDER: "sensenova",
+        SENSENOVA_API_KEY: "test-key",
+        SENSENOVA_BASE_URL: "https://example.invalid/v1",
+      }),
+    ).toThrow(/SENSENOVA_CHAT_MODEL/i);
+  });
+
+  it("binds SenseNova explicitly to the real adapter", () => {
+    expect(
+      createAiProvider({
+        MCU_AI_PROVIDER: "sensenova",
+        SENSENOVA_API_KEY: "test-key",
+        SENSENOVA_BASE_URL: "https://example.invalid/v1",
+        SENSENOVA_CHAT_MODEL: "deepseek-v4-flash",
+      }).name,
+    ).toBe("sensenova");
+  });
 });
