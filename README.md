@@ -40,7 +40,7 @@ Key domain rules (see `docs/rebuild/domain-contract.md` for the frozen set):
 
 ## Running
 
-Requirements: Node 20 (npm). The production server uses the explicit `companion` device mode; no arduino-cli is silently substituted for physical execution. Tests may inject deterministic adapters.
+Requirements: Node 20 (npm). The production server requires an explicit `MCU_DEVICE_PROVIDER=companion|physical`; physical mode uses the configured Arduino CLI for current ESP32-S3 discovery and upload and never falls back to Companion. Tests may inject deterministic adapters.
 
 ```bash
 npm install
@@ -54,7 +54,7 @@ npm run build        # typecheck + backend artifact (dist/server) + frontend (ap
 MCU_DEVICE_PROVIDER=companion MCU_AI_PROVIDER=sensenova SENSENOVA_API_KEY=... SENSENOVA_BASE_URL=https://token.sensenova.cn/v1 SENSENOVA_CHAT_MODEL=deepseek-v4-flash MCU_DB_PATH=C:\\absolute\\path\\mcu.db MCU_WORKSPACE_DIR=C:\\absolute\\path\\workspace npm start   # http://127.0.0.1:3000
 ```
 
-Configuration: use `.env.example` as a reference for the environment passed to the server (`MCU_PORT`, absolute `MCU_DB_PATH`, absolute `MCU_WORKSPACE_DIR`, explicit `MCU_DEVICE_PROVIDER=companion`, and the required explicit real AI provider settings). The server does not auto-load a `.env` file and refuses to start when the provider, device provider, storage paths, or provider credentials are missing or malformed; physical device mode is unavailable and never falls back to Companion; deterministic mock adapters are test fixtures only. The production server resolves its built frontend relative to the server artifact, not the launch cwd.
+Configuration: use `.env.example` as a reference for the environment passed to the server (`MCU_PORT`, absolute `MCU_DB_PATH`, absolute `MCU_WORKSPACE_DIR`, explicit `MCU_DEVICE_PROVIDER=companion|physical`, `MCU_ARDUINO_CLI_PATH`, and the required explicit real AI provider settings). The server does not auto-load a `.env` file and refuses to start when the provider, device provider, storage paths, or provider credentials are missing or malformed. Physical mode starts without hardware but reports typed tool/device errors, never falls back to Companion, and only reports physical verification after a fresh Arduino CLI discovery plus successful upload. Deterministic mock adapters are test fixtures only. The production server resolves its built frontend relative to the server artifact, not the launch cwd.
 
 ## Testing
 
@@ -70,4 +70,4 @@ CI (`.github/workflows/ci.yml`) runs all five gates.
 ## Acceptance notes (S10)
 
 - No mock production paths: mock AI/compiler/device adapters are test fixtures or dev adapters only; the UI calls the real HTTP API end-to-end.
-- Deterministic acceptance: no physical hardware / arduino-cli on the acceptance machine — flash/build flows are verified through the companion-local / mock compiler adapters, with the real Port contracts and workspace evidence (`.build/`, `.evidence/`, `firmware/<NNNN>/`) asserted in tests.
+- Deterministic acceptance: no physical hardware / arduino-cli on the acceptance machine — companion flash/build flows are verified through companion-local / mock compiler adapters, while the physical adapter is exercised through a controlled external subprocess fixture that records argv, port, FQBN, input directory, and exit/truth evidence. No fixture result is presented as a hardware pass.

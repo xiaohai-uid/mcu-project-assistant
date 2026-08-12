@@ -1,12 +1,13 @@
 // unit/application/flash-security — S9 安全验收组（ISSUE-011 §11 必须单独成组）
 // Flash 必须显式用户确认：无令牌/过期/复用/错误设备/L3 Stale/设备断开 全部被拒；
 // 断线重连后令牌不可复用；烧录中断不留半成品证据；会话不建表（仅 last_device → preferences）。
-import { mkdtempSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Artifact, ArtifactVersion } from "@/src/domain/models/artifact";
 import type { BuildRecord } from "@/src/domain/models/build-record";
+import { createBuildRecord } from "@/src/domain/models/build-record";
 import type { Proposal } from "@/src/domain/models/proposal";
 import type { Project } from "@/src/domain/models/project";
 import type { PersistencePort, UnitOfWork } from "@/src/ports/persistence";
@@ -181,7 +182,20 @@ async function seedFirmware(d: ReturnType<typeof deps>): Promise<{ projectId: st
     fwId = fw.id;
   }
   const f = await d.persistence.getArtifactByKind(project.id, "firmware");
-  return { projectId: project.id, versionId: f!.currentVersionId! };
+  const versionId = f!.currentVersionId!;
+  const buildId = "build-1";
+  const outputDir = join(dir, "ws", ".build", buildId, "output");
+  mkdirSync(outputDir, { recursive: true });
+  writeFileSync(join(outputDir, "fixture.bin"), "firmware-fixture", "utf8");
+  await d.persistence.withTransaction((uow) => uow.createBuildRecord(createBuildRecord({
+    id: buildId, artifactVersionId: versionId, taskId: null, target: "esp32-s3", toolchain: "esp32-arduino",
+    toolchainVersion: "fixture", options: {}, startedAt: NOW, outputDir,
+  })));
+  await d.persistence.withTransaction((uow) => uow.updateBuildRecord({
+    ...d.persistence.mem.builds.get(buildId)!, status: "succeeded", completedAt: NOW, exitCode: 0,
+    outputDir, outputs: [{ path: join(outputDir, "fixture.bin"), kind: "bin", sizeBytes: 16, sha256: "4872aaf92b449866c0452a5fb55712c1cb0c8db425a046235c5ca4c4ad1feafe" }],
+  }));
+  return { projectId: project.id, versionId };
 }
 
 describe("S9 安全验收组（Flash 确认令牌；无绕过路径）", () => {
@@ -190,60 +204,60 @@ describe("S9 安全验收组（Flash 确认令牌；无绕过路径）", () => {
     const { projectId, versionId } = await seedFirmware(d);
     await detectDevice({}, d.flashDeps);
     await expect(
-      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: "", firmwareVersionId: versionId }, d.flashDeps),
+      flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: "", buildId: "build-1", artifactVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(ConfirmationMissingError);
     await expect(
-      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: "forged-token", firmwareVersionId: versionId }, d.flashDeps),
+      flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: "forged-token", buildId: "build-1", artifactVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(ConfirmationMissingError);
     void projectId;
   });
 
   it("令牌过期（60s 时效）→ ConfirmationExpiredError", async () => {
     const d = deps();
-    const { versionId } = await seedFirmware(d);
+    const { projectId, versionId } = await seedFirmware(d);
     await detectDevice({}, d.flashDeps);
     const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
     // 60s 后（超时）消费 → expired
     const later = new Date(Date.parse(NOW) + 61_000);
     const d2 = { ...d.flashDeps, now: () => later };
     await expect(
-      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: token, firmwareVersionId: versionId }, d2),
+      flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: token, buildId: "build-1", artifactVersionId: versionId }, d2),
     ).rejects.toThrow(ConfirmationExpiredError);
   });
 
   it("令牌单次使用：复用被拒（TokenReusedError）", async () => {
     const d = deps();
-    const { versionId } = await seedFirmware(d);
+    const { projectId, versionId } = await seedFirmware(d);
     await detectDevice({}, d.flashDeps);
     const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
     console.log("before flashDevice");
-    await flashDevice({ deviceId: "companion-esp32s3", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps);
+    await flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: token, buildId: "build-1", artifactVersionId: versionId }, d.flashDeps);
     console.log("after flashDevice");
     // 复用同一令牌 → 拒绝
     await expect(
-      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps),
+      flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: token, buildId: "build-1", artifactVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(TokenReusedError);
   });
 
   it("令牌绑定设备：错误设备 → DeviceMismatchError", async () => {
     const d = deps();
-    const { versionId } = await seedFirmware(d);
+    const { projectId, versionId } = await seedFirmware(d);
     await detectDevice({}, d.flashDeps);
     const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
     await expect(
-      flashDevice({ deviceId: "other-device", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps),
+      flashDevice({ projectId, deviceId: "other-device", confirmationToken: token, buildId: "build-1", artifactVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(DeviceMismatchError);
   });
 
   it("设备断开 → 409 DeviceDisconnected；断开后旧令牌不可复用（需重新确认）", async () => {
     const d = deps();
-    const { versionId } = await seedFirmware(d);
+    const { projectId, versionId } = await seedFirmware(d);
     await detectDevice({}, d.flashDeps);
     const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
     await disconnectDevice(d.flashDeps);
     void token;
     await expect(
-      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps),
+      flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: token, buildId: "build-1", artifactVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(DeviceDisconnectedError);
   });
 
@@ -258,17 +272,17 @@ describe("S9 安全验收组（Flash 确认令牌；无绕过路径）", () => {
     );
     const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
     await expect(
-      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps),
+      flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: token, buildId: "build-1", artifactVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(/Blocking stale/i);
   });
 
   it("烧录中断（取消）→ 不留半成品证据（.evidence 无文件）", async () => {
     const d = deps();
-    const { versionId } = await seedFirmware(d);
+    const { projectId, versionId } = await seedFirmware(d);
     await detectDevice({}, d.flashDeps);
     // 用伪造令牌路径验证失败不留证据（令牌校验被拒 → 无任务执行）
     await expect(
-      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: "forged", firmwareVersionId: versionId }, d.flashDeps),
+      flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: "forged", buildId: "build-1", artifactVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(ConfirmationMissingError);
     expect(existsSync(join(dir, "ws", ".evidence"))).toBe(false);
   });

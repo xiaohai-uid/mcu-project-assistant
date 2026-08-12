@@ -42,7 +42,7 @@ describe("production runtime configuration", () => {
   it("requires an explicit supported device provider and never falls back from physical", () => {
     expect(() => loadConfig({ ...valid, MCU_DEVICE_PROVIDER: undefined })).toThrow(/MCU_DEVICE_PROVIDER/i);
     expect(() => loadConfig({ ...valid, MCU_DEVICE_PROVIDER: "unknown" })).toThrow(/MCU_DEVICE_PROVIDER/i);
-    expect(() => loadConfig({ ...valid, MCU_DEVICE_PROVIDER: "physical" })).toThrow(/unavailable|physical/i);
+    expect(loadConfig({ ...valid, MCU_DEVICE_PROVIDER: "physical" }).deviceProvider).toBe("physical");
   });
 
   it("keeps the database and workspace roots separate", () => {

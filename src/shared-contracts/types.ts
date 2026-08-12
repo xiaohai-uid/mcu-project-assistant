@@ -109,12 +109,26 @@ export interface DeviceInfoDto {
   port: string;
   baudRate: number;
   truth: DeviceTruthDto;
+  protocol?: string;
+  fqbn?: string;
+  vid?: string;
+  pid?: string;
+  serialNumber?: string;
 }
 
 export interface FlashResultDto {
   exitCode: number;
   sessionId: string;
   truth: DeviceTruthDto;
+  buildId?: string;
+  artifactVersionId?: string;
+  firmwareSha256?: string;
+  port?: string;
+  fqbn?: string;
+  adapter?: string;
+  toolchain?: string;
+  toolchainVersion?: string | null;
+  errorCode?: string;
 }
 
 export interface SerialResultDto {

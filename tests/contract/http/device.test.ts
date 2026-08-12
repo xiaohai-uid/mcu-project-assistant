@@ -12,6 +12,7 @@ import { createInProcessTasks } from "@/src/adapters/task/in-process";
 import { createMockAiProvider } from "@/src/adapters/ai/mock";
 import { createMockCompiler } from "@/src/adapters/compiler/mock";
 import { createCompanionLocalDevice } from "@/src/adapters/device/companion-local";
+import { createPhysicalArduinoDevice } from "@/src/adapters/device/physical-arduino";
 import type { DevicePort } from "@/src/ports/device";
 import type { LogicalEvent } from "@/src/ports/events";
 import { openDatabase, type SqliteDb } from "@/src/adapters/persistence/sqlite/connection";
@@ -25,7 +26,7 @@ let app: ReturnType<typeof createApp>;
 let flashInvocations = 0;
 let publishedEvents: LogicalEvent[] = [];
 
-function boot() {
+function boot(provider: "companion" | "physical" = "companion") {
   dir = mkdtempSync(join(tmpdir(), "mcu-s9-http-"));
   ws = join(dir, "ws");
   db = openDatabase(join(dir, "test.db"));
@@ -34,14 +35,24 @@ function boot() {
   publishedEvents = [];
   const events = { publish: (event: LogicalEvent) => publishedEvents.push(event) };
   const companion = createCompanionLocalDevice();
+  const deviceProvider = provider === "physical"
+    ? createPhysicalArduinoDevice({
+        arduinoCliPath: process.execPath,
+        executableArgsPrefix: ["-e", `const a=process.argv.slice(1);if(a.includes('board'))process.stdout.write(JSON.stringify([{port:'COM9',protocol:'serial',matching_boards:[{fqbn:'esp32:esp32:esp32s3',vid:'303a',pid:'1001',serial_number:'contract-fixture'}]}]));else process.exit(0);`],
+        cwd: ws,
+        timeoutMs: 1000,
+      })
+    : companion;
   flashInvocations = 0;
-  const device: DevicePort = {
-    ...companion,
-    flash: async (...args) => {
-      flashInvocations += 1;
-      return companion.flash(...args);
-    },
-  };
+  const device: DevicePort = provider === "physical"
+    ? deviceProvider
+    : {
+        ...companion,
+        flash: async (...args) => {
+          flashInvocations += 1;
+          return companion.flash(...args);
+        },
+      };
   const deps: AppDeps = {
     persistence,
     workspaceDir: ws,
@@ -103,6 +114,23 @@ async function seedFirmware(projectId: string): Promise<string> {
   return versions[versions.length - 1]!.id;
 }
 
+const waitFor = async (fn: () => Promise<boolean>, ms = 4000): Promise<void> => {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (await fn()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("timeout");
+};
+
+async function buildFirmware(projectId: string, versionId: string): Promise<string> {
+  const run = await request(app).post(`/api/v1/projects/${projectId}/builds`).send({ versionId });
+  expect(run.status).toBe(202);
+  const { buildId } = run.body as { buildId: string };
+  await waitFor(async () => ((await request(app).get(`/api/v1/builds/${buildId}`)).body as { status: string }).status === "succeeded");
+  return buildId;
+}
+
 describe("S9 device surface", () => {
   it("项目设备状态只读 last_device，不启动检测或恢复串口会话", async () => {
     boot();
@@ -122,6 +150,7 @@ describe("S9 device surface", () => {
     boot();
     const projectId = await createProject();
     const versionId = await seedFirmware(projectId);
+    const buildId = await buildFirmware(projectId, versionId);
 
     const detect = await request(app).post("/api/v1/device/detect");
     expect(detect.status).toBe(200);
@@ -141,7 +170,7 @@ describe("S9 device surface", () => {
 
     const flash = await request(app)
       .post("/api/v1/device/flash")
-      .send({ deviceId: device.id, confirmationToken: token, firmwareVersionId: versionId });
+      .send({ projectId, deviceId: device.id, confirmationToken: token, buildId, artifactVersionId: versionId });
     expect(flash.status).toBe(202);
     const { sessionId } = flash.body as { sessionId: string };
     expect(sessionId).toBeTruthy();
@@ -181,12 +210,13 @@ describe("S9 device surface", () => {
     const projectId = await createProject();
     const versionId = await seedFirmware(projectId);
     const deviceId = "companion-esp32s3";
+    const buildId = await buildFirmware(projectId, versionId);
 
     // 未检测 → 409 device_disconnected（先取合法令牌——令牌校验先于设备连接检查）
     const t0 = ((await request(app).post("/api/v1/device/flash-token").send({ deviceId })).body) as { token: string };
     const noDevice = await request(app)
       .post("/api/v1/device/flash")
-      .send({ deviceId, confirmationToken: t0.token, firmwareVersionId: versionId });
+      .send({ projectId, deviceId, confirmationToken: t0.token, buildId, artifactVersionId: versionId });
     expect(noDevice.status).toBe(409);
     expect(((noDevice.body as { error: { code: string } }).error).code).toBe("device_disconnected");
 
@@ -197,7 +227,7 @@ describe("S9 device surface", () => {
     const beforePhysical = flashInvocations;
     const physical = await request(app)
       .post("/api/v1/device/flash")
-      .send({ deviceId, confirmationToken: physicalToken.token, firmwareVersionId: versionId, executionReality: "physical" });
+      .send({ projectId, deviceId, confirmationToken: physicalToken.token, buildId, artifactVersionId: versionId, executionReality: "physical" });
     expect(physical.status).toBe(409);
     expect(((physical.body as { error: { code: string } }).error).code).toBe("physical_flash_blocked");
     expect(flashInvocations).toBe(beforePhysical);
@@ -206,24 +236,24 @@ describe("S9 device surface", () => {
     // 无令牌 → 403 confirmation_missing
     const noToken = await request(app)
       .post("/api/v1/device/flash")
-      .send({ deviceId, confirmationToken: "", firmwareVersionId: versionId });
+      .send({ projectId, deviceId, confirmationToken: "", buildId, artifactVersionId: versionId });
     expect(noToken.status).toBe(403);
     expect(((noToken.body as { error: { code: string } }).error).code).toBe("confirmation_missing");
     // 伪造令牌 → 403 confirmation_missing
     const forged = await request(app)
       .post("/api/v1/device/flash")
-      .send({ deviceId, confirmationToken: "forged", firmwareVersionId: versionId });
+      .send({ projectId, deviceId, confirmationToken: "forged", buildId, artifactVersionId: versionId });
     expect(forged.status).toBe(403);
 
     // 合法令牌 → 成功；复用 → 403 token_reused
     const t1 = ((await request(app).post("/api/v1/device/flash-token").send({ deviceId })).body) as { token: string };
     const ok = await request(app)
       .post("/api/v1/device/flash")
-      .send({ deviceId, confirmationToken: t1.token, firmwareVersionId: versionId });
+      .send({ projectId, deviceId, confirmationToken: t1.token, buildId, artifactVersionId: versionId });
     expect(ok.status).toBe(202);
     const reused = await request(app)
       .post("/api/v1/device/flash")
-      .send({ deviceId, confirmationToken: t1.token, firmwareVersionId: versionId });
+      .send({ projectId, deviceId, confirmationToken: t1.token, buildId, artifactVersionId: versionId });
     expect(reused.status).toBe(403);
     expect(((reused.body as { error: { code: string } }).error).code).toBe("token_reused");
 
@@ -231,9 +261,24 @@ describe("S9 device surface", () => {
     const t2 = ((await request(app).post("/api/v1/device/flash-token").send({ deviceId })).body) as { token: string };
     const wrong = await request(app)
       .post("/api/v1/device/flash")
-      .send({ deviceId: "other", confirmationToken: t2.token, firmwareVersionId: versionId });
+      .send({ projectId, deviceId: "other", confirmationToken: t2.token, buildId, artifactVersionId: versionId });
     expect(wrong.status).toBe(403);
     expect(((wrong.body as { error: { code: string } }).error).code).toBe("device_mismatch");
     void projectId;
+  });
+
+  it("physical provider uses the controlled Arduino CLI boundary and only returns physicalVerified after upload", async () => {
+    boot("physical");
+    const projectId = await createProject();
+    const versionId = await seedFirmware(projectId);
+    const buildId = await buildFirmware(projectId, versionId);
+    const detect = await request(app).post("/api/v1/device/detect");
+    expect(detect.status).toBe(200);
+    const device = detect.body as { id: string; port: string; fqbn: string; truth: { executionReality: string; physicalVerified: boolean } };
+    expect(device).toMatchObject({ port: "COM9", fqbn: "esp32:esp32:esp32s3", truth: { executionReality: "physical", physicalVerified: true } });
+    const token = ((await request(app).post("/api/v1/device/flash-token").send({ deviceId: device.id })).body as { token: string }).token;
+    const flash = await request(app).post("/api/v1/device/flash").send({ projectId, deviceId: device.id, confirmationToken: token, buildId, artifactVersionId: versionId, executionReality: "physical" });
+    expect(flash.status).toBe(202);
+    expect(flash.body).toMatchObject({ exitCode: 0, buildId, artifactVersionId: versionId, port: "COM9", fqbn: "esp32:esp32:esp32s3", adapter: "esp32-arduino-physical", toolchain: "arduino-cli", truth: { executionReality: "physical", verification: "verified", physicalVerified: true } });
   });
 });

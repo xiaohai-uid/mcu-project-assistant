@@ -48,7 +48,7 @@ export function createCompanionLocalDevice(opts?: { device?: DeviceInfo }): Devi
       if (session.device) session.device = { ...session.device, truth: session.truth };
       session.serialLines.push("[system] Device disconnected");
     },
-    async flash(input: { deviceId: string }, onEvent: (e: FlashEvent) => void, signal: AbortSignal): Promise<FlashResult> {
+    async flash(input: { deviceId: string; buildId: string; artifactVersionId: string; outputDir: string; firmwarePath: string; firmwareSha256: string }, onEvent: (e: FlashEvent) => void, signal: AbortSignal): Promise<FlashResult> {
       const steps = [
         { p: 10, m: "Opening serial port..." },
         { p: 25, m: "Erasing flash..." },
@@ -72,7 +72,7 @@ export function createCompanionLocalDevice(opts?: { device?: DeviceInfo }): Devi
       session.stage = "connected";
       session.truth = companionTruth();
       session.serialLines.push("[system] Companion firmware execution succeeded — telemetry stream starting");
-      return { exitCode: 0, sessionId: `session-${Date.now().toString(36)}`, truth: companionTruth() };
+      return { exitCode: 0, sessionId: `session-${Date.now().toString(36)}`, truth: companionTruth(), adapter: "companion-local", toolchain: "companion" };
     },
     session() {
       return session;

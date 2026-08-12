@@ -2,14 +2,16 @@
 // Safety（Tier 0）：Flash 必须显式用户确认——一次性令牌（60s 时效、单次使用、绑定设备）；
 // AI/Companion/重试不得绕过（无令牌被拒）；L3 Stale 门禁（I-8）；设备断开中止（不留半成品证据）。
 // DeviceSession = 运行时状态（适配器内存态；持久化仅 last_device → preferences）。
-import { appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { DevicePort, DeviceInfo, DeviceTruth } from "@/src/ports/device";
 import type { DeviceExecutionReality, FlashResultDto } from "@/src/shared-contracts/types";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort } from "@/src/ports/task-execution";
+import type { BuildRecord } from "@/src/domain/models/build-record";
 
 export class ConfirmationMissingError extends Error {
   constructor() {
@@ -58,6 +60,36 @@ export class PhysicalFlashBlockedError extends Error {
     super("PHYSICAL_FLASH_BLOCKED: no physical device adapter is configured");
     this.name = "PhysicalFlashBlockedError";
   }
+}
+
+export class FlashBuildNotVerifiedError extends Error {
+  readonly code = "FLASH_BUILD_NOT_VERIFIED";
+  constructor() { super("Flash requires a succeeded build with a verified firmware binary"); this.name = "FlashBuildNotVerifiedError"; }
+}
+
+export class FlashFirmwareMissingError extends Error {
+  readonly code = "FLASH_FIRMWARE_MISSING";
+  constructor() { super("Verified firmware binary is missing from the build output"); this.name = "FlashFirmwareMissingError"; }
+}
+
+export class FlashFirmwareHashMismatchError extends Error {
+  readonly code = "FLASH_FIRMWARE_HASH_MISMATCH";
+  constructor() { super("Firmware binary hash does not match the durable build evidence"); this.name = "FlashFirmwareHashMismatchError"; }
+}
+
+export class PhysicalDeviceNotFoundError extends Error {
+  readonly code = "PHYSICAL_DEVICE_NOT_FOUND";
+  constructor() { super("No supported physical device was found"); this.name = "PhysicalDeviceNotFoundError"; }
+}
+
+export class PhysicalDeviceAmbiguousError extends Error {
+  readonly code = "PHYSICAL_DEVICE_AMBIGUOUS";
+  constructor() { super("Multiple supported physical devices were found; select one explicitly"); this.name = "PhysicalDeviceAmbiguousError"; }
+}
+
+export class PhysicalDeviceChangedError extends Error {
+  readonly code = "PHYSICAL_DEVICE_CHANGED";
+  constructor() { super("The physical device changed between discovery and flash"); this.name = "PhysicalDeviceChangedError"; }
 }
 
 // ---------- Flash 确认令牌（一次性/短时效/绑定设备；安全验收组） ----------
@@ -114,8 +146,10 @@ export interface FlashCapabilityDeps {
 export type FlashTaskDeps = Pick<FlashCapabilityDeps, "persistence" | "events" | "device" | "tokens" | "workspaceDir" | "now">;
 
 export interface PersistedFlashTaskInput {
+  projectId: string;
+  buildId: string;
+  artifactVersionId: string;
   deviceId: string;
-  firmwareVersionId: string;
   executionReality?: DeviceExecutionReality;
 }
 
@@ -127,10 +161,13 @@ export async function executeFlashTask(
   deps: FlashTaskDeps,
 ): Promise<void> {
   const now = deps.now ?? (() => new Date());
-  const version = await deps.persistence.getVersion(input.firmwareVersionId);
+  const version = await deps.persistence.getVersion(input.artifactVersionId);
   if (!version) throw new FirmwareVersionNotFoundError();
   const artifact = await deps.persistence.getArtifact(version.artifactId);
   const projectId = artifact?.projectId ?? "";
+  if (projectId !== input.projectId || artifact?.kind !== "firmware") throw new FlashBuildNotVerifiedError();
+  const build = await deps.persistence.getBuildRecord(input.buildId);
+  const evidence = verifiedFirmwareEvidence(build, input.artifactVersionId, deps.workspaceDir);
   const sessionId = { value: "" };
   const lines: string[] = [];
 
@@ -141,7 +178,14 @@ export async function executeFlashTask(
 
   try {
     const result = await deps.device.flash(
-      { deviceId: input.deviceId },
+      {
+        deviceId: input.deviceId,
+        buildId: input.buildId,
+        artifactVersionId: input.artifactVersionId,
+        outputDir: evidence.outputDir,
+        firmwarePath: evidence.path,
+        firmwareSha256: evidence.sha256,
+      },
       (e) => {
         if (e.type === "progress") {
           ctx.emit({ type: "device.flashing", projectId, deviceId: input.deviceId, percent: e.percent, message: e.message });
@@ -152,39 +196,61 @@ export async function executeFlashTask(
       ctx.signal,
     );
     sessionId.value = result.sessionId;
-    if (ctx.signal.aborted || result.exitCode !== 0) {
-      await ctx.setOutput(JSON.stringify({ exitCode: result.exitCode, sessionId: "", truth: result.truth } satisfies PersistedFlashOutput));
-      if (ctx.signal.aborted) return;
-      ctx.emit({
-        type: "device.flash_failed",
-        projectId,
-        deviceId: input.deviceId,
-        message: "Flash aborted",
-        truth: result.truth,
-      });
+    if (ctx.signal.aborted) {
+      await ctx.setOutput(JSON.stringify({ ...result, exitCode: 1, sessionId: "", buildId: input.buildId, artifactVersionId: input.artifactVersionId, firmwareSha256: evidence.sha256, errorCode: "FLASH_CANCELLED" } satisfies PersistedFlashOutput));
       return;
     }
+    if (result.exitCode !== 0) throw new Error(result.errorCode ?? "FLASH_EXIT_NONZERO");
     if (sessionId.value) {
       const evidencePath = join(deps.workspaceDir, ".evidence", `${sessionId.value}.log`);
       mkdirSync(join(deps.workspaceDir, ".evidence"), { recursive: true });
       appendFileSync(evidencePath, lines.join("\n") + "\n", "utf8");
     }
-    await ctx.setOutput(JSON.stringify({ exitCode: result.exitCode, sessionId: sessionId.value, truth: result.truth } satisfies PersistedFlashOutput));
+    await ctx.setOutput(JSON.stringify({ ...result, sessionId: sessionId.value, buildId: input.buildId, artifactVersionId: input.artifactVersionId, firmwareSha256: evidence.sha256 } satisfies PersistedFlashOutput));
     if (ctx.signal.aborted) return;
     ctx.emit({ type: "device.flashed", projectId, deviceId: input.deviceId, sessionId: sessionId.value, truth: result.truth });
   } catch (err) {
-    const truth: DeviceTruth = { ...deps.device.session().truth, verification: "failed" };
-    await ctx.setOutput(JSON.stringify({ exitCode: 1, sessionId: "", truth } satisfies PersistedFlashOutput));
+    const truth: DeviceTruth = { ...deps.device.session().truth, verification: "failed", physicalVerified: false };
+    const errorCode = err instanceof Error && "code" in err ? String((err as Error & { code?: unknown }).code) : err instanceof Error ? err.message : String(err);
+    await ctx.setOutput(JSON.stringify({
+      exitCode: 1,
+      sessionId: "",
+      truth,
+      ...(input.executionReality === "physical" ? { adapter: "esp32-arduino-physical", toolchain: "arduino-cli" } : {}),
+      buildId: input.buildId,
+      artifactVersionId: input.artifactVersionId,
+      firmwareSha256: evidence.sha256,
+      errorCode,
+    } satisfies PersistedFlashOutput));
     if (ctx.signal.aborted) return;
     ctx.emit({
       type: "device.flash_failed",
       projectId,
       deviceId: input.deviceId,
-      message: err instanceof Error ? err.message : String(err),
+      message: errorCode,
       truth,
     });
+    throw err;
   }
   void now;
+}
+
+function isWithin(root: string, target: string): boolean {
+  const rel = relative(resolve(root), resolve(target));
+  return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel));
+}
+
+function verifiedFirmwareEvidence(build: BuildRecord | null, artifactVersionId: string, workspaceDir: string): { outputDir: string; path: string; sha256: string } {
+  if (!build || build.artifactVersionId !== artifactVersionId || build.status !== "succeeded" || !build.outputDir) throw new FlashBuildNotVerifiedError();
+  const outputDir = resolve(build.outputDir);
+  if (!isWithin(join(resolve(workspaceDir), ".build"), outputDir)) throw new FlashBuildNotVerifiedError();
+  const output = build.outputs.find((item) => item.kind === "bin" && item.sizeBytes > 0 && /^[a-f0-9]{64}$/i.test(item.sha256));
+  if (!output) throw new FlashBuildNotVerifiedError();
+  const path = resolve(output.path);
+  if (!existsSync(path) || !statSync(path).isFile() || !isWithin(outputDir, path)) throw new FlashFirmwareMissingError();
+  const actual = createHash("sha256").update(readFileSync(path)).digest("hex");
+  if (actual !== output.sha256 || statSync(path).size !== output.sizeBytes) throw new FlashFirmwareHashMismatchError();
+  return { outputDir, path, sha256: output.sha256 };
 }
 
 export async function detectDevice(
@@ -214,7 +280,7 @@ export async function issueFlashToken(
  * 烧录执行（进度事件流）→ 完成写 .evidence/<sessionId>.log；中断不留半成品证据。
  */
 export async function flashDevice(
-  input: { deviceId: string; confirmationToken: string; firmwareVersionId: string; executionReality?: DeviceExecutionReality },
+  input: { projectId: string; deviceId: string; confirmationToken: string; buildId: string; artifactVersionId: string; executionReality?: DeviceExecutionReality },
   deps: FlashCapabilityDeps,
 ): Promise<PersistedFlashOutput> {
   const now = deps.now ?? (() => new Date());
@@ -233,10 +299,16 @@ export async function flashDevice(
   }
 
   // 2. L3 Stale 门禁（I-8：L3 禁 Flash）
-  const version = await deps.persistence.getVersion(input.firmwareVersionId);
+  const version = await deps.persistence.getVersion(input.artifactVersionId);
   if (!version) throw new FirmwareVersionNotFoundError();
   const artifact = await deps.persistence.getArtifact(version.artifactId);
   const projectId = artifact?.projectId ?? "";
+  if (projectId !== input.projectId || artifact?.kind !== "firmware") throw new FlashBuildNotVerifiedError();
+  if (input.executionReality === "physical") {
+    const fresh = await deps.device.detectBoard();
+    if (fresh.id !== input.deviceId) throw new PhysicalDeviceChangedError();
+  }
+  verifiedFirmwareEvidence(await deps.persistence.getBuildRecord(input.buildId), input.artifactVersionId, deps.workspaceDir);
   const { assertNotBlocking } = await import("@/src/application/capabilities/revalidate");
   await assertNotBlocking({ projectId, action: "flash" }, deps);
 
@@ -245,7 +317,7 @@ export async function flashDevice(
 
   // 4. 烧录执行（in-process 任务；进度事件 → SSE；deferred 等待任务终态以返回 sessionId）
   const taskId = await deps.tasks.submit(
-    { capability: "flash_device", input: JSON.stringify({ projectId, deviceId: input.deviceId, firmwareVersionId: input.firmwareVersionId, executionReality: input.executionReality }) },
+    { capability: "flash_device", input: JSON.stringify({ projectId: input.projectId, buildId: input.buildId, artifactVersionId: input.artifactVersionId, deviceId: input.deviceId, executionReality: input.executionReality }) },
   );
 
   const runtime = deps.tasks as TaskExecutionPort & {

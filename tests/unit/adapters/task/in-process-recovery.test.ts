@@ -184,7 +184,7 @@ describe("durable in-process task recovery", () => {
       uow.saveTask({
         ...task("flash-1"),
         capability: "flash_device",
-        input: JSON.stringify({ deviceId: "dev-1", firmwareVersionId: "fw-v1" }),
+        input: JSON.stringify({ projectId: "project-1", deviceId: "dev-1", buildId: "build-1", artifactVersionId: "fw-v1" }),
       });
     });
     let invocations = 0;

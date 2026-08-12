@@ -87,7 +87,11 @@ describe("production startup configuration", () => {
         MCU_DB_PATH: join(dir, "physical.db"),
         MCU_WORKSPACE_DIR: join(dir, "physical-workspace"),
       });
-      expect(await waitForExit(physical)).not.toBe(0);
+      expect(await waitForHealth(31984)).toBe(true);
+      const physicalDetect = await fetch("http://127.0.0.1:31984/api/v1/device/detect", { method: "POST" });
+      expect(physicalDetect.status).toBe(503);
+      physical.kill("SIGTERM");
+      await waitForExit(physical);
 
       const invalid = start({
         MCU_AI_PROVIDER: "sensenova",

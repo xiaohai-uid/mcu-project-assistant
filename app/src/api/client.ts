@@ -237,11 +237,11 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ deviceId }),
     }),
-  flashDevice: (deviceId: string, confirmationToken: string, firmwareVersionId: string) =>
+  flashDevice: (input: { projectId: string; deviceId: string; confirmationToken: string; buildId: string; artifactVersionId: string; executionReality?: "simulation" | "companion" | "physical" }) =>
     request<FlashResultDto>("/api/v1/device/flash", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deviceId, confirmationToken, firmwareVersionId }),
+      body: JSON.stringify(input),
     }),
   disconnectDevice: () => request<{ status: string }>("/api/v1/device/disconnect", { method: "POST" }),
   sendSerial: (command: string) =>

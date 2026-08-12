@@ -5,12 +5,12 @@ import { ConfirmDialog, EmptyState } from "./ui";
 
 export const CompanionView: React.FC = () => {
   const { state, detectBoard, flashWithConfirmation, simulateMoisture, togglePump } = useApp();
-  const { lang, companion, runtime, project, artifacts } = state;
+  const { lang, companion, runtime, project, artifacts, build } = state;
   const [confirmFlash, setConfirmFlash] = useState(false);
   const [calibrating, setCalibrating] = useState(false);
 
   const deviceOk = runtime.deviceStage === "connected";
-  const firmwareOk = artifacts.firmware.version > 0;
+  const firmwareOk = artifacts.firmware.version > 0 && artifacts.firmware.status !== "stale" && build.outputVerified;
   const flashing = runtime.deviceStage === "flashing";
   const truthLabel = runtime.deviceTruth
     ? `${runtime.deviceTruth.executionReality.toUpperCase()} · ${runtime.deviceTruth.physicalVerified ? "physical verified" : "physical not verified"}`

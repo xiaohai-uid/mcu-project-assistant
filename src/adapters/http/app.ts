@@ -104,6 +104,12 @@ import {
   detectDevice as detectDeviceCapability,
   disconnectDevice as disconnectDeviceCapability,
   FirmwareVersionNotFoundError,
+  FlashBuildNotVerifiedError,
+  FlashFirmwareMissingError,
+  FlashFirmwareHashMismatchError,
+  PhysicalDeviceNotFoundError,
+  PhysicalDeviceAmbiguousError,
+  PhysicalDeviceChangedError,
   flashDevice as flashDeviceCapability,
   issueFlashToken as issueFlashTokenCapability,
   sendSerial as sendSerialCapability,
@@ -596,8 +602,16 @@ export function createApp(deps: AppDeps): Express {
   // ---------- S9 Device / Flash / Serial ----------
 
   const handleDetectDevice = async (_req: Request, res: Response) => {
-    const device = await detectDeviceCapability({}, flashDeps);
-    res.json(device);
+    try {
+      const device = await detectDeviceCapability({}, flashDeps);
+      res.json(device);
+    } catch (err) {
+      const code = err instanceof Error && "code" in err ? String((err as Error & { code?: unknown }).code) : "";
+      if (code === "PHYSICAL_TOOL_UNAVAILABLE") throw new ApiError(503, "physical_tool_unavailable", err instanceof Error ? err.message : String(err));
+      if (code === "PHYSICAL_DEVICE_NOT_FOUND") throw new ApiError(409, "physical_device_not_found", err instanceof Error ? err.message : String(err));
+      if (code === "PHYSICAL_DEVICE_AMBIGUOUS") throw new ApiError(409, "physical_device_ambiguous", err instanceof Error ? err.message : String(err));
+      throw err;
+    }
   };
 
   const handleDeviceState = async (req: Request, res: Response) => {
@@ -624,7 +638,9 @@ export function createApp(deps: AppDeps): Express {
   const handleFlash = async (req: Request, res: Response) => {
     const deviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId : "";
     const confirmationToken = typeof req.body?.confirmationToken === "string" ? req.body.confirmationToken : "";
-    const firmwareVersionId = typeof req.body?.firmwareVersionId === "string" ? req.body.firmwareVersionId : "";
+    const projectId = typeof req.body?.projectId === "string" ? req.body.projectId : "";
+    const buildId = typeof req.body?.buildId === "string" ? req.body.buildId : "";
+    const artifactVersionId = typeof req.body?.artifactVersionId === "string" ? req.body.artifactVersionId : "";
     const requestedReality = req.body?.executionReality;
     const executionReality: DeviceExecutionReality | undefined =
       requestedReality === "simulation" || requestedReality === "companion" || requestedReality === "physical"
@@ -633,7 +649,7 @@ export function createApp(deps: AppDeps): Express {
           ? undefined
           : (() => { throw new ApiError(400, "invalid_capability", "executionReality must be simulation, companion, or physical"); })();
     try {
-      const result = await flashDeviceCapability({ deviceId, confirmationToken, firmwareVersionId, executionReality }, flashDeps);
+      const result = await flashDeviceCapability({ projectId, deviceId, confirmationToken, buildId, artifactVersionId, executionReality }, flashDeps);
       res.status(202).json(result);
     } catch (err) {
       if (err instanceof ConfirmationMissingError) throw new ApiError(403, "confirmation_missing", err.message);
@@ -642,6 +658,18 @@ export function createApp(deps: AppDeps): Express {
       if (err instanceof DeviceMismatchError) throw new ApiError(403, "device_mismatch", err.message);
       if (err instanceof DeviceDisconnectedError) throw new ApiError(409, "device_disconnected", err.message);
       if (err instanceof PhysicalFlashBlockedError) throw new ApiError(409, "physical_flash_blocked", err.message);
+      if (err instanceof FlashBuildNotVerifiedError) throw new ApiError(409, "flash_build_not_verified", err.message);
+      if (err instanceof FlashFirmwareMissingError) throw new ApiError(409, "flash_firmware_missing", err.message);
+      if (err instanceof FlashFirmwareHashMismatchError) throw new ApiError(409, "flash_firmware_hash_mismatch", err.message);
+      if (err instanceof PhysicalDeviceNotFoundError) throw new ApiError(409, "physical_device_not_found", err.message);
+      if (err instanceof PhysicalDeviceAmbiguousError) throw new ApiError(409, "physical_device_ambiguous", err.message);
+      if (err instanceof PhysicalDeviceChangedError) throw new ApiError(409, "physical_device_changed", err.message);
+      const adapterCode = err instanceof Error && "code" in err ? String((err as Error & { code?: unknown }).code) : "";
+      if (adapterCode === "PHYSICAL_TOOL_UNAVAILABLE") throw new ApiError(503, "physical_tool_unavailable", err instanceof Error ? err.message : String(err));
+      if (adapterCode === "PHYSICAL_DEVICE_NOT_FOUND") throw new ApiError(409, "physical_device_not_found", err instanceof Error ? err.message : String(err));
+      if (adapterCode === "PHYSICAL_DEVICE_AMBIGUOUS") throw new ApiError(409, "physical_device_ambiguous", err instanceof Error ? err.message : String(err));
+      if (adapterCode === "PHYSICAL_DEVICE_CHANGED") throw new ApiError(409, "physical_device_changed", err instanceof Error ? err.message : String(err));
+      if (adapterCode === "FLASH_TIMEOUT") throw new ApiError(504, "flash_timeout", err instanceof Error ? err.message : String(err));
       if (err instanceof BlockingStaleError) throw new ApiError(409, "blocking_stale", err.message);
       if (err instanceof FirmwareVersionNotFoundError) throw new ApiError(404, "not_found", err.message);
       throw err;

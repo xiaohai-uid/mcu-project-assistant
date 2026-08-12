@@ -265,6 +265,7 @@ export interface RuntimeFlags {
   providerAvailable: boolean | null;  // null = 未从服务端确认
   toolchainAvailable: boolean | null; // null = 未从服务端确认
   deviceStage: DeviceStage;
+  deviceId: string | null;
   deviceTruth: DeviceTruthDto | null;
   slowMode: boolean;           // 长任务可取消演示
 }

@@ -190,6 +190,7 @@ function initialState(): AppState {
       providerAvailable: null,
       toolchainAvailable: null,
       deviceStage: "none",
+      deviceId: null,
       deviceTruth: null,
       slowMode: false,
     },
@@ -279,7 +280,7 @@ function reducer(state: AppState, a: Action): AppState {
         build: initialState().build,
         companion: initialState().companion,
         selectedMcu: "",
-        runtime: { ...state.runtime, online: true, providerAvailable: null, toolchainAvailable: null, deviceStage: "none", deviceTruth: null },
+        runtime: { ...state.runtime, online: true, providerAvailable: null, toolchainAvailable: null, deviceStage: "none", deviceId: null, deviceTruth: null },
         copilotMessages: [
           { id: `sys-${Date.now()}`, sender: "system", text: `Project "${a.name}" created. Start with Requirements discovery.` },
         ],
@@ -372,7 +373,7 @@ function reducer(state: AppState, a: Action): AppState {
         firmware: { ...state.firmware, stage: firmwareStage, code: firmwareCode, proposal: null, version: firmwareVersion },
         build,
         companion: { ...state.companion, stage: "idle", serialLines: [], moisture: null, temperature: null, pumpActive: false, flashProgress: 0 },
-        runtime: { ...state.runtime, online: true, providerAvailable: null, toolchainAvailable: snapshot.toolchain.available, deviceStage: "none", deviceTruth: lastKnownTruth },
+        runtime: { ...state.runtime, online: true, providerAvailable: null, toolchainAvailable: snapshot.toolchain.available, deviceStage: "none", deviceId: snapshot.device.lastDevice?.id ?? null, deviceTruth: lastKnownTruth },
         nav: "Draft",
         sidebar: "Requirements",
       };
@@ -1535,7 +1536,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         const device = await clientApi.detectDevice();
-        dispatch({ type: "RUNTIME", patch: { deviceStage: "connected", deviceTruth: device.truth } });
+        dispatch({ type: "RUNTIME", patch: { deviceStage: "connected", deviceId: device.id, deviceTruth: device.truth } });
         dispatch({ type: "COMPANION_STAGE", stage: "serial" });
           pushCopilot({
             sender: "copilot",
@@ -1565,7 +1566,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const versions = await clientApi.listVersions(fw.id);
           const current = versions[versions.length - 1];
           if (!current) throw new ApiError(409, "no_firmware_version", "No firmware version");
-          await clientApi.flashDevice("companion-esp32s3", token, current.id);
+          if (!s.build.buildId || !s.build.outputVerified) throw new ApiError(409, "flash_build_not_verified", "No verified build selected");
+          const deviceId = s.runtime.deviceId;
+          const executionReality = s.runtime.deviceTruth?.executionReality;
+          if (!deviceId || !executionReality || (executionReality !== "companion" && executionReality !== "physical")) {
+            throw new ApiError(409, "device_disconnected", "No currently detected device is bound to the flash operation");
+          }
+          await clientApi.flashDevice({ projectId, deviceId, confirmationToken: token, buildId: s.build.buildId, artifactVersionId: current.id, executionReality });
           // 完成态由 SSE device.flashed 驱动（见 subscribeDeviceEvents）
         } catch (err) {
           dispatch({ type: "RUNTIME", patch: { deviceStage: "connected" } });
@@ -1574,7 +1581,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       })();
     },
-    [s.runtime.deviceStage, s.project?.id, pushSystem],
+    [s.runtime.deviceStage, s.runtime.deviceId, s.runtime.deviceTruth, s.project?.id, s.build.buildId, s.build.outputVerified, pushSystem],
   );
 
   /** 烧录确认（高风险对话框确认后）：签发一次性令牌 → 真实 flash（Safety Tier 0：令牌来自用户动作） */
@@ -1585,13 +1592,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (!s.build.outputVerified) return;
     void (async () => {
       try {
-        const { token } = await clientApi.issueFlashToken("companion-esp32s3");
+        if (!s.runtime.deviceId) return;
+        const { token } = await clientApi.issueFlashToken(s.runtime.deviceId);
         flashDevice(token);
       } catch (err) {
         pushSystem(err instanceof ApiError ? `Flash token failed: ${err.code}` : "Flash token failed");
       }
     })();
-  }, [s.project?.id, s.runtime.deviceStage, s.build.outputVerified, flashDevice, pushSystem]);
+  }, [s.project?.id, s.runtime.deviceStage, s.runtime.deviceId, s.build.outputVerified, flashDevice, pushSystem]);
 
   const sendSerial = useCallback(
     (cmd: string) => {
@@ -1730,7 +1738,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         case "providerOk": dispatch({ type: "RUNTIME", patch: { providerAvailable: true } }); break;
         case "toolchain": dispatch({ type: "RUNTIME", patch: { toolchainAvailable: false } }); break;
         case "toolchainOk": dispatch({ type: "RUNTIME", patch: { toolchainAvailable: true } }); break;
-        case "deviceDown": dispatch({ type: "RUNTIME", patch: { deviceStage: "disconnected" } }); break;
+        case "deviceDown": dispatch({ type: "RUNTIME", patch: { deviceStage: "disconnected", deviceId: null } }); break;
         case "deviceUp": dispatch({ type: "RUNTIME", patch: { deviceStage: "connected" } }); break;
         case "buildFail": dispatch({ type: "BUILD_NEXT_FAIL", v: true }); break;
         case "buildOk": dispatch({ type: "BUILD_NEXT_FAIL", v: false }); break;

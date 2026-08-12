@@ -19,7 +19,7 @@ describe("P0-04 device truth boundary", () => {
       adapter: "companion-local",
     });
 
-    const flashed = await device.flash({ deviceId: detected.id }, () => undefined, new AbortController().signal);
+    const flashed = await device.flash({ deviceId: detected.id, buildId: "build-1", artifactVersionId: "version-1", outputDir: "workspace/.build/build-1/output", firmwarePath: "workspace/.build/build-1/output/firmware.bin", firmwareSha256: "a".repeat(64) }, () => undefined, new AbortController().signal);
     expect(flashed.truth).toMatchObject({ executionReality: "companion", verification: "verified", physicalVerified: false });
     expect(device.sendSerial("GET_STATUS").truth).toMatchObject({ executionReality: "companion", physicalVerified: false });
     device.disconnect();
@@ -56,7 +56,9 @@ describe("P0-04 device truth boundary", () => {
     await expect(flashDevice({
       deviceId: "companion-esp32s3",
       confirmationToken: token.token,
-      firmwareVersionId: "not-read-because-physical-is-blocked",
+      projectId: "project-1",
+      buildId: "not-read-because-physical-is-blocked",
+      artifactVersionId: "version-1",
       executionReality: "physical",
     }, deps)).rejects.toBeInstanceOf(PhysicalFlashBlockedError);
     expect(submissions).toBe(0);

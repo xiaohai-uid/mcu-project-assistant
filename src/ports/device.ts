@@ -34,8 +34,15 @@ export interface DevicePort {
   detectBoard(): Promise<DeviceInfo>;
   /** 断开（烧录中 → 中止；不留半成品证据） */
   disconnect(): void;
-  /** 烧录执行：进度事件流；signal 中断 → 中止 */
-  flash(input: { deviceId: string }, onEvent: (e: FlashEvent) => void, signal: AbortSignal): Promise<FlashResult>;
+  /** 烧录执行：只消费应用层已验证的构建证据；signal 中断 → 中止 */
+  flash(input: {
+    deviceId: string;
+    buildId: string;
+    artifactVersionId: string;
+    outputDir: string;
+    firmwarePath: string;
+    firmwareSha256: string;
+  }, onEvent: (e: FlashEvent) => void, signal: AbortSignal): Promise<FlashResult>;
   /** 运行时会话（内存态；非持久业务数据） */
   session(): DeviceSession;
   /** 发送串口命令（回显 + 遥测响应） */

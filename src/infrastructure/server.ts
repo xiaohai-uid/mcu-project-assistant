@@ -8,6 +8,7 @@ import { createSseEvents } from "@/src/adapters/events/sse";
 import { createInProcessTasks } from "@/src/adapters/task/in-process";
 import { createEsp32ArduinoCompiler } from "@/src/adapters/compiler/esp32-arduino";
 import { createCompanionLocalDevice } from "@/src/adapters/device/companion-local";
+import { createPhysicalArduinoDevice } from "@/src/adapters/device/physical-arduino";
 import { openDatabase } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
@@ -29,8 +30,9 @@ const events = createSseEvents();
 const ai = createAiProvider();
 const compiler = createEsp32ArduinoCompiler({ arduinoCliPath: config.arduinoCliPath, timeoutMs: config.buildTimeoutMs });
 const tasks = createInProcessTasks({ persistence, events });
-if (config.deviceProvider !== "companion") throw new Error("No supported device provider configured");
-const device = createCompanionLocalDevice();
+const device = config.deviceProvider === "physical"
+  ? createPhysicalArduinoDevice({ arduinoCliPath: config.arduinoCliPath, timeoutMs: 5 * 60 * 1000 })
+  : createCompanionLocalDevice();
 
 async function startServer(): Promise<void> {
   const app = createApp({

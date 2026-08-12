@@ -93,6 +93,17 @@ async function seedFirmware(): Promise<{ projectId: string; versionId: string }>
   return { projectId: project.id, versionId: versions[versions.length - 1]!.id };
 }
 
+async function buildFirmware(projectId: string, versionId: string): Promise<string> {
+  const run = await post(`/api/v1/projects/${projectId}/builds`, { versionId });
+  if (!run.ok) throw new Error(`build submission failed: ${run.status} ${await run.text()}`);
+  const { buildId } = (await run.json()) as { buildId: string };
+  await waitFor(async () => {
+    const response = await fetch(`${base}/api/v1/builds/${buildId}`);
+    return ((await response.json()) as { status: string }).status === "succeeded";
+  });
+  return buildId;
+}
+
 const waitFor = async (fn: () => Promise<boolean>, ms = 4000): Promise<void> => {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) {
@@ -104,7 +115,8 @@ const waitFor = async (fn: () => Promise<boolean>, ms = 4000): Promise<void> => 
 
 describe("S9 Golden Journey — Flash Confirmation + Serial end-to-end（真实 HTTP + 确定性设备）", () => {
   it("检测 → 令牌 → Flash 进度/证据 → 串口流/命令 → 断开；安全拒绝全组", async () => {
-    const { versionId } = await seedFirmware();
+    const { projectId, versionId } = await seedFirmware();
+    const buildId = await buildFirmware(projectId, versionId);
 
     // 1. 检测 Companion profile → no physical serial port implied
     const detect = await post("/api/v1/device/detect");
@@ -119,7 +131,9 @@ describe("S9 Golden Journey — Flash Confirmation + Serial end-to-end（真实 
     const flash = await post("/api/v1/device/flash", {
       deviceId: device.id,
       confirmationToken: token,
-      firmwareVersionId: versionId,
+      projectId,
+      buildId,
+      artifactVersionId: versionId,
     });
     expect(flash.status).toBe(202);
     const { sessionId } = (await flash.json()) as { sessionId: string };
@@ -179,10 +193,10 @@ describe("S9 Golden Journey — Flash Confirmation + Serial end-to-end（真实 
 
     // 4. 安全拒绝全组（HTTP 信封）
     // 无令牌 → 403 confirmation_missing
-    const noToken = await post("/api/v1/device/flash", { deviceId: device.id, confirmationToken: "", firmwareVersionId: versionId });
+    const noToken = await post("/api/v1/device/flash", { projectId, deviceId: device.id, confirmationToken: "", buildId, artifactVersionId: versionId });
     expect(noToken.status).toBe(403);
     // 复用 → 403 token_reused
-    const reused = await post("/api/v1/device/flash", { deviceId: device.id, confirmationToken: token, firmwareVersionId: versionId });
+    const reused = await post("/api/v1/device/flash", { projectId, deviceId: device.id, confirmationToken: token, buildId, artifactVersionId: versionId });
     expect(reused.status).toBe(403);
     expect(((await reused.json()) as { error: { code: string } }).error.code).toBe("token_reused");
     // 错误设备 → 403 device_mismatch
@@ -191,7 +205,7 @@ describe("S9 Golden Journey — Flash Confirmation + Serial end-to-end（真实 
     if (!t2body.token) throw new Error(`t2 issue failed: ${JSON.stringify(t2body)}`);
     const t2 = t2body.token;
     console.log("wrong-device token:", t2);
-    const wrong = await post("/api/v1/device/flash", { deviceId: "other", confirmationToken: t2, firmwareVersionId: versionId });
+    const wrong = await post("/api/v1/device/flash", { projectId, deviceId: "other", confirmationToken: t2, buildId, artifactVersionId: versionId });
     console.log("wrong-device resp:", wrong.status, JSON.stringify(await wrong.clone().json()));
     expect(wrong.status).toBe(403);
     expect(((await wrong.json()) as { error: { code: string } }).error.code).toBe("device_mismatch");
@@ -200,7 +214,9 @@ describe("S9 Golden Journey — Flash Confirmation + Serial end-to-end（真实 
     const afterDisconnect = await post("/api/v1/device/flash", {
       deviceId: device.id,
       confirmationToken: t2,
-      firmwareVersionId: versionId,
+      projectId,
+      buildId,
+      artifactVersionId: versionId,
     });
     expect(afterDisconnect.status).toBe(409);
     expect(((await afterDisconnect.json()) as { error: { code: string } }).error.code).toBe("device_disconnected");

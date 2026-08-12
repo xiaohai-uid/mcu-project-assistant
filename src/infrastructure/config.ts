@@ -7,7 +7,7 @@ export interface AppConfig {
   port: number;
   dbPath: string;
   workspaceDir: string;
-  deviceProvider: "companion";
+  deviceProvider: "companion" | "physical";
   arduinoCliPath: string;
   buildTimeoutMs: number;
 }
@@ -50,11 +50,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot
   }
 
   const deviceProvider = env.MCU_DEVICE_PROVIDER?.trim();
-  if (deviceProvider === "physical") {
-    throw new Error('MCU_DEVICE_PROVIDER "physical" is unavailable; no physical adapter is configured');
-  }
-  if (deviceProvider !== "companion") {
-    throw new Error('MCU_DEVICE_PROVIDER must be explicitly set to "companion"; refusing an implicit device fallback');
+  if (deviceProvider !== "companion" && deviceProvider !== "physical") {
+    throw new Error('MCU_DEVICE_PROVIDER must be explicitly set to "companion" or "physical"; refusing an implicit device fallback');
   }
 
   return {
@@ -62,7 +59,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot
     port,
     dbPath,
     workspaceDir,
-    deviceProvider: "companion",
+    deviceProvider,
     arduinoCliPath,
     buildTimeoutMs,
   };

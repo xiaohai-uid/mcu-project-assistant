@@ -1,11 +1,12 @@
 // unit/application/flash — S9 正常路径（ISSUE-011 §11）
 // 检测 → 令牌签发 → flash（进度事件 + .evidence 证据）→ 串口遥测/命令回显；会话运行时态。
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Artifact, ArtifactVersion } from "@/src/domain/models/artifact";
 import type { BuildRecord } from "@/src/domain/models/build-record";
+import { createBuildRecord } from "@/src/domain/models/build-record";
 import type { Proposal } from "@/src/domain/models/proposal";
 import type { Project } from "@/src/domain/models/project";
 import type { EventPort, LogicalEvent } from "@/src/ports/events";
@@ -18,6 +19,9 @@ import { createCompanionLocalDevice } from "@/src/adapters/device/companion-loca
 import {
   createFlashTokenStore,
   detectDevice,
+  FlashBuildNotVerifiedError,
+  FlashFirmwareHashMismatchError,
+  FlashFirmwareMissingError,
   flashDevice,
   issueFlashToken,
   sendSerial,
@@ -173,7 +177,20 @@ async function seedFirmware(d: ReturnType<typeof deps>): Promise<{ projectId: st
     { persistence: d.persistence, content: d.content, events: d.events },
   );
   const f = await d.persistence.getArtifactByKind(project.id, "firmware");
-  return { projectId: project.id, versionId: f!.currentVersionId! };
+  const versionId = f!.currentVersionId!;
+  const buildId = "build-1";
+  const outputDir = join(dir, "ws", ".build", buildId, "output");
+  mkdirSync(outputDir, { recursive: true });
+  writeFileSync(join(outputDir, "fixture.bin"), "firmware-fixture", "utf8");
+  await d.persistence.withTransaction((uow) => uow.createBuildRecord(createBuildRecord({
+    id: buildId, artifactVersionId: versionId, taskId: null, target: "esp32-s3", toolchain: "esp32-arduino",
+    toolchainVersion: "fixture", options: {}, startedAt: NOW, outputDir,
+  })));
+  await d.persistence.withTransaction((uow) => uow.updateBuildRecord({
+    ...d.persistence.mem.builds.get(buildId)!, status: "succeeded", completedAt: NOW, exitCode: 0,
+    outputDir, outputs: [{ path: join(outputDir, "fixture.bin"), kind: "bin", sizeBytes: 16, sha256: "4872aaf92b449866c0452a5fb55712c1cb0c8db425a046235c5ca4c4ad1feafe" }],
+  }));
+  return { projectId: project.id, versionId };
 }
 
 const waitFor = async (fn: () => Promise<boolean>, ms = 2000): Promise<void> => {
@@ -195,7 +212,8 @@ describe("S9 正常路径（检测 → 令牌 → 烧录 → 证据 → 串口�
     expect(d.device.session().stage).toBe("connected");
 
     const { token } = await issueFlashToken({ deviceId: device.id }, d.flashDeps);
-    const result = await flashDevice({ deviceId: device.id, confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps);
+    const build = [...d.persistence.mem.builds.values()][0];
+    const result = await flashDevice({ projectId, deviceId: device.id, confirmationToken: token, buildId: build!.id, artifactVersionId: versionId }, d.flashDeps);
     await waitFor(async () => d.published.some((e) => e.type === "device.flashed"));
     expect(result.sessionId).toBeTruthy();
     // 进度事件（device.flashing 0→100）
@@ -214,7 +232,8 @@ describe("S9 正常路径（检测 → 令牌 → 烧录 → 证据 → 串口�
     const { projectId, versionId } = await seedFirmware(d);
     await detectDevice({}, d.flashDeps);
     const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
-    await flashDevice({ deviceId: "companion-esp32s3", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps);
+    const build = [...d.persistence.mem.builds.values()][0];
+    await flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: token, buildId: build!.id, artifactVersionId: versionId }, d.flashDeps);
     await waitFor(async () => d.published.some((e) => e.type === "device.flashed"));
 
     d.device.tickSerial();
@@ -224,5 +243,39 @@ describe("S9 正常路径（检测 → 令牌 → 烧录 → 证据 → 串口�
     expect(echo).toBe("> GET_STATUS");
     expect(response).toContain("STATUS moisture=");
     void projectId;
+  });
+});
+
+describe("S12 flash build evidence boundary", () => {
+  it("rejects missing, legacy/unverified, wrong-project, missing-file, and hash-mismatched builds before DevicePort.flash", async () => {
+    const d = deps();
+    const { projectId, versionId } = await seedFirmware(d);
+    await detectDevice({}, d.flashDeps);
+    let flashCalls = 0;
+    const originalFlash = d.device.flash;
+    d.device.flash = async (...args) => {
+      flashCalls += 1;
+      return originalFlash(...args);
+    };
+
+    const expectRejected = async (buildId: string, error: new (...args: never[]) => Error, project = projectId) => {
+      const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
+      await expect(flashDevice({ projectId: project, deviceId: "companion-esp32s3", confirmationToken: token, buildId, artifactVersionId: versionId }, d.flashDeps)).rejects.toBeInstanceOf(error);
+    };
+
+    await expectRejected("missing-build", FlashBuildNotVerifiedError);
+    const legacy = createBuildRecord({ id: "legacy-build", artifactVersionId: versionId, taskId: null, target: "esp32-s3", toolchain: "legacy", toolchainVersion: null, options: {}, startedAt: NOW, outputDir: null });
+    await d.persistence.withTransaction((uow) => uow.createBuildRecord(legacy));
+    await expectRejected("legacy-build", FlashBuildNotVerifiedError);
+    await expectRejected("build-1", FlashBuildNotVerifiedError, "wrong-project");
+
+    const build = d.persistence.mem.builds.get("build-1")!;
+    const outputPath = build.outputs[0]!.path;
+    rmSync(outputPath, { force: true });
+    await expectRejected("build-1", FlashFirmwareMissingError);
+
+    writeFileSync(outputPath, "tampered-firmware", "utf8");
+    await expectRejected("build-1", FlashFirmwareHashMismatchError);
+    expect(flashCalls).toBe(0);
   });
 });
