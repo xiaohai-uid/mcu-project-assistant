@@ -41,7 +41,7 @@ export const CompanionView: React.FC = () => {
 
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 bg-[var(--control-bg)] px-2.5 py-1 rounded border border-[var(--panel-border-subtle)] text-xs font-mono text-[#007aff] dark:text-[#0a84ff]">
-            <span>{project?.port ?? "COM6"} @ 115200 baud</span>
+            <span>{project?.port ?? "companion-local"} @ 115200 baud</span>
           </div>
           {!deviceOk ? (
             <button onClick={detectBoard} className="px-3 py-1.5 mac-button-primary rounded-md text-xs flex items-center gap-1.5">
@@ -194,7 +194,7 @@ export const CompanionView: React.FC = () => {
       <ConfirmDialog
         open={confirmFlash}
         title={t(lang, "flashConfirmTitle")}
-        desc={t(lang, "flashConfirmDesc").replace("{device}", `${project?.target ?? "ESP32-S3"} (${project?.port ?? "COM6"})`)}
+        desc={t(lang, "flashConfirmDesc").replace("{device}", `${project?.target ?? "ESP32-S3"} (${project?.port ?? "companion-local"})`)}
         confirmLabel={t(lang, "flashConfirmYes")}
         cancelLabel={t(lang, "flashConfirmNo")}
         onConfirm={() => {

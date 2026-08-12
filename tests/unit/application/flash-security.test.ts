@@ -190,10 +190,10 @@ describe("S9 安全验收组（Flash 确认令牌；无绕过路径）", () => {
     const { projectId, versionId } = await seedFirmware(d);
     await detectDevice({}, d.flashDeps);
     await expect(
-      flashDevice({ deviceId: "esp32s3-com6", confirmationToken: "", firmwareVersionId: versionId }, d.flashDeps),
+      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: "", firmwareVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(ConfirmationMissingError);
     await expect(
-      flashDevice({ deviceId: "esp32s3-com6", confirmationToken: "forged-token", firmwareVersionId: versionId }, d.flashDeps),
+      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: "forged-token", firmwareVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(ConfirmationMissingError);
     void projectId;
   });
@@ -202,12 +202,12 @@ describe("S9 安全验收组（Flash 确认令牌；无绕过路径）", () => {
     const d = deps();
     const { versionId } = await seedFirmware(d);
     await detectDevice({}, d.flashDeps);
-    const { token } = await issueFlashToken({ deviceId: "esp32s3-com6" }, d.flashDeps);
+    const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
     // 60s 后（超时）消费 → expired
     const later = new Date(Date.parse(NOW) + 61_000);
     const d2 = { ...d.flashDeps, now: () => later };
     await expect(
-      flashDevice({ deviceId: "esp32s3-com6", confirmationToken: token, firmwareVersionId: versionId }, d2),
+      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: token, firmwareVersionId: versionId }, d2),
     ).rejects.toThrow(ConfirmationExpiredError);
   });
 
@@ -215,13 +215,13 @@ describe("S9 安全验收组（Flash 确认令牌；无绕过路径）", () => {
     const d = deps();
     const { versionId } = await seedFirmware(d);
     await detectDevice({}, d.flashDeps);
-    const { token } = await issueFlashToken({ deviceId: "esp32s3-com6" }, d.flashDeps);
+    const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
     console.log("before flashDevice");
-    await flashDevice({ deviceId: "esp32s3-com6", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps);
+    await flashDevice({ deviceId: "companion-esp32s3", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps);
     console.log("after flashDevice");
     // 复用同一令牌 → 拒绝
     await expect(
-      flashDevice({ deviceId: "esp32s3-com6", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps),
+      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(TokenReusedError);
   });
 
@@ -229,7 +229,7 @@ describe("S9 安全验收组（Flash 确认令牌；无绕过路径）", () => {
     const d = deps();
     const { versionId } = await seedFirmware(d);
     await detectDevice({}, d.flashDeps);
-    const { token } = await issueFlashToken({ deviceId: "esp32s3-com6" }, d.flashDeps);
+    const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
     await expect(
       flashDevice({ deviceId: "other-device", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(DeviceMismatchError);
@@ -239,11 +239,11 @@ describe("S9 安全验收组（Flash 确认令牌；无绕过路径）", () => {
     const d = deps();
     const { versionId } = await seedFirmware(d);
     await detectDevice({}, d.flashDeps);
-    const { token } = await issueFlashToken({ deviceId: "esp32s3-com6" }, d.flashDeps);
+    const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
     await disconnectDevice(d.flashDeps);
     void token;
     await expect(
-      flashDevice({ deviceId: "esp32s3-com6", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps),
+      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(DeviceDisconnectedError);
   });
 
@@ -256,9 +256,9 @@ describe("S9 安全验收组（Flash 确认令牌；无绕过路径）", () => {
       { projectId, mcuId: "RP2040" },
       { persistence: d.persistence, content: d.content, events: d.events },
     );
-    const { token } = await issueFlashToken({ deviceId: "esp32s3-com6" }, d.flashDeps);
+    const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
     await expect(
-      flashDevice({ deviceId: "esp32s3-com6", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps),
+      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(/Blocking stale/i);
   });
 
@@ -268,7 +268,7 @@ describe("S9 安全验收组（Flash 确认令牌；无绕过路径）", () => {
     await detectDevice({}, d.flashDeps);
     // 用伪造令牌路径验证失败不留证据（令牌校验被拒 → 无任务执行）
     await expect(
-      flashDevice({ deviceId: "esp32s3-com6", confirmationToken: "forged", firmwareVersionId: versionId }, d.flashDeps),
+      flashDevice({ deviceId: "companion-esp32s3", confirmationToken: "forged", firmwareVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(ConfirmationMissingError);
     expect(existsSync(join(dir, "ws", ".evidence"))).toBe(false);
   });

@@ -13,25 +13,46 @@ export class AiProviderConfigurationError extends Error {
 export interface AiProviderEnvironment {
   MCU_AI_PROVIDER?: string;
   MCU_ZHIPU_API_KEY?: string;
+  MCU_ZHIPU_BASE_URL?: string;
+  MCU_ZHIPU_CHAT_MODEL?: string;
   SENSENOVA_API_KEY?: string;
   SENSENOVA_BASE_URL?: string;
   SENSENOVA_CHAT_MODEL?: string;
+}
+
+function requireUrl(value: string | undefined, name: string): string {
+  const raw = value?.trim();
+  if (!raw) throw new AiProviderConfigurationError(`${name} must be set`);
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:") throw new Error("https required");
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    throw new AiProviderConfigurationError(`${name} must be a valid https URL`);
+  }
+}
+
+function requireValue(value: string | undefined, name: string): string {
+  const raw = value?.trim();
+  if (!raw) throw new AiProviderConfigurationError(`${name} must be set`);
+  return raw;
 }
 
 export function createAiProvider(env: AiProviderEnvironment = process.env): AIProviderPort {
   const provider = env.MCU_AI_PROVIDER?.trim();
 
   if (provider === "zhipu") {
-    return createZhipuAiProvider({ apiKey: env.MCU_ZHIPU_API_KEY ?? "" });
+    return createZhipuAiProvider({
+      apiKey: requireValue(env.MCU_ZHIPU_API_KEY, "MCU_ZHIPU_API_KEY"),
+      baseUrl: requireUrl(env.MCU_ZHIPU_BASE_URL, "MCU_ZHIPU_BASE_URL"),
+      model: requireValue(env.MCU_ZHIPU_CHAT_MODEL, "MCU_ZHIPU_CHAT_MODEL"),
+    });
   }
 
   if (provider === "sensenova") {
-    const apiKey = env.SENSENOVA_API_KEY?.trim();
-    const baseUrl = env.SENSENOVA_BASE_URL?.trim();
-    const model = env.SENSENOVA_CHAT_MODEL?.trim();
-    if (!apiKey) throw new AiProviderConfigurationError("SENSENOVA_API_KEY must be set for sensenova");
-    if (!baseUrl) throw new AiProviderConfigurationError("SENSENOVA_BASE_URL must be set for sensenova");
-    if (!model) throw new AiProviderConfigurationError("SENSENOVA_CHAT_MODEL must be set for sensenova");
+    const apiKey = requireValue(env.SENSENOVA_API_KEY, "SENSENOVA_API_KEY");
+    const baseUrl = requireUrl(env.SENSENOVA_BASE_URL, "SENSENOVA_BASE_URL");
+    const model = requireValue(env.SENSENOVA_CHAT_MODEL, "SENSENOVA_CHAT_MODEL");
     return createSenseNovaAiProvider({ apiKey, baseUrl, model });
   }
 

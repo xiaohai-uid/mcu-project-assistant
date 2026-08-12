@@ -112,7 +112,7 @@ describe("S9 device surface", () => {
     const detect = await request(app).post("/api/v1/device/detect");
     expect(detect.status).toBe(200);
     const device = detect.body as { id: string; model: string; port: string };
-    expect(device.port).toBe("COM6");
+    expect(device.port).toBe("companion-local");
     expect(detect.body.truth).toMatchObject({
       executionReality: "companion",
       verification: "verified",
@@ -164,7 +164,7 @@ describe("S9 device surface", () => {
     boot();
     const projectId = await createProject();
     const versionId = await seedFirmware(projectId);
-    const deviceId = "esp32s3-com6";
+    const deviceId = "companion-esp32s3";
 
     // 未检测 → 409 device_disconnected（先取合法令牌——令牌校验先于设备连接检查）
     const t0 = ((await request(app).post("/api/v1/device/flash-token").send({ deviceId })).body) as { token: string };

@@ -38,7 +38,44 @@ describe("AI provider composition", () => {
   });
 
   it("binds zhipu explicitly to the real GLM adapter", () => {
-    expect(createAiProvider({ MCU_AI_PROVIDER: "zhipu", MCU_ZHIPU_API_KEY: "test-key" }).name).toBe("zhipu-glm");
+    expect(
+      createAiProvider({
+        MCU_AI_PROVIDER: "zhipu",
+        MCU_ZHIPU_API_KEY: "test-key",
+        MCU_ZHIPU_BASE_URL: "https://open.bigmodel.cn/api/paas/v4",
+        MCU_ZHIPU_CHAT_MODEL: "glm-4.5-flash",
+      }).name,
+    ).toBe("zhipu-glm");
+  });
+
+  it("rejects zhipu when the API key is missing", () => {
+    expect(() =>
+      createAiProvider({
+        MCU_AI_PROVIDER: "zhipu",
+        MCU_ZHIPU_BASE_URL: "https://open.bigmodel.cn/api/paas/v4",
+        MCU_ZHIPU_CHAT_MODEL: "glm-4.5-flash",
+      }),
+    ).toThrow(/MCU_ZHIPU_API_KEY/i);
+  });
+
+  it("rejects zhipu when the base URL is missing", () => {
+    expect(() =>
+      createAiProvider({
+        MCU_AI_PROVIDER: "zhipu",
+        MCU_ZHIPU_API_KEY: "test-key",
+        MCU_ZHIPU_CHAT_MODEL: "glm-4.5-flash",
+      }),
+    ).toThrow(/MCU_ZHIPU_BASE_URL/i);
+  });
+
+  it("rejects zhipu when the chat model is missing", () => {
+    expect(() =>
+      createAiProvider({
+        MCU_AI_PROVIDER: "zhipu",
+        MCU_ZHIPU_API_KEY: "test-key",
+        MCU_ZHIPU_BASE_URL: "https://open.bigmodel.cn/api/paas/v4",
+      }),
+    ).toThrow(/MCU_ZHIPU_CHAT_MODEL/i);
   });
 
   it("rejects SenseNova when the API key is missing", () => {
@@ -80,5 +117,24 @@ describe("AI provider composition", () => {
         SENSENOVA_CHAT_MODEL: "deepseek-v4-flash",
       }).name,
     ).toBe("sensenova");
+  });
+
+  it("rejects malformed real-provider URLs without exposing credentials", () => {
+    expect(() =>
+      createAiProvider({
+        MCU_AI_PROVIDER: "sensenova",
+        SENSENOVA_API_KEY: "super-secret-test-key",
+        SENSENOVA_BASE_URL: "not-a-url",
+        SENSENOVA_CHAT_MODEL: "deepseek-v4-flash",
+      }),
+    ).toThrow(/SENSENOVA_BASE_URL/i);
+    expect(() =>
+      createAiProvider({
+        MCU_AI_PROVIDER: "sensenova",
+        SENSENOVA_API_KEY: "super-secret-test-key",
+        SENSENOVA_BASE_URL: "not-a-url",
+        SENSENOVA_CHAT_MODEL: "deepseek-v4-flash",
+      }),
+    ).not.toThrow(/super-secret-test-key/);
   });
 });

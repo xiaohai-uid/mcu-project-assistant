@@ -30,7 +30,7 @@ export type FlashResult = FlashResultDto;
 export type SerialResult = SerialResultDto;
 
 export interface DevicePort {
-  /** 检测开发板（确定性模拟：ESP32-S3 @ COM6；真实硬件接入为后续项） */
+  /** 检测 Companion profile（确定性虚拟元数据；真实硬件接入为后续项） */
   detectBoard(): Promise<DeviceInfo>;
   /** 断开（烧录中 → 中止；不留半成品证据） */
   disconnect(): void;

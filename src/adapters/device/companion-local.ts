@@ -10,6 +10,17 @@ const companionTruth = (verification: DeviceTruth["verification"] = "verified"):
   adapter: "companion-local",
 });
 
+/**
+ * Deterministic Companion profile. This is virtual execution metadata, not
+ * serial-port discovery and never evidence that physical hardware was used.
+ */
+export const COMPANION_DEVICE_PROFILE = Object.freeze({
+  id: "companion-esp32s3",
+  model: "ESP32-S3 WROOM-1 (companion)",
+  port: "companion-local",
+  baudRate: 115200,
+});
+
 export function createCompanionLocalDevice(opts?: { device?: DeviceInfo }): DevicePort {
   const session: DeviceSession = {
     device: null,
@@ -21,19 +32,13 @@ export function createCompanionLocalDevice(opts?: { device?: DeviceInfo }): Devi
 
   return {
     async detectBoard(): Promise<DeviceInfo> {
-      // 确定性模拟设备（M1 固定：ESP32-S3 @ COM6 @ 115200；真实检测为后续项）
-      const device: DeviceInfo = opts?.device ?? {
-        id: "esp32s3-com6",
-        model: "ESP32-S3 WROOM-1",
-        port: "COM6",
-        baudRate: 115200,
-        truth: companionTruth(),
-      };
+      // 确定性 Companion profile；不做真实串口发现。
+      const device: DeviceInfo = opts?.device ?? { ...COMPANION_DEVICE_PROFILE, truth: companionTruth() };
       device.truth = companionTruth();
       session.device = device;
       session.stage = "connected";
       session.truth = device.truth;
-      session.serialLines.push(`[system] Board detected: ${device.model} on ${device.port} @ ${device.baudRate} baud`);
+      session.serialLines.push(`[system] Companion profile detected: ${device.model} on ${device.port} @ ${device.baudRate} baud`);
       tick = 0;
       return device;
     },

@@ -78,7 +78,7 @@ export const SettingsView: React.FC = () => {
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-semibold text-[var(--text-primary)]">{t(lang, "serialPortLabel")}</label>
-                <span className="font-mono text-[11px] text-[var(--text-secondary)]">{project?.port ?? "COM6"} @ 115200</span>
+                <span className="font-mono text-[11px] text-[var(--text-secondary)]">{project?.port ?? "companion-local"} @ 115200</span>
               </div>
               <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
                 <span className={`w-1.5 h-1.5 rounded-full ${runtime.online ? "bg-emerald-500" : "bg-rose-500"}`}></span>
@@ -137,17 +137,17 @@ export const SettingsView: React.FC = () => {
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] text-[var(--text-muted)]">{t(lang, "providerEndpoint")}</label>
-                <span className="font-mono text-[11px] text-[var(--text-primary)]">https://generativelanguage.googleapis.com</span>
+                <span className="font-mono text-[11px] text-[var(--text-primary)]">Server-managed provider endpoint</span>
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] text-[var(--text-muted)]">{t(lang, "providerModel")}</label>
-                <span className="font-mono text-[11px] text-[var(--text-primary)]">gemini-3.6-flash (mock)</span>
+                <span className="font-mono text-[11px] text-[var(--text-primary)]">Server-managed provider model</span>
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-[11px] text-[var(--text-muted)]">{t(lang, "providerKey")}</label>
                 <input
                   type="password"
-                  defaultValue="MOCK-SERVER-SIDE-KEY"
+                  placeholder="Configured server-side; never stored in the UI"
                   className="px-3 py-1.5 rounded-md bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[#007aff]"
                 />
               </div>
@@ -170,7 +170,7 @@ export const SettingsView: React.FC = () => {
               <label className="text-xs font-semibold text-[var(--text-primary)]">{t(lang, "companionTabSettings")}</label>
               <div className="flex items-center gap-2 text-[11px] text-[var(--text-secondary)]">
                 <span className={`w-1.5 h-1.5 rounded-full ${runtime.deviceStage === "connected" ? "bg-emerald-500" : "bg-[var(--text-muted)]"}`}></span>
-                {runtime.deviceStage === "connected" ? `${t(lang, "deviceConnected")} · ${project?.target ?? "ESP32-S3"} (${project?.port ?? "COM6"})${runtime.deviceTruth ? ` · ${runtime.deviceTruth.executionReality} / ${runtime.deviceTruth.physicalVerified ? "physical verified" : "physical not verified"}` : " · execution source unavailable"}` : t(lang, "deviceNotConnected")}
+                {runtime.deviceStage === "connected" ? `${t(lang, "deviceConnected")} · ${project?.target ?? "ESP32-S3"} (${project?.port ?? "companion-local"})${runtime.deviceTruth ? ` · ${runtime.deviceTruth.executionReality} / ${runtime.deviceTruth.physicalVerified ? "physical verified" : "physical not verified"}` : " · execution source unavailable"}` : t(lang, "deviceNotConnected")}
               </div>
               {runtime.deviceStage !== "connected" && (
                 <button onClick={detectBoard} className="px-3 py-1.5 mac-button-primary rounded-md text-xs w-fit">

@@ -40,7 +40,7 @@ describe("P0-04 device truth boundary", () => {
       },
     };
     const tokens = createFlashTokenStore();
-    const token = tokens.issue("esp32s3-com6", new Date("2026-08-12T00:00:00.000Z"));
+    const token = tokens.issue("companion-esp32s3", new Date("2026-08-12T00:00:00.000Z"));
     let submissions = 0;
     const published: unknown[] = [];
     const deps = {
@@ -54,7 +54,7 @@ describe("P0-04 device truth boundary", () => {
     } satisfies FlashCapabilityDeps;
 
     await expect(flashDevice({
-      deviceId: "esp32s3-com6",
+      deviceId: "companion-esp32s3",
       confirmationToken: token.token,
       firmwareVersionId: "not-read-because-physical-is-blocked",
       executionReality: "physical",

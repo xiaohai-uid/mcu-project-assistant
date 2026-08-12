@@ -27,6 +27,8 @@ const events = createSseEvents();
 const ai = createAiProvider();
 const compiler = createEsp32ArduinoCompiler();
 const tasks = createInProcessTasks({ persistence, events });
+if (config.deviceProvider !== "companion") throw new Error("No supported device provider configured");
+const device = createCompanionLocalDevice();
 
 async function startServer(): Promise<void> {
   const app = createApp({
@@ -36,7 +38,7 @@ async function startServer(): Promise<void> {
     events,
     tasks,
     compiler,
-    device: createCompanionLocalDevice(),
+    device,
     ai,
   });
 

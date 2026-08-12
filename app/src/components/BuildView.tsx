@@ -245,7 +245,7 @@ export const BuildView: React.FC = () => {
       <ConfirmDialog
         open={confirmFlash}
         title={t(lang, "flashConfirmTitle")}
-        desc={t(lang, "flashConfirmDesc").replace("{device}", `${state.project?.target ?? "ESP32-S3"} (${state.project?.port ?? "COM6"})`)}
+        desc={t(lang, "flashConfirmDesc").replace("{device}", `${state.project?.target ?? "ESP32-S3"} (${state.project?.port ?? "companion-local"})`)}
         confirmLabel={t(lang, "flashConfirmYes")}
         cancelLabel={t(lang, "flashConfirmNo")}
         onConfirm={() => {

@@ -40,22 +40,22 @@ Key domain rules (see `docs/rebuild/domain-contract.md` for the frozen set):
 
 ## Running
 
-Requirements: Node 20 (npm). No arduino-cli needed for the default deterministic adapters.
+Requirements: Node 20 (npm). The production server uses the explicit `companion` device mode; no arduino-cli is silently substituted for physical execution. Tests may inject deterministic adapters.
 
 ```bash
 npm install
-npm run dev          # API on http://127.0.0.1:3000 + Vite UI on http://localhost:5173
+MCU_DEVICE_PROVIDER=companion MCU_AI_PROVIDER=sensenova SENSENOVA_API_KEY=... SENSENOVA_BASE_URL=https://token.sensenova.cn/v1 SENSENOVA_CHAT_MODEL=deepseek-v4-flash npm run dev
 ```
 
 Production-style build + start:
 
 ```bash
 npm run build        # typecheck + vite build (app/dist)
-node --import tsx src/infrastructure/server.ts   # API server (http://127.0.0.1:3000; GET /api/v1/health)
+MCU_DEVICE_PROVIDER=companion MCU_AI_PROVIDER=sensenova SENSENOVA_API_KEY=... SENSENOVA_BASE_URL=https://token.sensenova.cn/v1 SENSENOVA_CHAT_MODEL=deepseek-v4-flash node --import tsx src/infrastructure/server.ts   # API server (http://127.0.0.1:3000; GET /api/v1/health)
 npx vite preview --config app/vite.config.ts     # serve the built UI
 ```
 
-Configuration: use `.env.example` as a reference for the environment passed to the server (`MCU_PORT`, `MCU_DB_PATH`, `MCU_WORKSPACE_DIR`, and the required explicit real AI provider settings). The server does not auto-load a `.env` file and refuses to start when `MCU_AI_PROVIDER` or its provider credentials are missing; deterministic mock adapters are test fixtures only.
+Configuration: use `.env.example` as a reference for the environment passed to the server (`MCU_PORT`, `MCU_DB_PATH`, `MCU_WORKSPACE_DIR`, explicit `MCU_DEVICE_PROVIDER=companion`, and the required explicit real AI provider settings). The server does not auto-load a `.env` file and refuses to start when the provider, device provider, or provider credentials are missing or malformed; physical device mode is unavailable and never falls back to Companion; deterministic mock adapters are test fixtures only.
 
 ## Testing
 

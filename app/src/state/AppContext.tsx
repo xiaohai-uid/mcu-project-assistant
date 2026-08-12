@@ -189,7 +189,7 @@ function reducer(state: AppState, a: Action): AppState {
     case "CREATE_PROJECT":
       return {
         ...state,
-        project: { id: a.id, name: a.name, target: "ESP32-S3", port: "COM6" },
+        project: { id: a.id, name: a.name, target: "ESP32-S3", port: "companion-local" },
         nav: "Draft",
         sidebar: "Requirements",
         artifacts: freshArtifacts(),
@@ -204,7 +204,7 @@ function reducer(state: AppState, a: Action): AppState {
         ],
       };
     case "OPEN_PROJECT":
-      return { ...state, project: { ...(state.project ?? { name: a.name, target: "ESP32-S3", port: "COM6" }), id: a.id, name: a.name }, nav: "Draft", sidebar: "Requirements" };
+      return { ...state, project: { ...(state.project ?? { name: a.name, target: "ESP32-S3", port: "companion-local" }), id: a.id, name: a.name }, nav: "Draft", sidebar: "Requirements" };
     case "DELETE_PROJECT":
       return { ...state, projects: state.projects.filter((p) => p.id !== a.id) };
     case "SET_PROMPT": return { ...state, discoveryPrompt: a.prompt };
@@ -1256,7 +1256,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const versions = await clientApi.listVersions(fw.id);
           const current = versions[versions.length - 1];
           if (!current) throw new ApiError(409, "no_firmware_version", "No firmware version");
-          await clientApi.flashDevice("esp32s3-com6", token, current.id);
+          await clientApi.flashDevice("companion-esp32s3", token, current.id);
           // 完成态由 SSE device.flashed 驱动（见 subscribeDeviceEvents）
         } catch (err) {
           dispatch({ type: "RUNTIME", patch: { deviceStage: "connected" } });
@@ -1275,7 +1275,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (s.runtime.deviceStage !== "connected") return;
     void (async () => {
       try {
-        const { token } = await clientApi.issueFlashToken("esp32s3-com6");
+        const { token } = await clientApi.issueFlashToken("companion-esp32s3");
         flashDevice(token);
       } catch (err) {
         pushSystem(err instanceof ApiError ? `Flash token failed: ${err.code}` : "Flash token failed");

@@ -106,12 +106,12 @@ describe("S9 Golden Journey — Flash Confirmation + Serial end-to-end（真实 
   it("检测 → 令牌 → Flash 进度/证据 → 串口流/命令 → 断开；安全拒绝全组", async () => {
     const { versionId } = await seedFirmware();
 
-    // 1. 检测开发板 → "已连接 ESP32-S3 (COM6)"
+    // 1. 检测 Companion profile → no physical serial port implied
     const detect = await post("/api/v1/device/detect");
     expect(detect.status).toBe(200);
     const device = (await detect.json()) as { id: string; model: string; port: string };
     expect(device.model).toContain("ESP32-S3");
-    expect(device.port).toBe("COM6");
+    expect(device.port).toBe("companion-local");
 
     // 2. 签发一次性令牌 → Flash → 202（进度事件由 SSE 承载；.evidence 证据）
     const tokenRes = await post("/api/v1/device/flash-token", { deviceId: device.id });

@@ -191,7 +191,7 @@ describe("S9 正常路径（检测 → 令牌 → 烧录 → 证据 → 串口�
     const { projectId, versionId } = await seedFirmware(d);
 
     const device = await detectDevice({}, d.flashDeps);
-    expect(device.port).toBe("COM6");
+    expect(device.port).toBe("companion-local");
     expect(d.device.session().stage).toBe("connected");
 
     const { token } = await issueFlashToken({ deviceId: device.id }, d.flashDeps);
@@ -213,8 +213,8 @@ describe("S9 正常路径（检测 → 令牌 → 烧录 → 证据 → 串口�
     const d = deps();
     const { projectId, versionId } = await seedFirmware(d);
     await detectDevice({}, d.flashDeps);
-    const { token } = await issueFlashToken({ deviceId: "esp32s3-com6" }, d.flashDeps);
-    await flashDevice({ deviceId: "esp32s3-com6", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps);
+    const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
+    await flashDevice({ deviceId: "companion-esp32s3", confirmationToken: token, firmwareVersionId: versionId }, d.flashDeps);
     await waitFor(async () => d.published.some((e) => e.type === "device.flashed"));
 
     d.device.tickSerial();
