@@ -23,6 +23,8 @@ const SAFE_MESSAGES: Record<string, string> = {
   process_output_limit_exceeded: "External process output exceeds the supported size",
   subscriber_limit_reached: "Subscriber limit reached",
   resource_capacity_exceeded: "Resource capacity is currently exhausted",
+  untrusted_origin: "Request origin is not trusted",
+  untrusted_host: "Request host is not trusted",
   not_found: "Requested resource was not found",
   conflict: "Request conflicts with the current state",
   internal: "Internal server error",

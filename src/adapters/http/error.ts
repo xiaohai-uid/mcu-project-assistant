@@ -12,6 +12,8 @@ export type ErrorCode =
   | "serial_write_too_large"
   | "subscriber_limit_reached"
   | "resource_capacity_exceeded"
+  | "untrusted_origin"
+  | "untrusted_host"
   | "invalid_capability"
   | "invalid_mcu"
   | "invalid_round"

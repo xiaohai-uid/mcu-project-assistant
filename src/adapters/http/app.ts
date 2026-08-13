@@ -120,6 +120,7 @@ import {
 import { createFlashTokenStore } from "@/src/application/capabilities/flash";
 import { MAX_HTTP_BODY_BYTES, MAX_SERIAL_WRITE_BYTES, ResourceLimitError, assertUtf8Bytes } from "@/src/shared/resource-limits";
 import { SerialWriteTooLargeError } from "@/src/ports/device";
+import { browserTrustMiddleware } from "./browser-trust";
 
 export interface AppDeps {
   persistence: PersistencePort;
@@ -145,6 +146,7 @@ const ARCHIVE_TOKEN_TTL_MS = 60_000;
 
 export function createApp(deps: AppDeps): Express {
   const app = express();
+  app.use("/api", browserTrustMiddleware);
   app.use(express.json({ limit: MAX_HTTP_BODY_BYTES }));
 
   const capDeps = { persistence: deps.persistence };
