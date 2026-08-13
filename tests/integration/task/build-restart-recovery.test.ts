@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -67,4 +67,66 @@ describe("run_build restart recovery", () => {
       db.close();
     }
   }, 30_000);
+
+  it("fails historical running build records that have no linked durable task", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mcu-build-orphan-recovery-"));
+    roots.push(root);
+    const workspaceDir = join(root, "workspace");
+    const db = openDatabase(join(root, "state.db"));
+    migrate(db);
+    const persistence = createProjectStore(db);
+    const content = createWorkspaceFilesContent(workspaceDir);
+    const project = createProject("orphaned build");
+    const artifact = createArtifact({ projectId: project.id, kind: "firmware" });
+    const source = await content.store({ projectId: project.id, kind: "firmware", versionNo: 1, subpath: "src/main.cpp" }, "void setup(){}\n");
+    const paths = resolveBuildPaths(workspaceDir, source.contentRef, "orphan-build");
+    mkdirSync(paths.outputDir, { recursive: true });
+    writeFileSync(join(paths.outputDir, "old.bin"), "old-success-looking-output", "utf8");
+    await persistence.withTransaction((uow) => {
+      uow.createProject(project);
+      uow.createArtifact(artifact);
+      uow.createVersion({ id: "orphan-version", artifactId: artifact.id, versionNo: 1, contentRef: source.contentRef, contentHash: source.contentHash, status: "accepted", sourceKind: "manual", sourceProposalId: null, createdAt: "2026-08-13T00:00:00.000Z", createdBy: "owner" });
+      uow.createBuildRecord(createBuildRecord({ id: "orphan-build", artifactVersionId: "orphan-version", taskId: null, target: "esp32-s3", toolchain: "esp32-arduino", toolchainVersion: "legacy", options: {}, startedAt: "2026-08-13T00:00:01.000Z", sourceDir: paths.sourceDir, outputDir: paths.outputDir }));
+    });
+    const tasks = createInProcessTasks({ persistence, events: { publish: () => undefined } });
+    expect(await tasks.recover()).toEqual({ recovered: 0, failed: 0 });
+    const repaired = await persistence.getBuildRecord("orphan-build");
+    expect(repaired?.status).toBe("failed");
+    expect(repaired?.diagnostics[0]).toMatchObject({ code: "build_recovery_orphaned" });
+    expect(repaired?.outputs).toEqual([]);
+    expect(existsSync(join(paths.outputDir, "old.bin"))).toBe(true);
+    db.close();
+  });
+
+  it("clears partial output before replaying a linked running build", async () => {
+    const root = mkdtempSync(join(tmpdir(), "mcu-build-partial-recovery-"));
+    roots.push(root);
+    const workspaceDir = join(root, "workspace");
+    const db = openDatabase(join(root, "state.db"));
+    migrate(db);
+    const persistence = createProjectStore(db);
+    const content = createWorkspaceFilesContent(workspaceDir);
+    const project = createProject("partial build");
+    const artifact = createArtifact({ projectId: project.id, kind: "firmware" });
+    const source = await content.store({ projectId: project.id, kind: "firmware", versionNo: 1, subpath: "src/main.cpp" }, "void setup(){}\n");
+    const buildId = "partial-build";
+    const paths = resolveBuildPaths(workspaceDir, source.contentRef, buildId);
+    mkdirSync(paths.outputDir, { recursive: true });
+    writeFileSync(join(paths.outputDir, "partial.bin"), "stale-partial", "utf8");
+    await persistence.withTransaction((uow) => {
+      uow.createProject(project);
+      uow.createArtifact(artifact);
+      uow.createVersion({ id: "partial-version", artifactId: artifact.id, versionNo: 1, contentRef: source.contentRef, contentHash: source.contentHash, status: "accepted", sourceKind: "manual", sourceProposalId: null, createdAt: "2026-08-13T00:00:00.000Z", createdBy: "owner" });
+      uow.saveTask({ id: "partial-task", capability: "run_build", input: JSON.stringify({ buildId, projectId: project.id, versionId: "partial-version" }), status: "running", createdAt: "2026-08-13T00:00:00.000Z", startedAt: "2026-08-13T00:00:01.000Z", completedAt: null, error: null, output: null });
+      uow.createBuildRecord(createBuildRecord({ id: buildId, artifactVersionId: "partial-version", taskId: "partial-task", target: "esp32-s3", toolchain: "esp32-arduino", toolchainVersion: "mock", options: {}, startedAt: "2026-08-13T00:00:01.000Z", sourceDir: paths.sourceDir, outputDir: paths.outputDir }));
+    });
+    const compiler = createMockCompiler();
+    const tasks = createInProcessTasks({ persistence, events: { publish: () => undefined } });
+    tasks.setExecutor(createProductionTaskExecutor({ persistence, events: { publish: () => undefined }, ai: { name: "test", status: async () => "unavailable", streamText: async () => {}, generateStructured: async () => ({ data: {} }) } as never, compiler, workspaceDir }));
+    expect(await tasks.recover()).toEqual({ recovered: 1, failed: 0 });
+    await tasks.waitForIdle();
+    expect(existsSync(join(paths.outputDir, "partial.bin"))).toBe(false);
+    expect((await persistence.getBuildRecord(buildId))?.status).toBe("succeeded");
+    db.close();
+  });
 });

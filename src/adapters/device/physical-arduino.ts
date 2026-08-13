@@ -2,7 +2,7 @@
 // This adapter is the only production path that may assert physical truth.
 // It discovers a current ESP32-S3 through Arduino CLI JSON and uploads the
 // already-verified Phase-11 output directory; it never falls back to Companion.
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createSerialTransport, type SerialTransport, type SerialTransportFactory } from "@/src/adapters/device/serial-transport";
 import { createResourceLock, type ResourceLease } from "@/src/adapters/device/resource-lock";
@@ -21,6 +21,7 @@ import {
   type SerialSessionEvent,
 } from "@/src/ports/device";
 import { safeMessageForCode } from "@/src/shared-contracts/errors";
+import { spawnOwnedChild, stopOwnedChild } from "@/src/infrastructure/owned-child";
 
 const ESP32_S3_FQBN = "esp32:esp32:esp32s3";
 
@@ -105,12 +106,7 @@ function parseCandidates(value: unknown): Candidate[] {
 }
 
 function stopChild(child: import("node:child_process").ChildProcess, force = false): void {
-  if (process.platform === "win32" && child.pid) {
-    if (force) spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
-    else child.kill("SIGTERM");
-    return;
-  }
-  child.kill(force ? "SIGKILL" : "SIGTERM");
+  stopOwnedChild(child, force);
 }
 
 export interface PhysicalArduinoOptions {
@@ -273,6 +269,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
         const argv = [...prefix, "upload", "--fqbn", ESP32_S3_FQBN, "--port", current.port, "--input-dir", input.outputDir];
         let child: import("node:child_process").ChildProcess;
         let settled = false;
+        let timeoutRequested = false;
         let grace: NodeJS.Timeout | undefined;
         const finish = (fn: () => void) => {
           if (settled) return;
@@ -284,23 +281,20 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
         };
         const abort = (timedOut: boolean) => {
           if (settled) return;
-          stopChild(child);
-          grace = setTimeout(() => { if (timedOut || !settled) stopChild(child, true); }, terminateGraceMs);
+          timeoutRequested = timeoutRequested || timedOut;
+          stopChild(child, timedOut);
+          grace = setTimeout(() => { if (!settled) stopChild(child, true); }, terminateGraceMs);
           if (timedOut) {
-            settled = true;
-            clearTimeout(timeout);
-            release();
-            const truth = physicalTruth("failed", false);
-            session.stage = "detected";
-            session.truth = truth;
-            if (session.device) session.device = { ...session.device, truth };
-            reject(new PhysicalFlashTimeoutError(timeoutMs));
+            // Wait for the owner close event before settling so the bounded
+            // timeout path cannot leave a Windows child holding test/workspace
+            // handles after the operation has reported failure.
+            return;
           }
         };
         const onAbort = () => abort(false);
         const timeout = setTimeout(() => abort(true), timeoutMs);
         try {
-          child = spawn(opts.arduinoCliPath, argv, { cwd: opts.cwd, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+          child = spawnOwnedChild({ command: opts.arduinoCliPath, args: argv, cwd: opts.cwd ?? process.cwd() });
         } catch (error) {
           finish(() => {
             session.stage = "detected";
@@ -343,6 +337,14 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
           reject(new PhysicalToolUnavailableError(`physical flash failed to start: ${error.message}`));
         }));
         child.on("close", (code) => finish(() => {
+          if (timeoutRequested) {
+            const truth = physicalTruth("failed", false);
+            session.stage = "detected";
+            session.truth = truth;
+            if (session.device) session.device = { ...session.device, truth };
+            reject(new PhysicalFlashTimeoutError(timeoutMs));
+            return;
+          }
           const successful = !signal.aborted && code === 0;
           const truth = physicalTruth(successful ? "verified" : "failed", successful);
           session.stage = "detected";

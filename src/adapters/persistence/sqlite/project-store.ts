@@ -323,6 +323,18 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
   );
   const markRunning = db.prepare("UPDATE tasks SET status = 'running', started_at = ? WHERE id = ?");
   const requeueOrphans = db.prepare("UPDATE tasks SET status = 'queued', started_at = NULL WHERE status = 'running'");
+  const selectInterruptedTaskIds = db.prepare("SELECT id FROM tasks WHERE status = 'running' ORDER BY created_at ASC, rowid ASC");
+  const orphanBuildDiagnostic = JSON.stringify([{
+    code: "build_recovery_orphaned",
+    severity: "error",
+    message: "Build record was interrupted before its task was durably linked",
+  }]);
+  const repairOrphanedBuilds = db.prepare(
+    `UPDATE build_records
+     SET status = 'failed', completed_at = ?, exit_code = 1, diagnostics = ?
+     WHERE status = 'running'
+       AND (task_id IS NULL OR NOT EXISTS (SELECT 1 FROM tasks WHERE tasks.id = build_records.task_id))`,
+  );
 
   const uow: UnitOfWork = {
     createProject(p: Project): void {
@@ -513,6 +525,14 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     },
     requeueOrphanedTasks(): number {
       return Number(requeueOrphans.run().changes);
+    },
+    recoverInterruptedTasks(): string[] {
+      const ids = (selectInterruptedTaskIds.all() as Array<{ id: string }>).map((row) => row.id);
+      requeueOrphans.run();
+      return ids;
+    },
+    repairOrphanedBuildRecords(completedAt: string): number {
+      return Number(repairOrphanedBuilds.run(completedAt, orphanBuildDiagnostic).changes);
     },
   };
 

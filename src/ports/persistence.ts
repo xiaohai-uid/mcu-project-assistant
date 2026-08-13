@@ -30,6 +30,10 @@ export interface UnitOfWork {
   claimNextTask(): TaskRecord | null;
   /** 启动恢复前将上一进程遗留的 running 任务重新置为 queued。 */
   requeueOrphanedTasks?(): number;
+  /** Requeue only tasks that were already running when this process started. */
+  recoverInterruptedTasks?(): string[];
+  /** Fail closed for historical build rows that have no durable task pairing. */
+  repairOrphanedBuildRecords?(completedAt: string): number;
   // S3B
   createProposal(p: Proposal): void;
   resolveProposal(p: Proposal): void;

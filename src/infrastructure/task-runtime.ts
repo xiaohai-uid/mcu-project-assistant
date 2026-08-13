@@ -41,6 +41,9 @@ export function createProductionTaskExecutor(deps: ProductionTaskRuntimeDeps) {
   return async (task: TaskRecord, ctx: TaskContext): Promise<void> => {
     switch (task.capability) {
       case "analyze_requirement":
+        if (ctx.mode === "recovery") {
+          throw Object.assign(new Error("Analysis was interrupted and cannot be safely replayed"), { code: "analysis_recovery_unsafe_replay" });
+        }
         return executeRequirementAnalysis(parseInput<PersistedAnalysisTaskInput>(task), ctx, deps);
       case "run_build":
         return executeBuildTask(parseInput<PersistedBuildTaskInput>(task), ctx, deps);

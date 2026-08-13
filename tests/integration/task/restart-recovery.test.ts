@@ -61,7 +61,7 @@ function killProcessTree(child: ChildProcess): void {
 }
 
 describe("durable restart recovery", () => {
-  it("recovers the same task exactly once in a fresh OS process", async () => {
+  it("fails an interrupted analyze exactly once without replaying the provider", async () => {
     const dir = createTestTempDir("mcu-restart-recovery");
     const dbPath = join(dir, "tasks.db");
     const startedPath = join(dir, "started");
@@ -87,18 +87,22 @@ describe("durable restart recovery", () => {
 
       const result = JSON.parse(readFileSync(resultPath, "utf8")) as {
         recovery: { recovered: number; failed: number };
-        task: { id: string; status: string; output: string | null };
+        task: { id: string; status: string; output: string | null; error: string | null };
       };
       expect(result.recovery).toEqual({ recovered: 1, failed: 0 });
-      expect(result.task).toMatchObject({ id: "restart-task", status: "completed", output: JSON.stringify({ capabilities: [] }) });
-      expect(readFileSync(countPath, "utf8").trim().split("\n")).toEqual(["completed"]);
+      expect(result.task).toMatchObject({ id: "restart-task", status: "failed", output: null });
+      expect(JSON.parse(result.task.error!)).toEqual({
+        code: "analysis_recovery_unsafe_replay",
+        message: "Analysis was interrupted and cannot be safely replayed",
+      });
+      expect(existsSync(countPath)).toBe(false);
 
       const afterRestartDb = openDatabase(dbPath);
       const afterRestartStore = createProjectStore(afterRestartDb);
       expect(await afterRestartStore.getTask("restart-task")).toMatchObject({
         id: "restart-task",
-        status: "completed",
-        output: JSON.stringify({ capabilities: [] }),
+        status: "failed",
+        output: null,
       });
       afterRestartDb.close();
     } finally {

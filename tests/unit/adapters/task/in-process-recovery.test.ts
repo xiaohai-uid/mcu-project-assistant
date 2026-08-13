@@ -10,6 +10,8 @@ import { createMockCompiler } from "@/src/adapters/compiler/mock";
 import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
 import { createFlashTokenStore } from "@/src/application/capabilities/flash";
 import { createProject } from "@/src/domain/models/project";
+import { createArtifact } from "@/src/domain/models/artifact";
+import { createProposal } from "@/src/domain/models/proposal";
 import type { AIProviderPort } from "@/src/ports/ai-provider";
 import type { DevicePort } from "@/src/ports/device";
 import type { EventPort } from "@/src/ports/events";
@@ -178,6 +180,58 @@ describe("durable in-process task recovery", () => {
     expect(JSON.parse(recovered?.output ?? "{}")).toEqual({ capabilities: [] });
   });
 
+  it("fails interrupted analyze without replaying the provider or duplicating an existing proposal", async () => {
+    const persistence = freshStore();
+    const project = createProject("recovery-analysis-with-proposal", () => new Date("2026-08-12T00:00:00.000Z"));
+    const artifact = createArtifact({ projectId: project.id, kind: "requirements" });
+    const proposal = createProposal({
+      projectId: project.id,
+      artifactId: artifact.id,
+      baseVersionId: null,
+      type: "requirement",
+      payload: JSON.stringify({ title: "Existing" }),
+      diff: null,
+      impacts: [],
+      reason: null,
+      createdBy: "ai",
+      now: () => new Date("2026-08-12T00:00:01.000Z"),
+    });
+    await persistence.withTransaction((uow) => {
+      uow.createProject(project);
+      uow.createArtifact(artifact);
+      uow.createProposal(proposal);
+      uow.saveTask({
+        ...task("analysis-with-proposal", "running"),
+        capability: "analyze_requirement",
+        input: JSON.stringify({ projectId: project.id, description: "repeat-safe analysis", lab: {} }),
+      });
+    });
+    let providerCalls = 0;
+    const ai: AIProviderPort = {
+      name: "must-not-run",
+      status: async () => { providerCalls += 1; return "available"; },
+      streamText: async () => { providerCalls += 1; },
+      generateStructured: async <T>() => { providerCalls += 1; return { data: {} as T }; },
+    };
+    const tasks = createInProcessTasks({ persistence, events });
+    tasks.setExecutor(createProductionTaskExecutor({
+      persistence,
+      events,
+      ai,
+      compiler: createMockCompiler(),
+      workspaceDir: "workspace",
+    }));
+
+    await expect(tasks.recover()).resolves.toEqual({ recovered: 1, failed: 0 });
+    await tasks.waitForIdle();
+    expect(providerCalls).toBe(0);
+    expect(await persistence.listProposals(project.id)).toHaveLength(1);
+    expect((await tasks.getTask("analysis-with-proposal"))?.error).toBe(JSON.stringify({
+      code: "analysis_recovery_unsafe_replay",
+      message: "Analysis was interrupted and cannot be safely replayed",
+    }));
+  });
+
   it("fails recovered flash_device before invoking the device adapter", async () => {
     const persistence = freshStore();
     await persistence.withTransaction((uow) => {
@@ -185,6 +239,8 @@ describe("durable in-process task recovery", () => {
         ...task("flash-1"),
         capability: "flash_device",
         input: JSON.stringify({ projectId: "project-1", deviceId: "dev-1", buildId: "build-1", artifactVersionId: "fw-v1" }),
+        status: "running",
+        startedAt: "2026-08-12T00:00:01Z",
       });
     });
     let invocations = 0;

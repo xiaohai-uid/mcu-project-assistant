@@ -261,12 +261,13 @@ export async function runBuild(
   if (!toolchain.available) throw new ToolchainUnavailableError(toolchain.reason ?? "Toolchain unavailable");
 
   const buildId = randomUUID();
+  const taskId = randomUUID();
   const paths = resolveBuildPaths(deps.workspaceDir, version.contentRef, buildId);
   const options = input.options ?? {};
   const record = createBuildRecord({
     id: buildId,
     artifactVersionId: input.versionId,
-    taskId: null,
+    taskId,
     target,
     toolchain: "esp32-arduino",
     toolchainVersion: toolchain.version,
@@ -275,8 +276,22 @@ export async function runBuild(
     sourceDir: paths.sourceDir,
     outputDir: paths.outputDir,
   });
-  await deps.persistence.withTransaction((uow) => uow.createBuildRecord(record));
-  await deps.tasks.submit({ capability: "run_build", input: JSON.stringify({ buildId, projectId: input.projectId, versionId: input.versionId }) });
+  const task = {
+    id: taskId,
+    capability: "run_build",
+    input: JSON.stringify({ buildId, projectId: input.projectId, versionId: input.versionId }),
+    status: "queued" as const,
+    createdAt: record.startedAt,
+    startedAt: null,
+    completedAt: null,
+    error: null,
+    output: null,
+  };
+  await deps.persistence.withTransaction((uow) => {
+    uow.createBuildRecord(record);
+    uow.saveTask(task);
+  });
+  await deps.tasks.submit({ capability: task.capability, input: task.input, taskId });
   return { buildId };
 }
 

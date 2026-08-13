@@ -2,13 +2,14 @@
 // arduino-cli 本地工具链：发现（spawnSync "arduino-cli version"）→ 编译（spawn 数组传参，
 // **无 shell 拼接**——child_process 默认 shell:false；结构化参数 → argv）。
 // 工具链缺失（ENOENT）→ ToolchainUnavailableError（HTTP 503 + UI 横幅 + 重检测）。
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import type { BuildRequest, BuildResult, CompilerPort, ToolchainInfo } from "@/src/ports/compiler";
 import { BuildTimeoutError, ToolchainUnavailableError, UnsupportedBuildTargetError } from "@/src/ports/compiler";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { assertExistingPathContained, assertNoExistingLinks } from "@/src/shared/filesystem-confinement";
+import { spawnOwnedChild, stopOwnedChild } from "@/src/infrastructure/owned-child";
 
 const FQBN: Record<string, string> = {
   "esp32-s3": "esp32:esp32:esp32s3",
@@ -60,15 +61,7 @@ function outputEvidence(outputDir: string) {
 }
 
 function stopChild(child: import("node:child_process").ChildProcess, force = false): void {
-  if (process.platform === "win32" && child.pid) {
-    if (force) {
-      spawn("taskkill", ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
-    } else {
-      child.kill("SIGTERM");
-    }
-    return;
-  }
-  child.kill(force ? "SIGKILL" : "SIGTERM");
+  stopOwnedChild(child, force);
 }
 
 export function createEsp32ArduinoCompiler(opts?: CompilerOptions): CompilerPort {
@@ -136,7 +129,7 @@ export function createEsp32ArduinoCompiler(opts?: CompilerOptions): CompilerPort
           fn();
         };
         try {
-          child = spawn(cli, argv, { cwd: request.sourceDir, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+          child = spawnOwnedChild({ command: cli, args: argv, cwd: request.sourceDir });
         } catch (err) {
           reject(new ToolchainUnavailableError(`cannot spawn ${cli}: ${(err as Error).message}`));
           return;

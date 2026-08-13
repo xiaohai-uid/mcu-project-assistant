@@ -66,6 +66,8 @@ const SAFE_MESSAGES: Record<string, string> = {
   network_unavailable: "Local workspace server is unavailable",
   task_cancelled: "Task was cancelled",
   task_recovery_unsafe_replay: "Task cannot be safely replayed after restart",
+  analysis_recovery_unsafe_replay: "Analysis was interrupted and cannot be safely replayed",
+  build_recovery_orphaned: "Build record was interrupted before its task was durably linked",
   unknown: "An earlier task failure was recorded without a stable code",
 };
 
@@ -96,6 +98,8 @@ const CODE_ALIASES: Record<string, string> = {
   SERIAL_TRANSPORT_ERROR: "serial_transport_error",
   TASK_CANCELLED: "task_cancelled",
   TASK_RECOVERY_UNSAFE_REPLAY: "task_recovery_unsafe_replay",
+  ANALYSIS_RECOVERY_UNSAFE_REPLAY: "analysis_recovery_unsafe_replay",
+  BUILD_RECOVERY_ORPHANED: "build_recovery_orphaned",
 };
 
 const KNOWN_CODES = new Set([

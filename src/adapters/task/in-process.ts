@@ -173,7 +173,14 @@ export function createInProcessTasks(deps: InProcessTaskDeps): InProcessTaskRunt
   return {
     async submit(input): Promise<string> {
       if (stopping) throw new Error("Task runtime is stopping");
-      const taskId = randomUUID();
+      const taskId = input.taskId ?? randomUUID();
+      const existing = await deps.persistence.getTask(taskId);
+      if (existing) {
+        if (existing.status !== "queued") throw new Error(`Task ${taskId} is not queued`);
+        records.set(taskId, existing);
+        launch(existing, "new");
+        return taskId;
+      }
       const record: TaskRecord = {
         id: taskId,
         capability: input.capability,
@@ -214,13 +221,21 @@ export function createInProcessTasks(deps: InProcessTaskDeps): InProcessTaskRunt
 
     async recover(): Promise<RecoveryResult> {
       stopping = false;
-      await deps.persistence.withTransaction((uow) => uow.requeueOrphanedTasks?.());
+      const recovery = await deps.persistence.withTransaction((uow) => {
+        if (uow.recoverInterruptedTasks) return { interrupted: new Set(uow.recoverInterruptedTasks()), classified: true };
+        uow.requeueOrphanedTasks?.();
+        // Adapters without explicit classification must fail closed: an
+        // unknown queued-after-restart task may have been running before the
+        // crash, so never treat it as a fresh replay.
+        return { interrupted: new Set<string>(), classified: false };
+      });
+      await deps.persistence.withTransaction((uow) => uow.repairOrphanedBuildRecords?.(now().toISOString()));
       let recovered = 0;
       for (;;) {
         if (stopping) break;
         const task = await deps.persistence.withTransaction((uow) => uow.claimNextTask());
         if (!task) break;
-        launch(task, "recovery");
+        launch(task, recovery.interrupted.has(task.id) || !recovery.classified ? "recovery" : "new");
         recovered += 1;
       }
       return { recovered, failed: 0 };
