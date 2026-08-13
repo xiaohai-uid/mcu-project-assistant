@@ -5,7 +5,9 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createSerialTransport, type SerialTransport, type SerialTransportFactory } from "@/src/adapters/device/serial-transport";
+import { createResourceLock, type ResourceLease } from "@/src/adapters/device/resource-lock";
 import {
+  DeviceBusyError,
   SerialDeviceChangedError,
   SerialDeviceNotFoundError,
   SerialSessionNotOpenError,
@@ -136,7 +138,10 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
     serialSessionId: null,
     serialLines: [],
   };
-  let activeSerial: { session: SerialSession; transport: SerialTransport; lineBuffer: string; decoder: TextDecoder } | null = null;
+  const resources = createResourceLock();
+  let activeSerial: { session: SerialSession; transport: SerialTransport; lineBuffer: string; decoder: TextDecoder; lease: ResourceLease } | null = null;
+  let flashing = false;
+  let openingSerial = false;
   const listeners = new Map<string, Set<(event: SerialSessionEvent) => void>>();
 
   const emit = (event: SerialSessionEvent): void => {
@@ -159,6 +164,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
     if (error) emit({ type: "error", session: errored, code: errorCode, message: safeMessageForCode(errorCode), receivedAt: new Date().toISOString() });
     emit({ type: "closed", session: { ...current.session, status: "closed" as const }, reason, receivedAt: new Date().toISOString() });
     await new Promise<void>((resolve) => current.transport.close(() => resolve()));
+    current.lease.release();
   };
 
   function discoverCandidates(): Candidate[] {
@@ -192,7 +198,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
 
   return {
     async detectBoard(): Promise<DeviceInfo> {
-      if (activeSerial) await closeActive("device_redetected");
+      if (activeSerial || openingSerial || flashing) throw new DeviceBusyError();
       const candidate = selectCandidate();
       const device: DeviceInfo = {
         id: candidateId(candidate),
@@ -213,6 +219,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
       return device;
     },
     async disconnect(): Promise<void> {
+      if (openingSerial || flashing) throw new DeviceBusyError();
       await closeActive("device_disconnected");
       session.stage = "disconnected";
       session.serialStage = "disconnected";
@@ -222,19 +229,47 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
       session.serialLines.push("[system] Device disconnected");
     },
     flash(input, onEvent, signal): Promise<FlashResult> {
-      return (activeSerial ? closeActive("flash_started") : Promise.resolve()).then(() => new Promise((resolve, reject) => {
-        if (signal.aborted) {
-          resolve({ exitCode: 1, sessionId: "", truth: physicalTruth("failed", false), errorCode: "FLASH_CANCELLED" });
+      return new Promise((resolve, reject) => {
+        const operationId = input.operationId ?? input.buildId;
+        const resourceKey = `physical:${input.deviceId}`;
+        const lease = resources.tryAcquire(resourceKey, `flash:${input.projectId ?? ""}:${operationId}`);
+        if (!lease) {
+          reject(new DeviceBusyError());
           return;
         }
-        const current = selectCandidate();
+        flashing = true;
+        let released = false;
+        const release = () => {
+          if (released) return;
+          released = true;
+          flashing = false;
+          lease.release();
+        };
+        const rejectAndRelease = (error: unknown) => { release(); reject(error); };
+        if (signal.aborted) {
+          resolve({ exitCode: 1, sessionId: "", truth: physicalTruth("failed", false), errorCode: "FLASH_CANCELLED" });
+          release();
+          return;
+        }
+        if (activeSerial) {
+          rejectAndRelease(new DeviceBusyError());
+          return;
+        }
+        let current: Candidate;
+        try {
+          current = selectCandidate();
+        } catch (error) {
+          rejectAndRelease(error);
+          return;
+        }
         if (!session.device || session.device.id !== candidateId(current) || session.device.port !== current.port) {
           const truth = physicalTruth("failed", false);
           session.truth = truth;
           if (session.device) session.device = { ...session.device, truth };
-          reject(Object.assign(new Error("The physical device changed between discovery and flash"), { code: "PHYSICAL_DEVICE_CHANGED" }));
+          rejectAndRelease(Object.assign(new Error("The physical device changed between discovery and flash"), { code: "PHYSICAL_DEVICE_CHANGED" }));
           return;
         }
+        session.stage = "flashing";
         const argv = [...prefix, "upload", "--fqbn", ESP32_S3_FQBN, "--port", current.port, "--input-dir", input.outputDir];
         let child: import("node:child_process").ChildProcess;
         let settled = false;
@@ -244,6 +279,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
           settled = true;
           clearTimeout(timeout);
           if (grace) clearTimeout(grace);
+          release();
           fn();
         };
         const abort = (timedOut: boolean) => {
@@ -253,6 +289,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
           if (timedOut) {
             settled = true;
             clearTimeout(timeout);
+            release();
             const truth = physicalTruth("failed", false);
             session.stage = "detected";
             session.truth = truth;
@@ -265,16 +302,39 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
         try {
           child = spawn(opts.arduinoCliPath, argv, { cwd: opts.cwd, shell: false, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
         } catch (error) {
-          finish(() => reject(new PhysicalToolUnavailableError(`cannot spawn ${opts.arduinoCliPath}: ${String(error)}`)));
+          finish(() => {
+            session.stage = "detected";
+            reject(new PhysicalToolUnavailableError(`cannot spawn ${opts.arduinoCliPath}: ${String(error)}`));
+          });
           return;
         }
         signal.addEventListener("abort", onAbort, { once: true });
         const onChunk = (buffer: Buffer) => {
-          for (const line of buffer.toString("utf8").split("\n")) if (line.trim()) onEvent({ type: "line", line });
+          try {
+            for (const line of buffer.toString("utf8").split("\n")) if (line.trim()) onEvent({ type: "line", line });
+          } catch (error) {
+            finish(() => {
+              stopChild(child);
+              session.stage = "detected";
+              reject(error);
+            });
+          }
         };
         child.stdout?.on("data", onChunk);
         child.stderr?.on("data", onChunk);
-        onEvent({ type: "progress", percent: 10, message: "Uploading firmware binary..." });
+        try {
+          onEvent({ type: "progress", percent: 10, message: "Uploading firmware binary..." });
+        } catch (error) {
+          finish(() => {
+            stopChild(child);
+            session.stage = "detected";
+            reject(error);
+          });
+          return;
+        }
+        // The signal may have been aborted while discovery/spawn was in
+        // progress, before the listener above could be attached.
+        if (signal.aborted) onAbort();
         child.on("error", (error) => finish(() => {
           const truth = physicalTruth("failed", false);
           session.stage = "detected";
@@ -287,7 +347,12 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
           const truth = physicalTruth(successful ? "verified" : "failed", successful);
           session.stage = "detected";
           session.truth = truth;
-          onEvent({ type: "progress", percent: successful ? 100 : 90, message: successful ? "Flash complete" : "Flash failed" });
+          try {
+            onEvent({ type: "progress", percent: successful ? 100 : 90, message: successful ? "Flash complete" : "Flash failed" });
+          } catch (error) {
+            reject(error);
+            return;
+          }
           resolve({
             exitCode: signal.aborted ? 1 : code ?? 1,
             sessionId: successful ? `physical-${Date.now().toString(36)}` : "",
@@ -302,16 +367,30 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
             errorCode: successful ? undefined : signal.aborted ? "FLASH_CANCELLED" : "FLASH_EXIT_NONZERO",
           });
         }));
-      }));
+      });
     },
     session() { return session; },
     async openSerialSession(input: { projectId: string; deviceId: string; baudRate?: number }): Promise<SerialSession> {
       if (!session.device || session.device.id !== input.deviceId) throw new SerialDeviceNotFoundError();
-      const current = selectCandidate();
-      if (candidateId(current) !== input.deviceId || current.port !== session.device.port) throw new SerialDeviceChangedError();
-      if (activeSerial) await closeActive("replaced");
+      const openedSessionId = `physical-serial-${randomUUID()}`;
+      const lease = resources.tryAcquire(`physical:${input.deviceId}`, `serial:${input.projectId}:${openedSessionId}`);
+      if (!lease) throw new DeviceBusyError();
+      openingSerial = true;
+      let current: Candidate;
+      try {
+        current = selectCandidate();
+      } catch (error) {
+        lease.release();
+        openingSerial = false;
+        throw error;
+      }
+      if (candidateId(current) !== input.deviceId || current.port !== session.device.port) {
+        lease.release();
+        openingSerial = false;
+        throw new SerialDeviceChangedError();
+      }
       const opened: SerialSession = {
-        sessionId: `physical-serial-${randomUUID()}`,
+        sessionId: openedSessionId,
         projectId: input.projectId,
         deviceId: input.deviceId,
         executionReality: "physical",
@@ -321,8 +400,20 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
         openedAt: new Date().toISOString(),
         status: "connected",
       };
-      const transport = serialFactory({ path: current.port, baudRate: opened.baudRate });
-      const serial = { session: opened, transport, lineBuffer: "", decoder: new TextDecoder() };
+      if (flashing) {
+        lease.release();
+        openingSerial = false;
+        throw new DeviceBusyError();
+      }
+      let transport: SerialTransport;
+      try {
+        transport = serialFactory({ path: current.port, baudRate: opened.baudRate });
+      } catch (error) {
+        lease.release();
+        openingSerial = false;
+        throw error;
+      }
+      const serial = { session: opened, transport, lineBuffer: "", decoder: new TextDecoder(), lease };
       session.serialStage = "opening";
       const openedPromise = new Promise<void>((resolve, reject) => {
         const onOpen = () => { transport.removeListener("error", onError); resolve(); };
@@ -336,9 +427,12 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
       } catch (error) {
         session.serialStage = "error";
         await new Promise<void>((resolve) => transport.close(() => resolve()));
+        lease.release();
+        openingSerial = false;
         throw error;
       }
       activeSerial = serial;
+      openingSerial = false;
       session.serialStage = "connected";
       session.serialSessionId = opened.sessionId;
       const onData = (chunk: Buffer): void => {

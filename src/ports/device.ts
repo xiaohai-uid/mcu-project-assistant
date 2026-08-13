@@ -51,6 +51,11 @@ export class SerialDeviceChangedError extends Error {
   constructor() { super("The current physical device changed before serial open"); this.name = "SerialDeviceChangedError"; }
 }
 
+export class DeviceBusyError extends Error {
+  readonly code = "DEVICE_BUSY";
+  constructor() { super("Device is busy with another operation"); this.name = "DeviceBusyError"; }
+}
+
 export interface DeviceSession {
   device: DeviceInfo | null;
   stage: DeviceStage;
@@ -76,6 +81,8 @@ export interface DevicePort {
   disconnect(): Promise<void>;
   /** 烧录执行：只消费应用层已验证的构建证据；signal 中断 → 中止 */
   flash(input: {
+    projectId?: string;
+    operationId?: string;
     deviceId: string;
     buildId: string;
     artifactVersionId: string;

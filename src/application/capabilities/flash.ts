@@ -6,7 +6,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "n
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { DevicePort, DeviceInfo, DeviceTruth } from "@/src/ports/device";
+import { DeviceBusyError, type DevicePort, type DeviceInfo, type DeviceTruth } from "@/src/ports/device";
 import type { DeviceExecutionReality, FlashResultDto } from "@/src/shared-contracts/types";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
@@ -181,6 +181,8 @@ export async function executeFlashTask(
   try {
     const result = await deps.device.flash(
       {
+        projectId: input.projectId,
+        operationId: ctx.taskId,
         deviceId: input.deviceId,
         buildId: input.buildId,
         artifactVersionId: input.artifactVersionId,
@@ -347,8 +349,10 @@ export async function flashDevice(
         }
       })();
   if (!task) throw new Error(`Flash task ${taskId} disappeared before reaching a terminal state`);
-  return task.output
-    ? (JSON.parse(task.output) as PersistedFlashOutput)
+  const output = task.output ? (JSON.parse(task.output) as PersistedFlashOutput) : null;
+  if (task.status === "failed" && output?.errorCode === "device_busy") throw new DeviceBusyError();
+  return output
+    ? output
     : { exitCode: 1, sessionId: "", truth: { ...actualTruth, verification: "failed" } };
 }
 

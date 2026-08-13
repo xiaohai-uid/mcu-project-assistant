@@ -52,6 +52,7 @@ describe("failure SSE logical-event contract", () => {
     let db: SqliteDb | undefined;
     let server: Server | undefined;
     let emitError: ((event: SerialSessionEvent) => void) | undefined;
+    let activeSubscriptions = 0;
     const session: SerialSession = {
       sessionId: "serial-1",
       projectId: "project-1",
@@ -82,8 +83,9 @@ describe("failure SSE logical-event contract", () => {
       closeSerialSession: async () => undefined,
       getSerialSession: (projectId, sessionId) => projectId === session.projectId && sessionId === session.sessionId ? session : null,
       subscribeSerialSession: (_projectId, _sessionId, listener) => {
+        activeSubscriptions += 1;
         emitError = listener;
-        return () => { emitError = undefined; };
+        return () => { activeSubscriptions -= 1; emitError = undefined; };
       },
       writeSerial: async (): Promise<SerialResult> => ({ response: null, truth: deviceSession.truth }),
       tickSerial: () => undefined,
@@ -140,6 +142,14 @@ describe("failure SSE logical-event contract", () => {
         timestamp: iso,
       });
       expect(body).not.toMatch(/RAW_PROVIDER_SECRET_MARKER|C:\\secret\\internal\\path/i);
+
+      for (let i = 0; i < 50; i += 1) {
+        const repeated = await fetch(`http://127.0.0.1:${address.port}/api/v1/projects/${session.projectId}/device/serial/session/${session.sessionId}/events`);
+        expect(repeated.status).toBe(200);
+        await repeated.body?.cancel();
+      }
+      for (let attempt = 0; attempt < 20 && activeSubscriptions !== 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(activeSubscriptions).toBe(0);
     } finally {
       if (server) await new Promise<void>((resolve) => server!.close(() => resolve()));
       db?.close();

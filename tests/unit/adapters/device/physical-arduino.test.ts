@@ -14,20 +14,21 @@ afterEach(() => {
   }
 });
 
-function fixture(mode: "success" | "nonzero" | "timeout" | "changing" | "empty" | "ambiguous") {
+function fixture(mode: "success" | "nonzero" | "timeout" | "retry" | "changing" | "empty" | "ambiguous") {
   const dir = createTestTempDir("mcu-physical-fixture");
   openDirs.push(dir);
   const marker = join(dir, "upload.json");
   const state = join(dir, "discover.count");
+  const uploadState = join(dir, "upload.count");
   const script = [
     "const fs=require('node:fs');",
-    `const marker=${JSON.stringify(marker)};const state=${JSON.stringify(state)};const mode=${JSON.stringify(mode)};`,
+    `const marker=${JSON.stringify(marker)};const state=${JSON.stringify(state)};const uploadState=${JSON.stringify(uploadState)};const mode=${JSON.stringify(mode)};`,
     "const args=process.argv.slice(1);",
     "if(args.includes('board')){let count=0;try{count=Number(fs.readFileSync(state,'utf8'))||0}catch{};count++;fs.writeFileSync(state,String(count));",
     `const ports=mode==='empty'?[]:mode==='ambiguous'?[{port:'COM9',matching_boards:[{fqbn:'${FQBN}'}]},{port:'COM10',matching_boards:[{fqbn:'${FQBN}'}]}]:[{port:mode==='changing'&&count>1?'COM10':'COM9',protocol:'serial',matching_boards:[{fqbn:'${FQBN}',vid:'303a',pid:'1001',serial_number:'fixture-1'}]}];`,
     "process.stdout.write(JSON.stringify(ports));process.exit(0);}",
-    "fs.writeFileSync(marker,JSON.stringify(args));",
-    "if(mode==='timeout'){setTimeout(()=>process.exit(0),3000)}else if(mode==='nonzero'){process.exit(7)}else{process.exit(0)}",
+    "fs.writeFileSync(marker,JSON.stringify(args));let uploadCount=0;try{uploadCount=Number(fs.readFileSync(uploadState,'utf8'))||0}catch{};uploadCount++;fs.writeFileSync(uploadState,String(uploadCount));",
+    "if(mode==='timeout'||(mode==='retry'&&uploadCount===1)){setTimeout(()=>process.exit(0),3000)}else if(mode==='nonzero'){process.exit(7)}else{process.exit(0)}",
   ].join("");
   return { dir, marker, script };
 }
@@ -154,7 +155,7 @@ describe("physical Arduino CLI adapter", () => {
   });
 
   it("cancels an in-flight uploader without a late success", async () => {
-    const f = deviceFor("timeout", 3000);
+    const f = deviceFor("retry", 3000);
     const detected = await f.device.detectBoard();
     const controller = new AbortController();
     const pending = f.device.flash({ ...flashInput, deviceId: detected.id }, () => undefined, controller.signal);
@@ -230,5 +231,109 @@ describe("physical Arduino CLI adapter", () => {
     expect(events).toEqual(["error", "closed"]);
     expect(physical.getSerialSession("project-a", serial.sessionId)).toBeNull();
     expect(physical.session().serialStage).toBe("error");
+  });
+
+  it("fails closed on concurrent serial open without creating an orphan transport", async () => {
+    const f = deviceFor("success");
+    const transports: ControlledSerialTransport[] = [];
+    const physical = createPhysicalArduinoDevice({
+      arduinoCliPath: process.execPath,
+      executableArgsPrefix: ["-e", f.script],
+      cwd: f.dir,
+      serialTransportFactory: () => {
+        const transport = new ControlledSerialTransport();
+        transports.push(transport);
+        return transport;
+      },
+    });
+    const detected = await physical.detectBoard();
+    const a = physical.openSerialSession({ projectId: "project-a", deviceId: detected.id });
+    await new Promise((resolve) => setImmediate(resolve));
+    await expect(physical.openSerialSession({ projectId: "project-b", deviceId: detected.id })).rejects.toMatchObject({ code: "DEVICE_BUSY" });
+    const serial = await a;
+    expect(transports).toHaveLength(1);
+    expect(physical.getSerialSession("project-a", serial.sessionId)).toMatchObject({ sessionId: serial.sessionId });
+    await physical.closeSerialSession(serial.sessionId);
+    expect(transports[0]?.isOpen).toBe(false);
+  });
+
+  it("rejects flash while serial owns the physical resource and preserves the session", async () => {
+    const f = deviceFor("success");
+    const transport = new ControlledSerialTransport();
+    const physical = createPhysicalArduinoDevice({
+      arduinoCliPath: process.execPath,
+      executableArgsPrefix: ["-e", f.script],
+      cwd: f.dir,
+      serialTransportFactory: () => transport,
+    });
+    const detected = await physical.detectBoard();
+    const serial = await physical.openSerialSession({ projectId: "project-a", deviceId: detected.id });
+    await expect(physical.flash({ ...flashInput, deviceId: detected.id }, () => undefined, new AbortController().signal)).rejects.toMatchObject({ code: "DEVICE_BUSY" });
+    expect(physical.getSerialSession("project-a", serial.sessionId)).toMatchObject({ sessionId: serial.sessionId });
+    expect(transport.isOpen).toBe(true);
+    await physical.closeSerialSession(serial.sessionId);
+  });
+
+  it("releases the resource after a failed serial transport factory so retry can open", async () => {
+    const f = deviceFor("success");
+    let attempts = 0;
+    const physical = createPhysicalArduinoDevice({
+      arduinoCliPath: process.execPath,
+      executableArgsPrefix: ["-e", f.script],
+      cwd: f.dir,
+      serialTransportFactory: () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("fixture transport create failed");
+        return new ControlledSerialTransport();
+      },
+    });
+    const detected = await physical.detectBoard();
+    await expect(physical.openSerialSession({ projectId: "project-a", deviceId: detected.id })).rejects.toThrow("fixture transport create failed");
+    const serial = await physical.openSerialSession({ projectId: "project-a", deviceId: detected.id });
+    expect(serial.status).toBe("connected");
+    await physical.closeSerialSession(serial.sessionId);
+  });
+
+  it("fails closed for concurrent flash and releases the lease after cancellation", async () => {
+    const f = deviceFor("retry", 3000);
+    const physical = f.device;
+    const detected = await physical.detectBoard();
+    const controller = new AbortController();
+    const first = physical.flash({ ...flashInput, deviceId: detected.id, projectId: "project-a", operationId: "flash-a" }, () => undefined, controller.signal);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await expect(physical.flash({ ...flashInput, deviceId: detected.id, projectId: "project-b", operationId: "flash-b" }, () => undefined, new AbortController().signal)).rejects.toMatchObject({ code: "DEVICE_BUSY" });
+    controller.abort();
+    await first;
+    const retry = await physical.flash({ ...flashInput, deviceId: detected.id, projectId: "project-b", operationId: "flash-retry" }, () => undefined, new AbortController().signal);
+    expect(retry.exitCode).toBe(0);
+  });
+
+  it("rejects serial open while a flash owns the same device", async () => {
+    const f = deviceFor("timeout", 3000);
+    const physical = f.device;
+    const detected = await physical.detectBoard();
+    const controller = new AbortController();
+    const first = physical.flash({ ...flashInput, deviceId: detected.id, projectId: "project-a", operationId: "flash-a" }, () => undefined, controller.signal);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await expect(physical.openSerialSession({ projectId: "project-b", deviceId: detected.id })).rejects.toMatchObject({ code: "DEVICE_BUSY" });
+    controller.abort();
+    await first;
+  });
+
+  it("does not let a stale close release or close a newer serial owner", async () => {
+    const f = deviceFor("success");
+    const physical = createPhysicalArduinoDevice({
+      arduinoCliPath: process.execPath,
+      executableArgsPrefix: ["-e", f.script],
+      cwd: f.dir,
+      serialTransportFactory: () => new ControlledSerialTransport(),
+    });
+    const detected = await physical.detectBoard();
+    const first = await physical.openSerialSession({ projectId: "project-a", deviceId: detected.id });
+    await physical.closeSerialSession(first.sessionId);
+    const second = await physical.openSerialSession({ projectId: "project-b", deviceId: detected.id });
+    await physical.closeSerialSession(first.sessionId);
+    expect(physical.getSerialSession("project-b", second.sessionId)).toMatchObject({ sessionId: second.sessionId });
+    await physical.closeSerialSession(second.sessionId);
   });
 });

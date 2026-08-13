@@ -57,6 +57,7 @@ const SAFE_MESSAGES: Record<string, string> = {
   token_reused: "Flash confirmation token was already used",
   device_mismatch: "Selected device does not match confirmation",
   device_disconnected: "Device is disconnected",
+  device_busy: "Device is busy with another operation",
   physical_flash_blocked: "Physical flash was blocked",
   serial_session_not_found: "Serial session was not found",
   already_archived: "Project is already archived",
@@ -87,6 +88,7 @@ const CODE_ALIASES: Record<string, string> = {
   FLASH_TIMEOUT: "flash_timeout",
   FLASH_EXIT_NONZERO: "physical_flash_failed",
   FLASH_CANCELLED: "task_cancelled",
+  DEVICE_BUSY: "device_busy",
   SERIAL_SESSION_NOT_OPEN: "serial_session_not_open",
   SERIAL_DEVICE_NOT_FOUND: "serial_device_not_found",
   SERIAL_DEVICE_CHANGED: "serial_device_changed",
@@ -102,7 +104,7 @@ const KNOWN_CODES = new Set([
   "invalid_round", "invalid_analysis_state", "outdated_proposal", "invalid_decision", "no_accepted_proposals",
   "no_hardware_selected", "no_pin_map", "no_stale", "blocking_stale", "invalid_build_state", "build_not_failed",
   "confirmation_missing", "confirmation_invalid", "confirmation_expired", "token_reused", "device_mismatch",
-  "device_disconnected", "physical_flash_blocked", "physical_flash_failed", "serial_session_not_found",
+  "device_disconnected", "device_busy", "physical_flash_blocked", "physical_flash_failed", "serial_session_not_found",
   "already_archived", "archived_read_only", "network_unavailable",
 ]);
 
@@ -134,6 +136,7 @@ function codeFromError(error: unknown): string {
   if (name === "BuildTimeoutError") return "build_timeout";
   if (name === "PhysicalToolUnavailableError") return "physical_tool_unavailable";
   if (name === "SerialSessionNotOpenError") return "serial_session_not_open";
+  if (name === "DeviceBusyError") return "device_busy";
   if (name === "AiProviderConfigurationError") return "invalid_request";
 
   if (typeof record?.code === "string" && /^[A-Z][A-Z0-9_]+$/.test(record.code)) {

@@ -663,6 +663,7 @@ export function createApp(deps: AppDeps): Express {
       if (err instanceof TokenReusedError) throw new ApiError(403, "token_reused", err.message);
       if (err instanceof DeviceMismatchError) throw new ApiError(403, "device_mismatch", err.message);
       if (err instanceof DeviceDisconnectedError) throw new ApiError(409, "device_disconnected", err.message);
+      if (err instanceof Error && "code" in err && String((err as Error & { code?: unknown }).code) === "DEVICE_BUSY") throw new ApiError(409, "device_busy", err.message);
       if (err instanceof PhysicalFlashBlockedError) throw new ApiError(409, "physical_flash_blocked", err.message);
       if (err instanceof FlashBuildNotVerifiedError) throw new ApiError(409, "flash_build_not_verified", err.message);
       if (err instanceof FlashFirmwareMissingError) throw new ApiError(409, "flash_firmware_missing", err.message);
@@ -701,6 +702,7 @@ export function createApp(deps: AppDeps): Express {
       const code = err instanceof Error && "code" in err ? String((err as Error & { code?: unknown }).code) : "";
       if (code === "SERIAL_DEVICE_NOT_FOUND") throw new ApiError(409, "serial_device_not_found", err instanceof Error ? err.message : String(err));
       if (code === "SERIAL_DEVICE_CHANGED") throw new ApiError(409, "serial_device_changed", err instanceof Error ? err.message : String(err));
+      if (code === "DEVICE_BUSY") throw new ApiError(409, "device_busy", err instanceof Error ? err.message : String(err));
       throw new ApiError(409, "serial_transport_error", err instanceof Error ? err.message : String(err));
     }
   };

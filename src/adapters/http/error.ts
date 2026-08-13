@@ -37,6 +37,7 @@ export type ErrorCode =
   | "token_reused"
   | "device_mismatch"
   | "device_disconnected"
+  | "device_busy"
   | "physical_flash_blocked"
   | "flash_build_not_verified"
   | "flash_firmware_missing"
