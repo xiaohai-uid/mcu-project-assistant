@@ -15,6 +15,8 @@ import type { BuildRecord } from "@/src/domain/models/build-record";
 import { toSafeError } from "@/src/shared-contracts/errors";
 import { assertExistingPathContained, resolveContainedPath } from "@/src/shared/filesystem-confinement";
 import { MAX_FLASH_EVIDENCE_BYTES, appendBoundedLine } from "@/src/shared/resource-limits";
+import type { IdempotencyRequest } from "@/src/shared/idempotency";
+import { IdempotencyConflictError } from "@/src/shared/idempotency";
 
 export class ConfirmationMissingError extends Error {
   constructor() {
@@ -298,9 +300,47 @@ export async function issueFlashToken(
  * 烧录执行（进度事件流）→ 完成写 .evidence/<sessionId>.log；中断不留半成品证据。
  */
 export async function flashDevice(
-  input: { projectId: string; deviceId: string; confirmationToken: string; buildId: string; artifactVersionId: string; executionReality?: DeviceExecutionReality },
+  input: { projectId: string; deviceId: string; confirmationToken: string; buildId: string; artifactVersionId: string; executionReality?: DeviceExecutionReality; idempotency?: IdempotencyRequest },
   deps: FlashCapabilityDeps,
-): Promise<PersistedFlashOutput> {
+): Promise<PersistedFlashOutput & { taskId?: string }> {
+  if (input.idempotency) {
+    const existing = await deps.persistence.getIdempotencyRecord?.(input.idempotency.scope, input.idempotency.key);
+    if (existing) {
+      if (existing.requestHash !== input.idempotency.requestHash) throw new IdempotencyConflictError();
+      const replay = JSON.parse(existing.responseBodyJson) as PersistedFlashOutput & { taskId?: string };
+      if (replay.taskId && replay.exitCode === undefined) {
+        const task = await deps.tasks.getTask(replay.taskId);
+        if (task?.output) return { ...(JSON.parse(task.output) as PersistedFlashOutput), taskId: replay.taskId };
+      }
+      return replay;
+    }
+  }
+  return flashIdempotentSubmission(input, deps);
+}
+
+const flashLocks = new Map<string, { requestHash: string; operation: Promise<PersistedFlashOutput & { taskId?: string }> }>();
+
+async function flashIdempotentSubmission(
+  input: { projectId: string; deviceId: string; confirmationToken: string; buildId: string; artifactVersionId: string; executionReality?: DeviceExecutionReality; idempotency?: IdempotencyRequest },
+  deps: FlashCapabilityDeps,
+  lockHeld = false,
+): Promise<PersistedFlashOutput & { taskId?: string }> {
+  const lockKey = input.idempotency ? `${input.idempotency.scope}\u0000${input.idempotency.key}` : null;
+  if (lockKey && !lockHeld) {
+    const active = flashLocks.get(lockKey);
+    if (active) {
+      if (active.requestHash !== input.idempotency!.requestHash) throw new IdempotencyConflictError();
+      return active.operation;
+    }
+    const operation = flashIdempotentSubmission(input, deps, true);
+    flashLocks.set(lockKey, { requestHash: input.idempotency!.requestHash, operation });
+    try {
+      return await operation;
+    } finally {
+      if (flashLocks.get(lockKey)?.operation === operation) flashLocks.delete(lockKey);
+    }
+  }
+
   const now = deps.now ?? (() => new Date());
 
   // 1. 令牌校验（一次性；AI/Companion/重试无令牌一律拒绝）
@@ -334,14 +374,47 @@ export async function flashDevice(
   if (!["detected", "connected"].includes(deps.device.session().stage)) throw new DeviceDisconnectedError();
 
   // 4. 烧录执行（in-process 任务；进度事件 → SSE；deferred 等待任务终态以返回 sessionId）
-  const taskId = await deps.tasks.submit(
-    { capability: "flash_device", input: JSON.stringify({ projectId: input.projectId, buildId: input.buildId, artifactVersionId: input.artifactVersionId, deviceId: input.deviceId, executionReality: input.executionReality }) },
-  );
+  const taskInput = JSON.stringify({ projectId: input.projectId, buildId: input.buildId, artifactVersionId: input.artifactVersionId, deviceId: input.deviceId, executionReality: input.executionReality });
+  const taskId = randomUUID();
+  const taskRecord = {
+    id: taskId,
+    capability: "flash_device",
+    input: taskInput,
+    status: "queued" as const,
+    createdAt: now().toISOString(),
+    startedAt: null,
+    completedAt: null,
+    error: null,
+    output: null,
+  };
+  let ownsTask = true;
+  if (input.idempotency) {
+    const claim = await deps.persistence.withTransaction((uow) => {
+      if (!uow.claimIdempotency) throw new Error("Durable idempotency is unavailable");
+      const result = uow.claimIdempotency(input.idempotency!, 202, JSON.stringify({ taskId }));
+      if (result.kind === "conflict") throw new IdempotencyConflictError();
+      if (result.kind === "replay") return result;
+      uow.saveTask(taskRecord);
+      return result;
+    });
+    if (claim.kind === "replay") {
+      const replay = JSON.parse(claim.record.responseBodyJson) as PersistedFlashOutput & { taskId?: string };
+      if (replay.taskId && replay.exitCode === undefined) {
+        const existingTask = await deps.tasks.getTask(replay.taskId);
+        if (existingTask?.output) return { ...(JSON.parse(existingTask.output) as PersistedFlashOutput), taskId: replay.taskId };
+      }
+      return replay;
+    }
+  } else {
+    await deps.tasks.submit({ capability: "flash_device", input: taskInput, taskId });
+    ownsTask = false;
+  }
+  if (ownsTask) await deps.tasks.submit({ capability: "flash_device", input: taskInput, taskId });
 
   const runtime = deps.tasks as TaskExecutionPort & {
     waitForTask?: (id: string) => Promise<import("@/src/ports/task-execution").TaskRecord | null>;
   };
-  const task = runtime.waitForTask
+  const completedTask = runtime.waitForTask
     ? await runtime.waitForTask(taskId)
     : await (async () => {
         for (;;) {
@@ -350,12 +423,19 @@ export async function flashDevice(
           await new Promise((resolve) => setTimeout(resolve, 5));
         }
       })();
-  if (!task) throw new Error(`Flash task ${taskId} disappeared before reaching a terminal state`);
-  const output = task.output ? (JSON.parse(task.output) as PersistedFlashOutput) : null;
-  if (task.status === "failed" && output?.errorCode === "device_busy") throw new DeviceBusyError();
-  return output
+  if (!completedTask) throw new Error(`Flash task ${taskId} disappeared before reaching a terminal state`);
+  const output = completedTask.output ? (JSON.parse(completedTask.output) as PersistedFlashOutput) : null;
+  if (completedTask.status === "failed" && output?.errorCode === "device_busy") throw new DeviceBusyError();
+  const response: PersistedFlashOutput = output
     ? output
-    : { exitCode: 1, sessionId: "", truth: { ...actualTruth, verification: "failed" } };
+    : { exitCode: 1, sessionId: "", truth: { ...actualTruth, verification: "failed" as const } };
+  const persistedResponse = input.idempotency ? { ...response, taskId } : response;
+  if (input.idempotency) {
+    await deps.persistence.withTransaction((uow) => {
+      uow.updateIdempotency?.(input.idempotency!, 202, JSON.stringify(persistedResponse));
+    });
+  }
+  return persistedResponse;
 }
 
 export async function disconnectDevice(deps: Pick<FlashCapabilityDeps, "device">): Promise<void> {

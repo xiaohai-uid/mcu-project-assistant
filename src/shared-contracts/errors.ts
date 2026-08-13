@@ -25,6 +25,8 @@ const SAFE_MESSAGES: Record<string, string> = {
   resource_capacity_exceeded: "Resource capacity is currently exhausted",
   untrusted_origin: "Request origin is not trusted",
   untrusted_host: "Request host is not trusted",
+  invalid_idempotency_key: "Idempotency-Key is invalid",
+  idempotency_conflict: "Idempotency-Key was already used with a different request",
   not_found: "Requested resource was not found",
   conflict: "Request conflicts with the current state",
   internal: "Internal server error",

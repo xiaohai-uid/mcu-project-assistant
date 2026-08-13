@@ -174,6 +174,22 @@ ALTER TABLE build_records ADD COLUMN command_json TEXT NULL;
 ALTER TABLE build_records ADD COLUMN outputs_json TEXT NULL;
 `,
   },
+  {
+    version: 10,
+    name: "create_idempotency_records",
+    sql: `
+CREATE TABLE idempotency_records (
+  scope TEXT NOT NULL,
+  key TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  response_status INTEGER NOT NULL,
+  response_body_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (scope, key)
+);
+CREATE INDEX idx_idempotency_created ON idempotency_records(created_at);
+`,
+  },
 ];
 
 export function migrate(db: SqliteDb): void {

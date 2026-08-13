@@ -14,6 +14,8 @@ export type ErrorCode =
   | "resource_capacity_exceeded"
   | "untrusted_origin"
   | "untrusted_host"
+  | "invalid_idempotency_key"
+  | "idempotency_conflict"
   | "invalid_capability"
   | "invalid_mcu"
   | "invalid_round"

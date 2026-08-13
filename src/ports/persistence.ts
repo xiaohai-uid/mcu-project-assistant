@@ -9,8 +9,12 @@ import type { Project } from "@/src/domain/models/project";
 import type { Proposal } from "@/src/domain/models/proposal";
 import type { TaskRecord } from "@/src/ports/task-execution";
 import type { ArtifactKind, ArtifactVersionStatus, StaleMarkDto, ValidationRecordDto } from "@/src/shared-contracts/types";
+import type { IdempotencyClaim, IdempotencyRecord, IdempotencyRequest } from "@/src/shared/idempotency";
 
 export interface UnitOfWork {
+  /** Atomic insert-or-observe for a logical HTTP mutation. */
+  claimIdempotency?(request: IdempotencyRequest, responseStatus: number, responseBodyJson: string): IdempotencyClaim;
+  updateIdempotency?(request: IdempotencyRequest, responseStatus: number, responseBodyJson: string): void;
   // S1
   createProject(p: Project): void;
   archiveProject(id: string, archivedAt: string, reason: string | null): void;
@@ -52,6 +56,7 @@ export interface UnitOfWork {
 export interface PersistencePort {
   /** 需要原子事务的一组操作；fn 内抛错 → 全回滚 */
   withTransaction<T>(fn: (uow: UnitOfWork) => T): Promise<T>;
+  getIdempotencyRecord?(scope: string, key: string): Promise<IdempotencyRecord | null>;
   // 只读查询可不经事务：
   getProject(id: string): Promise<Project | null>;
   listProjects(): Promise<Project[]>;

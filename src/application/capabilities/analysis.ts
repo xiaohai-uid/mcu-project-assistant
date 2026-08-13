@@ -14,6 +14,9 @@ import type { RequirementAnalysisOutput } from "@/src/shared-contracts/types";
 import { toSafeError } from "@/src/shared-contracts/errors";
 import { assertNotArchived } from "@/src/domain/models/project";
 import { MAX_REQUIREMENT_CHARS, ResourceLimitError, createResourceSemaphore } from "@/src/shared/resource-limits";
+import { randomUUID } from "node:crypto";
+import type { IdempotencyRequest } from "@/src/shared/idempotency";
+import { IdempotencyConflictError } from "@/src/shared/idempotency";
 
 export class AnalysisNotFoundError extends Error {
   constructor() {
@@ -272,7 +275,7 @@ export async function executeRequirementAnalysis(
 }
 
 export async function analyzeRequirement(
-  input: { projectId: string; description: string; lab?: Record<string, unknown>; now?: () => Date },
+  input: { projectId: string; description: string; lab?: Record<string, unknown>; now?: () => Date; idempotency?: IdempotencyRequest },
   deps: AnalysisCapabilityDeps,
 ): Promise<{ taskId: string }> {
   if (typeof input.description !== "string" || input.description.trim().length === 0) {
@@ -284,6 +287,14 @@ export async function analyzeRequirement(
   const project = await deps.persistence.getProject(input.projectId);
   if (!project) throw new AnalysisNotFoundError();
   assertNotArchived(project);
+
+  if (input.idempotency && deps.persistence.getIdempotencyRecord) {
+    const existing = await deps.persistence.getIdempotencyRecord(input.idempotency.scope, input.idempotency.key);
+    if (existing) {
+      if (existing.requestHash !== input.idempotency.requestHash) throw new IdempotencyConflictError();
+      return JSON.parse(existing.responseBodyJson) as { taskId: string };
+    }
+  }
 
   // 同步 Provider 可用性预检：不可用 → 立即 503（ISSUE-003 §10 ProviderUnavailable 合法降级；
   // 运行中故障走任务失败事件路径，两者并存——预检避免空转任务）
@@ -297,14 +308,34 @@ export async function analyzeRequirement(
     throw new ProviderUnavailableError("AI provider is unavailable");
   }
 
-  const taskId = await deps.tasks.submit(
-    {
-      capability: "analyze_requirement",
-      input: JSON.stringify({ projectId: input.projectId, description: input.description, lab: input.lab ?? {} }),
-    },
-  );
+  const taskInput = JSON.stringify({ projectId: input.projectId, description: input.description, lab: input.lab ?? {} });
+  if (!input.idempotency) {
+    const taskId = await deps.tasks.submit({ capability: "analyze_requirement", input: taskInput });
+    return { taskId };
+  }
+  const taskId = randomUUID();
+  const task = {
+    id: taskId,
+    capability: "analyze_requirement",
+    input: taskInput,
+    status: "queued" as const,
+    createdAt: (input.now ?? (() => new Date()))().toISOString(),
+    startedAt: null,
+    completedAt: null,
+    error: null,
+    output: null,
+  } satisfies TaskRecord;
+  const result = await deps.persistence.withTransaction((uow) => {
+    if (!uow.claimIdempotency) throw new Error("Durable idempotency is unavailable");
+    const claim = uow.claimIdempotency(input.idempotency!, 202, JSON.stringify({ taskId }));
+    if (claim.kind === "conflict") throw new IdempotencyConflictError();
+    if (claim.kind === "replay") return JSON.parse(claim.record.responseBodyJson) as { taskId: string };
+    uow.saveTask(task);
+    return { taskId };
+  });
+  if (result.taskId === taskId) await deps.tasks.submit({ capability: task.capability, input: task.input, taskId });
 
-  return { taskId };
+  return result;
 }
 
 export async function submitClarification(

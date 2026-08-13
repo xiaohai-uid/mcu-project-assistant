@@ -21,6 +21,8 @@ import {
   resolveContainedPath,
 } from "@/src/shared/filesystem-confinement";
 import { MAX_BUILD_LOG_BYTES, ResourceLimitError, createResourceSemaphore } from "@/src/shared/resource-limits";
+import type { IdempotencyRequest } from "@/src/shared/idempotency";
+import { IdempotencyConflictError } from "@/src/shared/idempotency";
 
 export class ProjectNotFoundError extends Error {
   constructor() { super("Project not found"); this.name = "ProjectNotFoundError"; }
@@ -266,7 +268,7 @@ export async function executeBuildTask(
 }
 
 export async function runBuild(
-  input: { projectId: string; versionId: string; target?: string; toolchain?: string; options?: Record<string, unknown>; now?: () => Date },
+  input: { projectId: string; versionId: string; target?: string; toolchain?: string; options?: Record<string, unknown>; now?: () => Date; idempotency?: IdempotencyRequest },
   deps: BuildCapabilityDeps,
 ): Promise<{ buildId: string }> {
   const now = deps.now ?? (() => new Date());
@@ -279,6 +281,14 @@ export async function runBuild(
   if (!artifact || artifact.projectId !== input.projectId || artifact.kind !== "firmware") throw new BuildInputError("Firmware version does not belong to the requested project");
   const target = input.target ?? TARGET;
   if (target !== TARGET) throw new UnsupportedBuildTargetError(target);
+
+  if (input.idempotency && deps.persistence.getIdempotencyRecord) {
+    const existing = await deps.persistence.getIdempotencyRecord(input.idempotency.scope, input.idempotency.key);
+    if (existing) {
+      if (existing.requestHash !== input.idempotency.requestHash) throw new IdempotencyConflictError();
+      return JSON.parse(existing.responseBodyJson) as { buildId: string };
+    }
+  }
 
   const { assertNotBlocking } = await import("@/src/application/capabilities/revalidate");
   await assertNotBlocking({ projectId: input.projectId, action: "run_build" }, deps);
@@ -312,12 +322,19 @@ export async function runBuild(
     error: null,
     output: null,
   };
-  await deps.persistence.withTransaction((uow) => {
+  const result = await deps.persistence.withTransaction((uow) => {
+    if (input.idempotency) {
+      if (!uow.claimIdempotency) throw new Error("Durable idempotency is unavailable");
+      const claim = uow.claimIdempotency(input.idempotency, 202, JSON.stringify({ buildId, taskId }));
+      if (claim.kind === "conflict") throw new IdempotencyConflictError();
+      if (claim.kind === "replay") return JSON.parse(claim.record.responseBodyJson) as { buildId: string; taskId: string };
+    }
     uow.createBuildRecord(record);
     uow.saveTask(task);
+    return { buildId, taskId };
   });
-  await deps.tasks.submit({ capability: task.capability, input: task.input, taskId });
-  return { buildId };
+  if (result.buildId === buildId) await deps.tasks.submit({ capability: task.capability, input: task.input, taskId });
+  return { buildId: result.buildId };
 }
 
 export async function getBuildRecord(input: { buildId: string }, deps: Pick<BuildCapabilityDeps, "persistence">): Promise<BuildRecord | null> {

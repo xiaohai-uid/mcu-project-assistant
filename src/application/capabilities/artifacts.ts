@@ -15,6 +15,8 @@ import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { ArtifactKind } from "@/src/shared-contracts/types";
 import { computeDownstreamMarks } from "@/src/application/capabilities/revalidate";
+import type { IdempotencyRequest } from "@/src/shared/idempotency";
+import { IdempotencyConflictError } from "@/src/shared/idempotency";
 
 export class ArtifactNotFoundError extends Error {
   constructor() {
@@ -29,6 +31,8 @@ export class InvalidContentError extends Error {
     this.name = "InvalidContentError";
   }
 }
+
+const versionLocks = new Map<string, { requestHash: string; operation: Promise<ArtifactVersion> }>();
 
 export interface ArtifactCapabilityDeps {
   persistence: PersistencePort;
@@ -54,8 +58,9 @@ export async function ensureArtifact(
 }
 
 export async function commitManualEdit(
-  input: { artifactId: string; content: string; now?: () => Date },
+  input: { artifactId: string; content: string; now?: () => Date; idempotency?: IdempotencyRequest },
   deps: ArtifactCapabilityDeps,
+  lockHeld = false,
 ): Promise<ArtifactVersion> {
   if (typeof input.content !== "string" || input.content.trim().length === 0) {
     throw new InvalidContentError();
@@ -68,6 +73,30 @@ export async function commitManualEdit(
   const project = await deps.persistence.getProject(artifact.projectId);
   if (!project) throw new ArtifactNotFoundError();
   assertNotArchived(project); // 归档项目只读（I-10）
+
+  const lockKey = input.idempotency ? `${input.idempotency.scope}\u0000${input.idempotency.key}` : null;
+  if (lockKey && !lockHeld) {
+    const active = versionLocks.get(lockKey);
+    if (active) {
+      if (active.requestHash !== input.idempotency!.requestHash) throw new IdempotencyConflictError();
+      return active.operation;
+    }
+    const operation = commitManualEdit(input, deps, true);
+    versionLocks.set(lockKey, { requestHash: input.idempotency!.requestHash, operation });
+    try {
+      return await operation;
+    } finally {
+      if (versionLocks.get(lockKey)?.operation === operation) versionLocks.delete(lockKey);
+    }
+  }
+
+  if (input.idempotency && deps.persistence.getIdempotencyRecord) {
+    const existing = await deps.persistence.getIdempotencyRecord(input.idempotency.scope, input.idempotency.key);
+    if (existing) {
+      if (existing.requestHash !== input.idempotency.requestHash) throw new IdempotencyConflictError();
+      return JSON.parse(existing.responseBodyJson) as ArtifactVersion;
+    }
+  }
 
   const content = input.content; // 内容按提交原样存储（版本不可变，不 trim 改写）
 
@@ -131,11 +160,19 @@ export async function commitManualEdit(
         : [];
 
     try {
-      await deps.persistence.withTransaction((uow) => {
+      const committed = await deps.persistence.withTransaction((uow) => {
+        if (input.idempotency) {
+          if (!uow.claimIdempotency) throw new Error("Durable idempotency is unavailable");
+          const claim = uow.claimIdempotency(input.idempotency, 201, JSON.stringify(version));
+          if (claim.kind === "conflict") throw new IdempotencyConflictError();
+          if (claim.kind === "replay") return JSON.parse(claim.record.responseBodyJson) as ArtifactVersion;
+        }
         uow.createVersion(version);
         uow.setCurrentVersion(artifact.id, version.id);
         if (downstreamMarks.length) uow.saveStaleMarks(downstreamMarks);
+        return version;
       });
+      if (committed.id !== version.id) return committed;
     } catch (err) {
       const isVersionNoCollision =
         err instanceof Error && /UNIQUE.*version_no|version_no.*UNIQUE/i.test(err.message);

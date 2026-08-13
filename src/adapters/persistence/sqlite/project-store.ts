@@ -7,6 +7,7 @@ import type { Proposal } from "@/src/domain/models/proposal";
 import type { ArtifactKind, ArtifactVersionStatus, StaleMarkDto, TaskStatusDto, ValidationRecordDto } from "@/src/shared-contracts/types";
 import type { PersistencePort, UnitOfWork } from "@/src/ports/persistence";
 import type { SqliteDb } from "./connection";
+import type { IdempotencyRecord, IdempotencyRequest } from "@/src/shared/idempotency";
 
 interface ProjectRow {
   id: string;
@@ -35,6 +36,15 @@ interface ArtifactVersionRow {
   source_proposal_id: string | null;
   created_at: string;
   created_by: string;
+}
+
+interface IdempotencyRow {
+  scope: string;
+  key: string;
+  request_hash: string;
+  response_status: number;
+  response_body_json: string;
+  created_at: string;
 }
 
 interface TaskRow {
@@ -204,6 +214,26 @@ function toBuild(row: BuildRow): BuildRecord {
 }
 
 export function createProjectStore(db: SqliteDb): PersistencePort {
+  const insertIdempotency = db.prepare(
+    `INSERT INTO idempotency_records (scope, key, request_hash, response_status, response_body_json, created_at)
+     VALUES (@scope, @key, @request_hash, @response_status, @response_body_json, @created_at)
+     ON CONFLICT(scope, key) DO NOTHING`,
+  );
+  const selectIdempotency = db.prepare(
+    "SELECT scope, key, request_hash, response_status, response_body_json, created_at FROM idempotency_records WHERE scope = ? AND key = ?",
+  );
+  const updateIdempotency = db.prepare(
+    `UPDATE idempotency_records SET response_status = @response_status, response_body_json = @response_body_json
+     WHERE scope = @scope AND key = @key AND request_hash = @request_hash`,
+  );
+  const toIdempotency = (row: IdempotencyRow): IdempotencyRecord => ({
+    scope: row.scope,
+    key: row.key,
+    requestHash: row.request_hash,
+    responseStatus: row.response_status,
+    responseBodyJson: row.response_body_json,
+    createdAt: row.created_at,
+  });
   const insert = db.prepare(
     "INSERT INTO projects (id, name, created_at, archived_at, archived_reason) VALUES (@id, @name, @created_at, @archived_at, @archived_reason)",
   );
@@ -337,6 +367,32 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
   );
 
   const uow: UnitOfWork = {
+    claimIdempotency(request: IdempotencyRequest, responseStatus: number, responseBodyJson: string) {
+      const result = insertIdempotency.run({
+        scope: request.scope,
+        key: request.key,
+        request_hash: request.requestHash,
+        response_status: responseStatus,
+        response_body_json: responseBodyJson,
+        created_at: request.createdAt,
+      });
+      if (Number(result.changes) === 1) return { kind: "new" as const };
+      const row = selectIdempotency.get(request.scope, request.key) as IdempotencyRow | undefined;
+      if (!row) throw new Error("Idempotency record disappeared during atomic claim");
+      const record = toIdempotency(row);
+      return record.requestHash === request.requestHash
+        ? { kind: "replay" as const, record }
+        : { kind: "conflict" as const, record };
+    },
+    updateIdempotency(request: IdempotencyRequest, responseStatus: number, responseBodyJson: string): void {
+      updateIdempotency.run({
+        scope: request.scope,
+        key: request.key,
+        request_hash: request.requestHash,
+        response_status: responseStatus,
+        response_body_json: responseBodyJson,
+      });
+    },
     createProject(p: Project): void {
       insert.run({
         id: p.id,
@@ -540,6 +596,10 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     withTransaction: async <T>(fn: (u: UnitOfWork) => T): Promise<T> => {
       const tx = db.transaction(fn);
       return tx(uow);
+    },
+    getIdempotencyRecord: async (scope: string, key: string) => {
+      const row = selectIdempotency.get(scope, key) as IdempotencyRow | undefined;
+      return row ? toIdempotency(row) : null;
     },
     getProject: async (id: string) => uow.getProject(id),
     listProjects: async () => uow.listProjects(),

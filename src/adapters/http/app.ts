@@ -7,7 +7,6 @@ import {
   AlreadyArchivedError,
   ArchivedProjectError,
   InvalidProjectNameError,
-  type Project,
 } from "@/src/domain/models/project";
 import {
   archiveProject as archiveProjectCapability,
@@ -78,7 +77,7 @@ import type { TaskExecutionPort, TaskRecord } from "@/src/ports/task-execution";
 import { parseTaskError } from "@/src/ports/task-execution";
 import type { InProcessTaskRuntime } from "@/src/adapters/task/in-process";
 import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
-import type { ArtifactKind, ArtifactVersionDto, DeviceExecutionReality, SerialSessionDto } from "@/src/shared-contracts/types";
+import type { ArtifactKind, DeviceExecutionReality, SerialSessionDto } from "@/src/shared-contracts/types";
 import { toSafeError } from "@/src/shared-contracts/errors";
 import { ApiError, apiErrorBoundary, withErrorHandler } from "./error";
 import { writeProjectMirror } from "@/src/infrastructure/workspace";
@@ -121,6 +120,7 @@ import { createFlashTokenStore } from "@/src/application/capabilities/flash";
 import { MAX_HTTP_BODY_BYTES, MAX_SERIAL_WRITE_BYTES, ResourceLimitError, assertUtf8Bytes } from "@/src/shared/resource-limits";
 import { SerialWriteTooLargeError } from "@/src/ports/device";
 import { browserTrustMiddleware } from "./browser-trust";
+import { IdempotencyConflictError, InvalidIdempotencyKeyError, makeIdempotencyRequest, parseIdempotencyKey } from "@/src/shared/idempotency";
 
 export interface AppDeps {
   persistence: PersistencePort;
@@ -147,6 +147,18 @@ const ARCHIVE_TOKEN_TTL_MS = 60_000;
 export function createApp(deps: AppDeps): Express {
   const app = express();
   app.use("/api", browserTrustMiddleware);
+  app.use("/api", (req, res, next) => {
+    try {
+      if (req.header("Idempotency-Key") !== undefined) parseIdempotencyKey(req.header("Idempotency-Key"));
+      next();
+    } catch (err) {
+      if (err instanceof InvalidIdempotencyKeyError) {
+        res.status(400).json({ error: { code: "invalid_idempotency_key", message: "Idempotency-Key is invalid" } });
+        return;
+      }
+      next(err);
+    }
+  });
   app.use(express.json({ limit: MAX_HTTP_BODY_BYTES }));
 
   const capDeps = { persistence: deps.persistence };
@@ -197,24 +209,18 @@ export function createApp(deps: AppDeps): Express {
     }),
   );
 
-  // Idempotency-Key：内存映射（transport 层；重启即失，S1 记录在案——持久化幂等存储随需要引入）
-  const idempotency = new Map<string, { project?: Project; version?: ArtifactVersionDto }>();
   const archiveTokens = new Map<string, ArchiveTokenEntry>();
 
   const handleCreate = async (req: Request, res: Response) => {
     const name = typeof req.body?.name === "string" ? req.body.name : "";
-    const key = req.header("Idempotency-Key");
-    if (key && idempotency.has(key)) {
-      res.status(201).json(idempotency.get(key)!.project);
-      return;
-    }
+    const idempotency = makeIdempotencyRequest(req.header("Idempotency-Key"), "POST:/api/v1/projects", { name }, now().toISOString());
     try {
-      const project = await createProjectCapability({ name, now }, capDeps);
+      const project = await createProjectCapability({ name, now, idempotency }, capDeps);
       writeProjectMirror(deps.workspaceDir, project); // best-effort 镜像（DB 为真相源）
-      if (key) idempotency.set(key, { project });
       res.status(201).json(project);
     } catch (err) {
       if (err instanceof InvalidProjectNameError) throw new ApiError(400, "invalid_name", err.message);
+      if (err instanceof IdempotencyConflictError) throw new ApiError(409, "idempotency_conflict", err.message);
       throw err;
     }
   };
@@ -292,23 +298,24 @@ export function createApp(deps: AppDeps): Express {
   };
 
   const handleCommitVersion = async (req: Request, res: Response) => {
-    const key = req.header("Idempotency-Key");
-    if (key && idempotency.has(key)) {
-      res.status(201).json(idempotency.get(key)!.version);
-      return;
-    }
     const content = typeof req.body?.content === "string" ? req.body.content : "";
+    const idempotency = makeIdempotencyRequest(
+      req.header("Idempotency-Key"),
+      `POST:/api/v1/artifacts/${req.params.artifactId as string}/versions`,
+      { content },
+      now().toISOString(),
+    );
     try {
       const version = await commitManualEditCapability(
-        { artifactId: req.params.artifactId as string, content, now },
+        { artifactId: req.params.artifactId as string, content, now, idempotency },
         artifactDeps,
       );
-      if (key) idempotency.set(key, { version });
       res.status(201).json(version);
     } catch (err) {
       if (err instanceof ArtifactNotFoundError) throw new ApiError(404, "not_found", err.message);
       if (err instanceof InvalidContentError) throw new ApiError(400, "invalid_content", err.message);
       if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
+      if (err instanceof IdempotencyConflictError) throw new ApiError(409, "idempotency_conflict", err.message);
       throw err;
     }
   };
@@ -336,9 +343,15 @@ export function createApp(deps: AppDeps): Express {
 
     if (capability === "analyze_requirement") {
       const description = typeof payload?.description === "string" ? payload.description : "";
+      const idempotency = makeIdempotencyRequest(
+        req.header("Idempotency-Key"),
+        `POST:/api/v1/projects/${projectId}/commands:analyze_requirement`,
+        { description, lab: payload?.lab },
+        now().toISOString(),
+      );
       try {
         const { taskId } = await analyzeRequirementCapability(
-          { projectId, description, lab: payload?.lab, now },
+          { projectId, description, lab: payload?.lab, now, idempotency },
           analysisDeps,
         );
         res.status(202).json({ taskId });
@@ -349,6 +362,7 @@ export function createApp(deps: AppDeps): Express {
         if (err instanceof AnalysisNotFoundError) throw new ApiError(404, "not_found", err.message);
         if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
         if (err instanceof ProviderUnavailableError) throw new ApiError(503, "provider_unavailable", err.message);
+        if (err instanceof IdempotencyConflictError) throw new ApiError(409, "idempotency_conflict", err.message);
         throw err;
       }
       return;
@@ -566,18 +580,22 @@ export function createApp(deps: AppDeps): Express {
   // ---------- S7 Build ----------
 
   const handleRunBuild = async (req: Request, res: Response) => {
+    const buildInput = {
+      projectId: req.params.projectId as string,
+      versionId: typeof req.body?.versionId === "string" ? req.body.versionId : "",
+      target: typeof req.body?.target === "string" ? req.body.target : undefined,
+      toolchain: typeof req.body?.toolchain === "string" ? req.body.toolchain : undefined,
+      options: req.body?.options,
+      now,
+    };
+    const idempotency = makeIdempotencyRequest(
+      req.header("Idempotency-Key"),
+      `POST:/api/v1/projects/${buildInput.projectId}/builds`,
+      { versionId: buildInput.versionId, target: buildInput.target, toolchain: buildInput.toolchain, options: buildInput.options },
+      now().toISOString(),
+    );
     try {
-      const { buildId } = await runBuildCapability(
-        {
-          projectId: req.params.projectId as string,
-          versionId: typeof req.body?.versionId === "string" ? req.body.versionId : "",
-          target: typeof req.body?.target === "string" ? req.body.target : undefined,
-          toolchain: typeof req.body?.toolchain === "string" ? req.body.toolchain : undefined,
-          options: req.body?.options,
-          now,
-        },
-        buildDeps,
-      );
+      const { buildId } = await runBuildCapability({ ...buildInput, idempotency }, buildDeps);
       res.status(202).json({ buildId });
     } catch (err) {
       if (err instanceof BuildVersionNotFoundError || err instanceof BuildNotFoundError)
@@ -588,6 +606,7 @@ export function createApp(deps: AppDeps): Express {
       if (err instanceof ResourceLimitError && err.code === "resource_capacity_exceeded") throw new ApiError(503, "resource_capacity_exceeded", err.message);
       if (err instanceof BlockingStaleError) throw new ApiError(409, "blocking_stale", err.message);
       if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
+      if (err instanceof IdempotencyConflictError) throw new ApiError(409, "idempotency_conflict", err.message);
       throw err;
     }
   };
@@ -668,8 +687,14 @@ export function createApp(deps: AppDeps): Express {
         : requestedReality === undefined
           ? undefined
           : (() => { throw new ApiError(400, "invalid_capability", "executionReality must be simulation, companion, or physical"); })();
+    const idempotency = makeIdempotencyRequest(
+      req.header("Idempotency-Key"),
+      `POST:/api/v1/device/flash:${projectId}`,
+      { projectId, deviceId, confirmationToken, buildId, artifactVersionId, executionReality },
+      now().toISOString(),
+    );
     try {
-      const result = await flashDeviceCapability({ projectId, deviceId, confirmationToken, buildId, artifactVersionId, executionReality }, flashDeps);
+      const result = await flashDeviceCapability({ projectId, deviceId, confirmationToken, buildId, artifactVersionId, executionReality, idempotency }, flashDeps);
       res.status(202).json(result);
     } catch (err) {
       if (err instanceof ConfirmationMissingError) throw new ApiError(403, "confirmation_missing", err.message);
@@ -693,6 +718,7 @@ export function createApp(deps: AppDeps): Express {
       if (adapterCode === "FLASH_TIMEOUT") throw new ApiError(504, "flash_timeout", err instanceof Error ? err.message : String(err));
       if (err instanceof BlockingStaleError) throw new ApiError(409, "blocking_stale", err.message);
       if (err instanceof FirmwareVersionNotFoundError) throw new ApiError(404, "not_found", err.message);
+      if (err instanceof IdempotencyConflictError) throw new ApiError(409, "idempotency_conflict", err.message);
       throw err;
     }
   };
