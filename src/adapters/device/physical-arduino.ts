@@ -18,6 +18,7 @@ import {
   type SerialSession,
   type SerialSessionEvent,
 } from "@/src/ports/device";
+import { safeMessageForCode } from "@/src/shared-contracts/errors";
 
 const ESP32_S3_FQBN = "esp32:esp32:esp32s3";
 
@@ -155,7 +156,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
     session.serialStage = error ? "error" : "disconnected";
     session.serialSessionId = null;
     const errored = { ...current.session, status: error ? "error" as const : "closed" as const };
-    if (error) emit({ type: "error", session: errored, code: errorCode, message: error.message, receivedAt: new Date().toISOString() });
+    if (error) emit({ type: "error", session: errored, code: errorCode, message: safeMessageForCode(errorCode), receivedAt: new Date().toISOString() });
     emit({ type: "closed", session: { ...current.session, status: "closed" as const }, reason, receivedAt: new Date().toISOString() });
     await new Promise<void>((resolve) => current.transport.close(() => resolve()));
   };

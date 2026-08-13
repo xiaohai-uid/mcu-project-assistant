@@ -131,7 +131,7 @@ export const RequirementsView: React.FC = () => {
       {d.stage === "error" && (
         <ErrorBanner
           title={t(lang, "discoveryErrorTitle")}
-          desc={d.error ?? undefined}
+          desc={d.error?.message ?? undefined}
           onRetry={startDiscovery}
           retryLabel={t(lang, "retry")}
           lang={lang}

@@ -5,6 +5,13 @@
 import type { AIProviderPort, ProviderStatus, StreamTextRequest, StructuredRequest } from "@/src/ports/ai-provider";
 import { ProviderUnavailableError } from "@/src/ports/ai-provider";
 
+function providerErrorForStatus(status: number): ProviderUnavailableError {
+  if (status === 408 || status === 504) return new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
+  if (status === 429) return new ProviderUnavailableError("AI provider rate limit or quota exceeded", "provider_rate_limited");
+  if (status >= 500 || status === 401 || status === 403) return new ProviderUnavailableError("AI provider is unavailable", "provider_unavailable");
+  return new ProviderUnavailableError("AI provider returned an invalid response", "provider_protocol_error");
+}
+
 export interface ZhipuAiProviderOptions {
   apiKey: string;
   baseUrl?: string;
@@ -16,6 +23,22 @@ export interface ZhipuAiProviderOptions {
 
 const DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4";
 const DEFAULT_MODEL = "glm-4.5-flash";
+
+function timedSignal(parent: AbortSignal, timeoutMs: number): { signal: AbortSignal; didTimeout: () => boolean; dispose: () => void } {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  const abort = () => controller.abort();
+  parent.addEventListener("abort", abort, { once: true });
+  return {
+    signal: controller.signal,
+    didTimeout: () => timedOut,
+    dispose: () => {
+      clearTimeout(timer);
+      parent.removeEventListener("abort", abort);
+    },
+  };
+}
 
 /** schema → 系统提示模板（领域契约形状；见 shared-contracts/types.ts） */
 const SCHEMA_PROMPTS: Record<string, string> = {
@@ -101,7 +124,8 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
 
   async function chat(body: Record<string, unknown>, signal: AbortSignal): Promise<Response> {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, timeoutMs);
     const onAbort = () => ctrl.abort();
     signal.addEventListener("abort", onAbort, { once: true });
     try {
@@ -113,6 +137,10 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
         },
         body: JSON.stringify(body),
         signal: ctrl.signal,
+      }).catch((error: unknown) => {
+        if (timedOut) throw new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
+        if (signal.aborted) throw error;
+        throw new ProviderUnavailableError("AI provider is unavailable", "provider_unavailable");
       });
     } finally {
       clearTimeout(timer);
@@ -126,10 +154,10 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
     try {
       const res = await chat(PROBE_BODY, new AbortController().signal);
       if (!res.ok) {
-        const body = await res.text().catch(() => "");
+        await res.text().catch(() => "");
         if (res.status === 401 || res.status === 403) return "unavailable";
         if (res.status >= 500) return "unavailable";
-        console.warn(`[zhipu-glm] probe failed ${res.status}: ${body.slice(0, 200)}`);
+        console.warn(`[zhipu-glm] probe failed status=${res.status}`);
         return "available"; // 4xx 非鉴权错误（如限流）仍视为可达
       }
       return "available";
@@ -151,6 +179,8 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
     },
 
     async streamText(req: StreamTextRequest): Promise<void> {
+      const operation = timedSignal(req.signal, timeoutMs);
+      try {
       const res = await chat(
         {
           ...WORK_BODY,
@@ -159,17 +189,18 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
           stream: true,
           max_tokens: 2048,
         },
-        req.signal,
+        operation.signal,
       );
       if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new ProviderUnavailableError(`zhipu-glm HTTP ${res.status}: ${body.slice(0, 200)}`);
+        await res.text().catch(() => "");
+        throw providerErrorForStatus(res.status);
       }
-      if (!res.body) throw new ProviderUnavailableError("zhipu-glm: empty stream body");
+      if (!res.body) throw new ProviderUnavailableError("AI provider returned an invalid response", "provider_protocol_error");
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let sawValidFrame = false;
       try {
         for (;;) {
           const { done, value } = await reader.read();
@@ -186,6 +217,7 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
               const parsed = JSON.parse(payload) as {
                 choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>;
               };
+              sawValidFrame = true;
               const delta = parsed.choices?.[0]?.delta;
               const text = delta?.content ?? "";
               if (text && !req.signal.aborted) req.onChunk(text);
@@ -195,8 +227,16 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
           }
           if (req.signal.aborted) throw new Error("aborted");
         }
+        if (operation.didTimeout()) throw new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
       } finally {
         reader.releaseLock();
+      }
+      if (!sawValidFrame) throw new ProviderUnavailableError("AI provider returned an invalid response", "provider_protocol_error");
+      } catch (error) {
+        if (operation.didTimeout()) throw new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
+        throw error;
+      } finally {
+        operation.dispose();
       }
     },
 
@@ -208,6 +248,7 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
       let lastErr: unknown = null;
       for (let attempt = 0; attempt < 2; attempt += 1) {
         if (req.signal.aborted) throw new Error("aborted");
+        const operation = timedSignal(req.signal, timeoutMs);
         try {
           const res = await chat(
             {
@@ -220,11 +261,11 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
               response_format: { type: "json_object" },
               max_tokens: 4096,
             },
-            req.signal,
+            operation.signal,
           );
           if (!res.ok) {
-            const body = await res.text().catch(() => "");
-            throw new ProviderUnavailableError(`zhipu-glm HTTP ${res.status}: ${body.slice(0, 200)}`);
+            await res.text().catch(() => "");
+            throw providerErrorForStatus(res.status);
           }
           const payload = (await res.json()) as {
             choices?: Array<{ message?: { content?: string } }>;
@@ -257,11 +298,11 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
                 response_format: { type: "json_object" },
                 max_tokens: 2048,
               },
-              req.signal,
+              operation.signal,
             );
             if (!extra.ok) {
-              const body = await extra.text().catch(() => "");
-              throw new ProviderUnavailableError(`zhipu-glm HTTP ${extra.status}: ${body.slice(0, 200)}`);
+              await extra.text().catch(() => "");
+              throw providerErrorForStatus(extra.status);
             }
             const extraPayload = (await extra.json()) as { choices?: Array<{ message?: { content?: string } }> };
             const extraContent = extraPayload.choices?.[0]?.message?.content;
@@ -275,10 +316,14 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
           return { data: parsed };
         } catch (err) {
           if (err instanceof ProviderUnavailableError) throw err;
+          if (operation.didTimeout()) throw new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
           lastErr = err;
+        } finally {
+          operation.dispose();
         }
       }
-      throw new ProviderUnavailableError(`zhipu-glm structured output failed: ${String(lastErr)}`);
+      void lastErr;
+      throw new ProviderUnavailableError("AI provider returned an invalid response", "provider_protocol_error");
     },
   };
 }

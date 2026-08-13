@@ -11,6 +11,7 @@ import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort, TaskRecord } from "@/src/ports/task-execution";
 import type { RequirementAnalysisOutput } from "@/src/shared-contracts/types";
+import { toSafeError } from "@/src/shared-contracts/errors";
 import { assertNotArchived } from "@/src/domain/models/project";
 
 export class AnalysisNotFoundError extends Error {
@@ -102,6 +103,7 @@ export async function executeRequirementAnalysis(
   const analysisId = ctx.taskId;
   const lab = input.lab ?? {};
   const now = deps.now ?? (() => new Date());
+  let failureEmitted = false;
   try {
     let status: ProviderStatus;
     try {
@@ -110,12 +112,18 @@ export async function executeRequirementAnalysis(
       status = "unavailable";
     }
     if (status !== "available") {
-      ctx.emit({ type: "provider.unavailable", provider: deps.ai.name, reason: "provider status != available" });
+      const safe = toSafeError(new ProviderUnavailableError());
+      failureEmitted = true;
+      ctx.emit({ type: "provider.unavailable", provider: deps.ai.name, projectId: input.projectId, taskId: ctx.taskId, code: safe.code, message: safe.message, timestamp: now().toISOString(), reason: safe.message });
       ctx.emit({
         type: "requirement.analysis.failed",
         projectId: input.projectId,
         analysisId,
-        reason: "AI provider is unavailable",
+        taskId: ctx.taskId,
+        code: safe.code,
+        message: safe.message,
+        timestamp: now().toISOString(),
+        reason: safe.message,
       });
       throw new ProviderUnavailableError("AI provider is unavailable");
     }
@@ -228,14 +236,24 @@ export async function executeRequirementAnalysis(
         projectId: input.projectId,
         analysisId,
       });
-    } else if (err instanceof ProviderUnavailableError) {
-      ctx.emit({ provider: deps.ai.name, type: "provider.unavailable", reason: err.message });
-      ctx.emit({
-        type: "requirement.analysis.failed",
-        projectId: input.projectId,
-        analysisId,
-        reason: err.message,
-      });
+    } else {
+      const safe = toSafeError(err);
+      if (!failureEmitted) {
+        if (err instanceof ProviderUnavailableError) {
+          ctx.emit({ provider: deps.ai.name, type: "provider.unavailable", projectId: input.projectId, taskId: ctx.taskId, code: safe.code, message: safe.message, timestamp: now().toISOString(), reason: safe.message });
+        }
+        ctx.emit({
+          type: "requirement.analysis.failed",
+          projectId: input.projectId,
+          analysisId,
+          taskId: ctx.taskId,
+          code: safe.code,
+          message: safe.message,
+          timestamp: now().toISOString(),
+          reason: safe.message,
+        });
+        failureEmitted = true;
+      }
     }
     throw err;
   }

@@ -14,27 +14,23 @@ import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
 import { createAiProvider } from "./ai-provider";
 import { loadConfig } from "./config";
-
-const config = loadConfig();
-const frontendDist = fileURLToPath(new URL("../../app/dist/", import.meta.url));
-
-mkdirSync(dirname(config.dbPath), { recursive: true });
-mkdirSync(config.workspaceDir, { recursive: true });
-
-const db = openDatabase(config.dbPath);
-migrate(db);
-const persistence = createProjectStore(db);
-const events = createSseEvents();
-
-// AI Provider 必须显式选择真实 provider；配置错误在 HTTP server 初始化前 fail-closed。
-const ai = createAiProvider();
-const compiler = createEsp32ArduinoCompiler({ arduinoCliPath: config.arduinoCliPath, timeoutMs: config.buildTimeoutMs });
-const tasks = createInProcessTasks({ persistence, events });
-const device = config.deviceProvider === "physical"
-  ? createPhysicalArduinoDevice({ arduinoCliPath: config.arduinoCliPath, timeoutMs: 5 * 60 * 1000 })
-  : createCompanionLocalDevice();
+import { toSafeError } from "@/src/shared-contracts/errors";
 
 async function startServer(): Promise<void> {
+  const config = loadConfig();
+  const frontendDist = fileURLToPath(new URL("../../app/dist/", import.meta.url));
+  mkdirSync(dirname(config.dbPath), { recursive: true });
+  mkdirSync(config.workspaceDir, { recursive: true });
+  const db = openDatabase(config.dbPath);
+  migrate(db);
+  const persistence = createProjectStore(db);
+  const events = createSseEvents();
+  const ai = createAiProvider();
+  const compiler = createEsp32ArduinoCompiler({ arduinoCliPath: config.arduinoCliPath, timeoutMs: config.buildTimeoutMs });
+  const tasks = createInProcessTasks({ persistence, events });
+  const device = config.deviceProvider === "physical"
+    ? createPhysicalArduinoDevice({ arduinoCliPath: config.arduinoCliPath, timeoutMs: 5 * 60 * 1000 })
+    : createCompanionLocalDevice();
   const app = createApp({
     persistence,
     workspaceDir: config.workspaceDir,
@@ -71,7 +67,11 @@ async function startServer(): Promise<void> {
 }
 
 void startServer().catch((err) => {
-  console.error(err);
-  db.close();
+  const safe = toSafeError(err);
+  const raw = typeof err === "object" && err !== null ? (err as { name?: unknown; message?: unknown }) : {};
+  const actionable = (raw.name === "AiProviderConfigurationError" || (typeof raw.message === "string" && /^MCU_[A-Z0-9_]+\b/.test(raw.message)))
+    ? String(raw.message)
+    : safe.message;
+  console.error(`[startup:${safe.code}] ${actionable}`);
   process.exitCode = 1;
 });

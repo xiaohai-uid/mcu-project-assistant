@@ -1,6 +1,6 @@
 // ============================================================
 import type { DeviceTruthDto, SerialSessionDto } from "@/src/shared-contracts/types";
-import type { TaskDto } from "./api/client";
+import type { AppError, TaskDto } from "./api/client";
 // MCU Project Assistant — Mock Product Types
 // UI-First Mock：这些类型描述"用户认知中的对象与状态"，
 // 不是后端 schema。后端契约在 UI Frozen 之后定义。
@@ -298,7 +298,7 @@ export interface AppState {
     capabilities: DiscoveredRequirement[];
     proposals: RequirementProposal[];
     clarification: Clarification | null;
-    error: string | null;
+    error: AppError | null;
     streamedText: string;
     analysisTask: TaskDto | null;
     analysisPhase: {

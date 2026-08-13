@@ -12,6 +12,7 @@ import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort } from "@/src/ports/task-execution";
 import type { BuildRecord } from "@/src/domain/models/build-record";
+import { toSafeError } from "@/src/shared-contracts/errors";
 
 export class ConfirmationMissingError extends Error {
   constructor() {
@@ -211,7 +212,7 @@ export async function executeFlashTask(
     ctx.emit({ type: "device.flashed", projectId, deviceId: input.deviceId, sessionId: sessionId.value, truth: result.truth });
   } catch (err) {
     const truth: DeviceTruth = { ...deps.device.session().truth, verification: "failed", physicalVerified: false };
-    const errorCode = err instanceof Error && "code" in err ? String((err as Error & { code?: unknown }).code) : err instanceof Error ? err.message : String(err);
+    const safe = toSafeError(err);
     await ctx.setOutput(JSON.stringify({
       exitCode: 1,
       sessionId: "",
@@ -220,14 +221,18 @@ export async function executeFlashTask(
       buildId: input.buildId,
       artifactVersionId: input.artifactVersionId,
       firmwareSha256: evidence.sha256,
-      errorCode,
+      errorCode: safe.code,
     } satisfies PersistedFlashOutput));
     if (ctx.signal.aborted) return;
     ctx.emit({
       type: "device.flash_failed",
       projectId,
       deviceId: input.deviceId,
-      message: errorCode,
+      taskId: ctx.taskId,
+      buildId: input.buildId,
+      code: safe.code,
+      message: safe.message,
+      timestamp: now().toISOString(),
       truth,
     });
     throw err;

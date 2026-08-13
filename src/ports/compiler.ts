@@ -45,6 +45,7 @@ export interface CompilerPort {
 }
 
 export class ToolchainUnavailableError extends Error {
+  readonly code = "toolchain_unavailable";
   constructor(reason: string) {
     super(reason);
     this.name = "ToolchainUnavailableError";
@@ -52,6 +53,7 @@ export class ToolchainUnavailableError extends Error {
 }
 
 export class UnsupportedBuildTargetError extends Error {
+  readonly code = "unsupported_build_target";
   constructor(target: string) {
     super(`Unsupported build target: ${target}`);
     this.name = "UnsupportedBuildTargetError";
@@ -59,6 +61,7 @@ export class UnsupportedBuildTargetError extends Error {
 }
 
 export class BuildTimeoutError extends Error {
+  readonly code = "build_timeout";
   constructor(timeoutMs: number) {
     super(`Build timed out after ${timeoutMs}ms`);
     this.name = "BuildTimeoutError";

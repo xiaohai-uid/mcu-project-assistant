@@ -9,5 +9,13 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     environment: "node",
     pool: "forks",
+    poolOptions: {
+      forks: {
+        // The compiler contract suite verifies process-wide cwd isolation around
+        // a real child process. Keep the test process single so that this
+        // intentional chdir cannot race another worker.
+        singleFork: true,
+      },
+    },
   },
 });

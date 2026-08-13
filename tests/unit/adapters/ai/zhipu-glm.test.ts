@@ -73,7 +73,31 @@ describe("zhipu-glm adapter (real AIProviderPort)", () => {
     fetchMock.mockResolvedValueOnce(new Response("boom", { status: 500 }));
     await expect(
       provider.streamText({ prompt: "p", signal: new AbortController().signal, onChunk: () => {} }),
-    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    ).rejects.toMatchObject({ name: "ProviderUnavailableError", code: "provider_unavailable", message: "AI provider is unavailable" });
+  });
+
+  it("classifies rate limit and malformed stream without exposing provider body", async () => {
+    const provider = createZhipuAiProvider({ apiKey: "k", baseUrl: "https://example/v4", model: "m" });
+    fetchMock.mockResolvedValueOnce(new Response("RAW_PROVIDER_SECRET_MARKER", { status: 429 }));
+    await expect(provider.streamText({ prompt: "p", signal: new AbortController().signal, onChunk: () => {} }))
+      .rejects.toMatchObject({ code: "provider_rate_limited", message: "AI provider rate limit or quota exceeded" });
+
+    fetchMock.mockResolvedValueOnce(new Response("data: not-json\n\ndata: [DONE]\n\n", { status: 200 }));
+    await expect(provider.streamText({ prompt: "p", signal: new AbortController().signal, onChunk: () => {} }))
+      .rejects.toMatchObject({ code: "provider_protocol_error", message: "AI provider returned an invalid response" });
+  });
+
+  it("classifies network failure and operation timeout without exposing the underlying error", async () => {
+    const provider = createZhipuAiProvider({ apiKey: "k", timeoutMs: 20 });
+    fetchMock.mockRejectedValueOnce(new Error("RAW_PROVIDER_SECRET_MARKER"));
+    await expect(provider.streamText({ prompt: "p", signal: new AbortController().signal, onChunk: () => {} }))
+      .rejects.toMatchObject({ code: "provider_unavailable", message: "AI provider is unavailable" });
+
+    fetchMock.mockImplementationOnce((_input: unknown, init?: RequestInit) => new Promise((_, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("RAW_PROVIDER_SECRET_MARKER", "AbortError")), { once: true });
+    }));
+    await expect(provider.streamText({ prompt: "p", signal: new AbortController().signal, onChunk: () => {} }))
+      .rejects.toMatchObject({ code: "provider_timeout", message: "AI provider request timed out" });
   });
 
   it("generateStructured: json_object 请求 + 解析 + markdown 围栏容错", async () => {

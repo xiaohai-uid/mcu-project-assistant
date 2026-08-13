@@ -13,6 +13,7 @@ import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort } from "@/src/ports/task-execution";
 import type { BuildRecordDto, BuildStatusDto } from "@/src/shared-contracts/types";
+import { toSafeError } from "@/src/shared-contracts/errors";
 
 export class ProjectNotFoundError extends Error {
   constructor() { super("Project not found"); this.name = "ProjectNotFoundError"; }
@@ -122,14 +123,14 @@ export async function executeBuildTask(
     if (record.sourceDir && resolve(record.sourceDir) !== paths.sourceDir) throw new BuildInputError("Durable source binding changed");
     if (record.outputDir && resolve(record.outputDir) !== paths.outputDir) throw new BuildInputError("Build output binding changed");
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const safe = toSafeError(err);
     const finalized = finalizeBuildRecord(currentRecord, {
       status: "failed", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: 1,
-      diagnostics: diagnostic("BUILD_SOURCE_INVALID", message),
+      diagnostics: diagnostic("BUILD_SOURCE_INVALID", safe.message),
     });
     await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
-    ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, exitCode: 1 });
-    throw new BuildExecutionError("BUILD_SOURCE_INVALID", message);
+    ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, taskId: ctx.taskId, code: safe.code, message: safe.message, timestamp: now().toISOString(), exitCode: 1 });
+    throw new BuildExecutionError("BUILD_SOURCE_INVALID", safe.message);
   }
 
   rmSync(paths.outputDir, { recursive: true, force: true });
@@ -163,9 +164,8 @@ export async function executeBuildTask(
     const hasFirmware = result.outputs.some((output) => output.kind === "bin" && output.sizeBytes > 0 && output.sha256.length === 64);
     const status: BuildStatusDto = result.exitCode === 0 && hasFirmware ? "succeeded" : "failed";
     const failureCode = result.exitCode !== 0 ? "BUILD_EXIT_NONZERO" : "BUILD_OUTPUT_MISSING";
-    const failureMessage = result.exitCode !== 0
-      ? `Compiler exited with code ${result.exitCode}`
-      : "Compiler exited successfully but produced no verified firmware binary";
+    const failureMessage = result.exitCode !== 0 ? "Firmware build failed" : "Firmware build produced no verified output";
+    const failureSafe = toSafeError({ diagnosticCode: failureCode, message: failureMessage });
     const finalized = finalizeBuildRecord(currentRecord, {
       status,
       completedAt: now().toISOString(),
@@ -175,14 +175,14 @@ export async function executeBuildTask(
       outputDir: paths.outputDir,
       command: result.command,
       outputs: result.outputs,
-      diagnostics: status === "failed" ? diagnostic(failureCode, failureMessage, { outputDir: paths.outputDir }) : [],
+      diagnostics: status === "failed" ? diagnostic(failureCode, failureSafe.message) : [],
     });
     await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
     if (status === "succeeded") {
       ctx.emit({ type: "build.succeeded", projectId: input.projectId, buildId: input.buildId, exitCode: result.exitCode });
       return;
     }
-    ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, exitCode: result.exitCode });
+    ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, taskId: ctx.taskId, code: failureSafe.code, message: failureSafe.message, timestamp: now().toISOString(), exitCode: result.exitCode });
     throw new BuildExecutionError(failureCode, failureMessage, result.exitCode);
   } catch (err) {
     if (ctx.signal.aborted) {
@@ -197,15 +197,15 @@ export async function executeBuildTask(
     const code = err instanceof BuildTimeoutError ? "BUILD_TIMEOUT"
       : err instanceof BuildExecutionError ? err.diagnosticCode
         : err instanceof UnsupportedBuildTargetError ? "BUILD_TARGET_UNSUPPORTED" : "BUILD_EXECUTION_FAILED";
-    const message = err instanceof Error ? err.message : String(err);
+    const safe = toSafeError({ ...(typeof err === "object" && err !== null ? err : {}), diagnosticCode: code });
     if (!(err instanceof BuildExecutionError)) {
       const finalized = finalizeBuildRecord(currentRecord, {
         status: "failed", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: result?.exitCode ?? 1,
         sourceDir: paths.sourceDir, outputDir: paths.outputDir, command: result?.command ?? [], outputs: result?.outputs ?? [],
-        diagnostics: diagnostic(code, message),
+        diagnostics: diagnostic(code, safe.message),
       });
       await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
-      ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, exitCode: result?.exitCode ?? 1 });
+      ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, taskId: ctx.taskId, code: safe.code, message: safe.message, timestamp: now().toISOString(), exitCode: result?.exitCode ?? 1 });
     }
     throw err;
   }

@@ -279,4 +279,30 @@ describe("S12 flash build evidence boundary", () => {
     await expectRejected("build-1", FlashFirmwareHashMismatchError);
     expect(flashCalls).toBe(0);
   });
+
+  it("emits a safe structured flash failure event when the device uploader fails", async () => {
+    const d = deps();
+    const { projectId, versionId } = await seedFirmware(d);
+    await detectDevice({}, d.flashDeps);
+    const originalFlash = d.device.flash;
+    d.device.flash = async (...args) => {
+      await originalFlash(...args);
+      throw Object.assign(new Error("RAW_PROVIDER_SECRET_MARKER C:\\secret\\internal\\path"), { code: "FLASH_TIMEOUT" });
+    };
+    const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
+    const build = [...d.persistence.mem.builds.values()][0]!;
+    const result = await flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: token, buildId: build.id, artifactVersionId: versionId }, d.flashDeps);
+    expect(result.exitCode).toBe(1);
+    const failed = d.published.find((event) => event.type === "device.flash_failed");
+    expect(failed).toMatchObject({
+      type: "device.flash_failed",
+      projectId,
+      taskId: expect.any(String),
+      buildId: build.id,
+      code: "flash_timeout",
+      message: "Firmware flashing timed out",
+      timestamp: NOW,
+    });
+    expect(JSON.stringify(failed)).not.toMatch(/RAW_PROVIDER_SECRET_MARKER|C:\\secret\\internal\\path/i);
+  });
 });

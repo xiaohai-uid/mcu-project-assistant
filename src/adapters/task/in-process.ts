@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import type { EventPort, LogicalEvent } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskContext, TaskExecutionPort, TaskRecord } from "@/src/ports/task-execution";
+import { serializeTaskError } from "@/src/ports/task-execution";
 
 export interface InProcessTaskDeps {
   persistence: PersistencePort;
@@ -151,7 +152,7 @@ export function createInProcessTasks(deps: InProcessTaskDeps): InProcessTaskRunt
       await persistTerminal(
         currentAfterFailure,
         ctrl.signal.aborted ? "cancelled" : "failed",
-        ctrl.signal.aborted ? null : err instanceof Error ? err.message : String(err),
+        ctrl.signal.aborted ? null : serializeTaskError(err),
       );
     } finally {
       controllers.delete(task.id);

@@ -32,7 +32,7 @@ import {
   sleep,
 } from "../mock/engine";
 import { format, getInitialLanguage, getInitialTheme } from "../lib/i18n";
-import { api as clientApi, ApiError } from "../api/client";
+import { api as clientApi, ApiError, toAppError, type AppError } from "../api/client";
 import { subscribeProjectEvents } from "../api/sse";
 import type { AnalysisCapabilityDto, McuCandidateDto, PeripheralDto } from "../api/client";
 import type { TaskDto } from "../api/client";
@@ -223,7 +223,7 @@ type Action =
   | { type: "DISC_CAPABILITY"; cap: AppState["discovery"]["capabilities"][number] }
   | { type: "DISC_CLARIFICATION"; c: AppState["discovery"]["clarification"] }
   | { type: "DISC_DONE"; caps: AppState["discovery"]["capabilities"]; props: AppState["discovery"]["proposals"] }
-  | { type: "DISC_ERROR"; error: string }
+  | { type: "DISC_ERROR"; error: AppError | string }
   | { type: "DISC_DECISION"; id: string; decision: ProposalDecision }
   | { type: "DISC_NEXT_FAIL"; v: boolean }
   | { type: "DISC_PARTIAL"; v: boolean }
@@ -364,7 +364,9 @@ function reducer(state: AppState, a: Action): AppState {
           capabilities: analysisOutput.map(dtoCapability),
           proposals: proposalItems,
           clarification: null,
-          error: analysisTask?.status === "failed" ? analysisTask.error ?? "Analysis failed" : null,
+          error: analysisTask?.status === "failed"
+            ? analysisTask.error ? { code: analysisTask.error.code, message: analysisTask.error.message } : { code: "internal", message: "Analysis failed" }
+            : null,
           streamedText: "",
           analysisPhase: null,
           analysisTask,
@@ -408,7 +410,10 @@ function reducer(state: AppState, a: Action): AppState {
           analysisPhase: null,
         },
       };
-    case "DISC_ERROR": return { ...state, discovery: { ...state.discovery, stage: "error", error: a.error } };
+    case "DISC_ERROR": {
+      const error = typeof a.error === "string" ? { code: "internal", message: a.error } : a.error;
+      return { ...state, discovery: { ...state.discovery, stage: "error", error } };
+    }
     case "DISC_DECISION":
       return {
         ...state,
@@ -649,7 +654,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         break;
       }
       case "requirement.analysis.failed": {
-        const error = (data as { reason?: string }).reason ?? "Analysis failed";
+        const failure = data as { code?: string; message?: string; reason?: string };
+        const error = toAppError(failure, "Analysis failed");
         dispatch({ type: "DISC_PHASE", phase: null });
         dispatch({ type: "DISC_TASK_PATCH", patch: { status: "failed", completedAt: new Date().toISOString(), error } });
         dispatch({ type: "DISC_ERROR", error });
@@ -660,9 +666,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "DISC_TASK_PATCH", patch: { status: "cancelled", completedAt: new Date().toISOString() } });
         dispatch({ type: "DISC_SET_STAGE", stage: "cancelled" });
         break;
-      case "provider.unavailable":
+      case "provider.unavailable": {
         dispatch({ type: "RUNTIME", patch: { providerAvailable: false } });
+        const failure = data as { code?: string; message?: string; reason?: string };
+        dispatch({ type: "DISC_ERROR", error: toAppError(failure, "AI provider is unavailable") });
         break;
+      }
       default:
         break;
     }
@@ -759,10 +768,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
               break;
             }
             case "device.flash_failed": {
-              const { truth } = data as { truth?: DeviceTruthDto };
+              const failure = data as { truth?: DeviceTruthDto; code?: string; message?: string };
+              const { truth } = failure;
               dispatch({ type: "RUNTIME", patch: { deviceStage: "detected", deviceTruth: truth ?? null, serialStage: "disconnected", serialSession: null } });
               dispatch({ type: "COMPANION_STAGE", stage: "idle" });
-              pushSystem("Flash failed — no half-written evidence.");
+              pushSystem(`Flash failed (${failure.code ?? "internal"}): ${failure.message ?? "no half-written evidence."}`);
               break;
             }
             default:
@@ -791,15 +801,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "COMPANION_STAGE", stage: "idle" });
       es.close();
     });
-    es.addEventListener("serial.session.error", () => {
+    es.addEventListener("serial.session.error", (ev) => {
+      let failure: { code?: string; message?: string } = {};
+      try { failure = JSON.parse((ev as MessageEvent).data) as { code?: string; message?: string }; } catch { /* safe fallback */ }
       if (serialSessionRef.current?.projectId === projectId && serialSessionRef.current.sessionId === sessionId) serialSessionRef.current = null;
       dispatch({ type: "RUNTIME", patch: { serialStage: "error" } });
       dispatch({ type: "COMPANION_TELEMETRY", moisture: null, temperature: null, pumpActive: false });
       dispatch({ type: "COMPANION_STAGE", stage: "idle" });
+      pushSystem(`Serial failed (${failure.code ?? "internal"}): ${failure.message ?? "Serial transport error"}`);
       es.close();
     });
     return () => es.close();
-  }, []);
+  }, [pushSystem]);
 
   /** S7：构建事件订阅（build.output 逐行 → 日志流；终态 → 徽标/状态） */
   const subscribeBuildEvents = useCallback(
@@ -830,8 +843,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
               break;
             }
             case "build.failed": {
+              const failure = data as { code?: string; message?: string };
               dispatch({ type: "BUILD_STAGE", stage: "failed" });
               dispatch({ type: "ARTIFACT", kind: "build", status: "error", version: (s.artifacts.build.version || 0) + 1 });
+              pushSystem(`Build failed (${failure.code ?? "build_failed"}): ${failure.message ?? "Firmware build failed"}`);
               break;
             }
             case "build.cancelled": {
@@ -843,7 +858,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
         },
       }),
-    [lineKindOf, s.artifacts.build.version],
+    [lineKindOf, pushSystem, s.artifacts.build.version],
   );
 
   const createProject = useCallback(
@@ -1056,9 +1071,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           break;
         }
         case "requirement.analysis.failed": {
-          dispatch({ type: "DISC_TASK_PATCH", patch: { status: "failed", completedAt: new Date().toISOString(), error: (data as { reason?: string }).reason ?? "Analysis failed" } });
+          const failure = data as { code?: string; message?: string; reason?: string };
+          const error = toAppError(failure, "Analysis failed");
+          dispatch({ type: "DISC_TASK_PATCH", patch: { status: "failed", completedAt: new Date().toISOString(), error } });
           dispatch({ type: "DISC_PHASE", phase: null });
-          dispatch({ type: "DISC_ERROR", error: (data as { reason?: string }).reason ?? "Analysis failed" });
+          dispatch({ type: "DISC_ERROR", error });
           break;
         }
         case "requirement.analysis.cancelled": {
@@ -1069,7 +1086,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
         case "provider.unavailable": {
           dispatch({ type: "RUNTIME", patch: { providerAvailable: false } });
-          dispatch({ type: "DISC_ERROR", error: "AI provider unavailable — check connection and retry." });
+          dispatch({ type: "DISC_ERROR", error: toAppError(data, "AI provider unavailable — check connection and retry.") });
           break;
         }
         default:
@@ -1095,7 +1112,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const durableTask = await clientApi.getTask(taskId);
         dispatch({ type: "DISC_TASK", task: durableTask });
       } catch (err) {
-        dispatch({ type: "DISC_ERROR", error: err instanceof ApiError ? err.message : "Analysis failed to start" });
+          dispatch({ type: "DISC_ERROR", error: err instanceof ApiError ? toAppError(err) : "Analysis failed to start" });
       }
     })();
   }, [s.runtime.online, s.runtime.providerAvailable, s.runtime.slowMode, s.discoveryPrompt, s.discovery.nextFails, s.discovery.partialNext, s.project?.id, hydrateProject]);
@@ -1119,7 +1136,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       void clientApi
         .submitClarification(taskId, roundId, answer?.trim() ? answer : undefined, !answer?.trim())
         .catch((err) =>
-          dispatch({ type: "DISC_ERROR", error: err instanceof ApiError ? err.message : "Clarification failed" })
+          dispatch({ type: "DISC_ERROR", error: err instanceof ApiError ? toAppError(err) : "Clarification failed" })
         );
     },
     []

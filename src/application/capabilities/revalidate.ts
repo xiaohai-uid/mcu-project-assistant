@@ -10,6 +10,7 @@ import type { ArtifactContentPort } from "@/src/ports/artifact-content";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { ArtifactKind, StaleMarkDto } from "@/src/shared-contracts/types";
+import { toSafeError } from "@/src/shared-contracts/errors";
 
 export class BlockingStaleError extends Error {
   constructor(artifactKind: string, action: string) {
@@ -223,7 +224,7 @@ export async function revalidateScope(
         outcome: r.outcome,
       });
     } catch (err) {
-      results.push({ outcome: "error", kind, error: err instanceof Error ? err.message : String(err) });
+      results.push({ outcome: "error", kind, error: toSafeError(err).message });
       deps.events.publish({
         type: "artifact.revalidated",
         projectId: input.projectId,

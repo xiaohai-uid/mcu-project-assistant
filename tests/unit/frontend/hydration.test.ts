@@ -38,7 +38,7 @@ describe("refresh hydration truth helpers", () => {
   });
 
   it("does not enum-sort conflicting terminal truth", () => {
-    const failed = task({ status: "failed", completedAt: "2026-08-12T00:00:03.000Z", error: "failed" });
+    const failed = task({ status: "failed", completedAt: "2026-08-12T00:00:03.000Z", error: { code: "internal", message: "Internal server error" } });
     const cancelled = task({ status: "cancelled", completedAt: "2026-08-12T00:00:04.000Z" });
     expect(mergeTaskTruth(failed, cancelled)?.status).toBe("cancelled");
     expect(mergeTaskTruth(cancelled, failed)?.status).toBe("cancelled");

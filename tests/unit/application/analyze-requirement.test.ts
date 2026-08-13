@@ -389,6 +389,25 @@ describe("analyze_requirement（application-contract 2.2；I-12/D7）", () => {
 
     expect(d.events.published.some((e) => e.type === "provider.unavailable")).toBe(true);
     expect(d.events.published.some((e) => e.type === "requirement.analysis.failed")).toBe(true);
+    const provider = d.events.published.find((e) => e.type === "provider.unavailable");
+    const failed = d.events.published.find((e) => e.type === "requirement.analysis.failed");
+    expect(provider).toMatchObject({
+      type: "provider.unavailable",
+      projectId: project.id,
+      taskId,
+      code: "provider_unavailable",
+      message: "AI provider is unavailable",
+      timestamp: NOW,
+    });
+    expect(failed).toMatchObject({
+      type: "requirement.analysis.failed",
+      projectId: project.id,
+      taskId,
+      code: "provider_unavailable",
+      message: "AI provider is unavailable",
+      timestamp: NOW,
+    });
+    expect(JSON.stringify([provider, failed])).not.toMatch(/provider unavailable \(mid-stream\)|RAW_PROVIDER|REASONING|C:\\secret/i);
     const task = await getTask({ taskId }, d);
     expect(task?.status).toBe("failed");
   });

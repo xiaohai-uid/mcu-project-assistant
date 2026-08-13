@@ -114,7 +114,7 @@ describe("durable in-process task recovery", () => {
     await tasks.waitForIdle();
     const recovered = await tasks.getTask("t1");
     expect(recovered?.status).toBe("failed");
-    expect(recovered?.error).toBe("controlled recovery failure");
+    expect(recovered?.error).toBe(JSON.stringify({ code: "internal", message: "Internal server error" }));
   });
 
   it("keeps the normal new-task execution path intact", async () => {
@@ -241,7 +241,7 @@ describe("durable in-process task recovery", () => {
     await tasks.waitForIdle();
     const recovered = await tasks.getTask("flash-1");
     expect(recovered?.status).toBe("failed");
-    expect(recovered?.error).toContain("TASK_RECOVERY_UNSAFE_REPLAY");
+    expect(recovered?.error).toBe(JSON.stringify({ code: "task_recovery_unsafe_replay", message: "Task cannot be safely replayed after restart" }));
     expect(invocations).toBe(0);
   });
 });

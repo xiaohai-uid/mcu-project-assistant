@@ -21,7 +21,7 @@ export function createSseEvents(): SseEvents {
   const subscribers = new Set<Subscriber>();
 
   function projectIdOf(event: LogicalEvent): string {
-    return "projectId" in event ? event.projectId : "";
+    return "projectId" in event && typeof event.projectId === "string" ? event.projectId : "";
   }
 
   return {

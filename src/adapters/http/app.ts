@@ -74,11 +74,13 @@ import { ToolchainUnavailableError, UnsupportedBuildTargetError } from "@/src/po
 import type { DevicePort, SerialSession } from "@/src/ports/device";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
-import type { TaskExecutionPort } from "@/src/ports/task-execution";
+import type { TaskExecutionPort, TaskRecord } from "@/src/ports/task-execution";
+import { parseTaskError } from "@/src/ports/task-execution";
 import type { InProcessTaskRuntime } from "@/src/adapters/task/in-process";
 import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
 import type { ArtifactKind, ArtifactVersionDto, DeviceExecutionReality, SerialSessionDto } from "@/src/shared-contracts/types";
-import { ApiError, withErrorHandler } from "./error";
+import { toSafeError } from "@/src/shared-contracts/errors";
+import { ApiError, apiErrorBoundary, withErrorHandler } from "./error";
 import { writeProjectMirror } from "@/src/infrastructure/workspace";
 import {
   BuildNotCancellableError,
@@ -175,6 +177,7 @@ export function createApp(deps: AppDeps): Express {
   };
 
   const serialDto = (value: SerialSession): SerialSessionDto => ({ ...value });
+  const taskDto = (value: TaskRecord) => ({ ...value, error: parseTaskError(value.error) });
 
   const taskRuntime = deps.tasks as Partial<InProcessTaskRuntime>;
   taskRuntime.setExecutor?.(
@@ -445,16 +448,20 @@ export function createApp(deps: AppDeps): Express {
   const handleGetTask = async (req: Request, res: Response) => {
     const task = await getTaskCapability({ taskId: req.params.taskId as string }, analysisDeps);
     if (!task) throw new ApiError(404, "not_found", "Task not found");
-    res.json(task);
+    res.json(taskDto(task));
   };
 
   const handleListTasks = async (req: Request, res: Response) => {
     const project = await getProjectCapability({ id: req.params.projectId as string }, capDeps);
     if (!project) throw new ApiError(404, "not_found", "Project not found");
-    res.json(await deps.persistence.listTasks?.(project.id) ?? []);
+    res.json((await deps.persistence.listTasks?.(project.id) ?? []).map(taskDto));
   };
 
   const handleEvents = (req: Request, res: Response) => {
+    // Subscribe before committing SSE headers so setup failures still reach the
+    // shared JSON error boundary.
+    const sse = deps.events as import("@/src/adapters/events/sse").SseEvents;
+    sse.subscribe(req.params.projectId as string, res);
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
@@ -462,9 +469,6 @@ export function createApp(deps: AppDeps): Express {
       "X-Accel-Buffering": "no",
     });
     res.write(": connected\n\n");
-    // SseEvents 订阅（SSE 专属能力；EventPort 基接口无 subscribe）
-    const sse = deps.events as import("@/src/adapters/events/sse").SseEvents;
-    sse.subscribe(req.params.projectId as string, res);
   };
 
   // ---------- S3B Proposals ----------
@@ -736,6 +740,17 @@ export function createApp(deps: AppDeps): Express {
     const sessionId = req.params.sessionId as string;
     const current = deps.device.getSerialSession(projectId, sessionId);
     if (!current) throw new ApiError(404, "serial_session_not_found", "Serial session not found");
+    const unsubscribe = deps.device.subscribeSerialSession(projectId, sessionId, (event) => {
+      if (event.type === "line") {
+        res.write(`event: serial.line\ndata: ${JSON.stringify({ sessionId, projectId, deviceId: event.session.deviceId, executionReality: event.session.executionReality, timestamp: event.receivedAt, line: event.line })}\n\n`);
+      } else if (event.type === "error") {
+        const safe = toSafeError({ code: event.code, message: event.message });
+        res.write(`event: serial.session.error\ndata: ${JSON.stringify({ sessionId, projectId, deviceId: event.session.deviceId, code: safe.code, message: safe.message, timestamp: event.receivedAt })}\n\n`);
+      } else {
+        res.write(`event: serial.session.closed\ndata: ${JSON.stringify({ sessionId, projectId, reason: event.reason, timestamp: event.receivedAt })}\n\n`);
+        res.end();
+      }
+    });
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
@@ -743,16 +758,6 @@ export function createApp(deps: AppDeps): Express {
       "X-Accel-Buffering": "no",
     });
     res.write(": connected\n\n");
-    const unsubscribe = deps.device.subscribeSerialSession(projectId, sessionId, (event) => {
-      if (event.type === "line") {
-        res.write(`event: serial.line\ndata: ${JSON.stringify({ sessionId, projectId, deviceId: event.session.deviceId, executionReality: event.session.executionReality, timestamp: event.receivedAt, line: event.line })}\n\n`);
-      } else if (event.type === "error") {
-        res.write(`event: serial.session.error\ndata: ${JSON.stringify({ sessionId, projectId, code: event.code, message: event.message, timestamp: event.receivedAt })}\n\n`);
-      } else {
-        res.write(`event: serial.session.closed\ndata: ${JSON.stringify({ sessionId, projectId, reason: event.reason, timestamp: event.receivedAt })}\n\n`);
-        res.end();
-      }
-    });
     // Companion is deterministic but still models a live serial producer. The
     // physical adapter's tickSerial is intentionally a no-op: physical lines
     // can only arrive from OS transport bytes. This timer is stream-scoped and
@@ -822,12 +827,13 @@ export function createApp(deps: AppDeps): Express {
   app.delete("/api/v1/projects/:projectId/device/serial/session/:sessionId", withErrorHandler(handleCloseSerial));
   app.post("/api/v1/projects/:projectId/device/serial/session/:sessionId/write", withErrorHandler(handleWriteSerial));
   app.get("/api/v1/projects/:projectId/device/serial/session/:sessionId/events", withErrorHandler(handleSerialStream));
-  app.get("/api/v1/projects/:projectId/events", handleEvents);
+  app.get("/api/v1/projects/:projectId/events", withErrorHandler(handleEvents));
+
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ error: { code: "not_found", message: "API route not found" } });
+  });
 
   if (deps.frontendDist) {
-    app.use("/api", (_req, res) => {
-      res.status(404).json({ error: { code: "not_found", message: "API route not found" } });
-    });
     app.use(express.static(deps.frontendDist, { index: "index.html" }));
     app.get("*", (req, res, next) => {
       if (req.path.startsWith("/api/")) {
@@ -837,6 +843,10 @@ export function createApp(deps: AppDeps): Express {
       res.sendFile(join(deps.frontendDist!, "index.html"));
     });
   }
+
+  // Keep every API failure JSON-shaped, including express.json() parser
+  // failures and handlers that are not wrapped by a route-specific adapter.
+  app.use(apiErrorBoundary());
 
   return app;
 }

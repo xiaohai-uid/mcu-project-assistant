@@ -6,6 +6,8 @@
 export type TaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
 export type TaskPhase = "provider_waiting" | "provider_streaming" | "processing";
 
+export { parseSerializedError as parseTaskError, serializeSafeError as serializeTaskError } from "@/src/shared-contracts/errors";
+
 export interface TaskRecord {
   id: string;
   capability: string;

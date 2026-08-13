@@ -15,7 +15,7 @@ import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/wor
 import { createMockCompiler, createUnavailableMockCompiler } from "@/src/adapters/compiler/mock";
 import { createInProcessTasks } from "@/src/adapters/task/in-process";
 import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
-import { createNoopEvents } from "@/src/adapters/events/noop";
+import type { EventPort, LogicalEvent } from "@/src/ports/events";
 import { ToolchainUnavailableError } from "@/src/ports/compiler";
 import { BuildExecutionError, BuildInputError, executeBuildTask, resolveBuildPaths, runBuild, getBuildRecord, listBuilds, cancelBuild } from "@/src/application/capabilities/build";
 import { selectMcu } from "@/src/application/capabilities/mcu";
@@ -109,7 +109,11 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
 function deps(compiler = createMockCompiler()) {
   const persistence = fakePersistence();
   const content = createWorkspaceFilesContent(join(dir, "ws"));
-  const events = createNoopEvents();
+  const published: LogicalEvent[] = [];
+  const events: EventPort & { published: LogicalEvent[] } = {
+    publish: (event) => published.push(event),
+    published,
+  };
   const tasks = createInProcessTasks({ persistence, events });
   const buildDeps = { persistence, tasks, events, compiler, workspaceDir: join(dir, "ws"), now };
   tasks.setExecutor(createProductionTaskExecutor({ persistence, events, ai: { name: "test", status: async () => "unavailable", streamText: async () => {}, generateStructured: async () => ({ data: {} }) } as never, compiler, workspaceDir: join(dir, "ws"), now }));
@@ -209,6 +213,17 @@ describe("run_build（contract 2.12；D2 Build 不产生版本）", () => {
     const done = (await getBuildRecord({ buildId }, d.buildDeps))!;
     expect(done.exitCode).toBe(1);
     expect(done.status).toBe("failed");
+    const failed = d.events.published.find((event) => event.type === "build.failed");
+    expect(failed).toMatchObject({
+      type: "build.failed",
+      projectId: project.id,
+      buildId,
+      code: "build_failed",
+      message: "Firmware build failed",
+      timestamp: NOW,
+      exitCode: 1,
+    });
+    expect(JSON.stringify(failed)).not.toMatch(/PUMP_RELAY_PIN|src\\main\.cpp|C:\\secret/i);
   });
 
   it("取消：running 可取消 → build.cancelled；终态不可取消（幂等 409 语义）", async () => {

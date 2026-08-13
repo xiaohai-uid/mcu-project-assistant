@@ -47,7 +47,16 @@ export type LogicalEvent =
       analysisId: string;
       capabilities: AnalysisCapabilityDto[];
     }
-  | { type: "requirement.analysis.failed"; projectId: string; analysisId: string; reason: string }
+  | {
+      type: "requirement.analysis.failed";
+      projectId: string;
+      analysisId: string;
+      taskId: string;
+      code: string;
+      message: string;
+      timestamp: string;
+      reason?: string;
+    }
   | { type: "requirement.analysis.cancelled"; projectId: string; analysisId: string }
   // ---------- S5B Revalidate ----------
   | { type: "artifact.revalidating"; projectId: string; artifactId: string; kind: ArtifactKind }
@@ -62,15 +71,15 @@ export type LogicalEvent =
   // ---------- S7 Build ----------
   | { type: "build.output"; projectId: string; buildId: string; line: string }
   | { type: "build.succeeded"; projectId: string; buildId: string; exitCode: number }
-  | { type: "build.failed"; projectId: string; buildId: string; exitCode: number }
+  | { type: "build.failed"; projectId: string; buildId: string; taskId?: string; code: string; message: string; timestamp: string; exitCode: number }
   | { type: "build.cancelled"; projectId: string; buildId: string }
   // ---------- S8 Diagnosis ----------
   | { type: "diagnosis.completed"; projectId: string; buildId: string; cause: string }
   // ---------- S9 Device / Flash ----------
   | { type: "device.flashing"; projectId: string; deviceId: string; percent: number; message?: string }
   | { type: "device.flashed"; projectId: string; deviceId: string; sessionId: string; truth: DeviceTruthDto }
-  | { type: "device.flash_failed"; projectId: string; deviceId: string; message?: string; truth: DeviceTruthDto }
-  | { type: "provider.unavailable"; provider: string; reason: string };
+  | { type: "device.flash_failed"; projectId: string; deviceId: string; taskId?: string; buildId?: string; code: string; message: string; timestamp: string; truth: DeviceTruthDto }
+  | { type: "provider.unavailable"; provider: string; projectId?: string; taskId?: string; code: string; message: string; timestamp: string; reason?: string };
 
 export interface EventPort {
   publish(event: LogicalEvent): void;

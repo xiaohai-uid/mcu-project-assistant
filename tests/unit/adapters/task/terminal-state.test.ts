@@ -129,7 +129,7 @@ describe("task failure and cancellation terminal state", () => {
 
     await expect(waitForTerminal(tasks, taskId)).resolves.toMatchObject({
       status: "failed",
-      error: "controlled provider failure",
+      error: JSON.stringify({ code: "internal", message: "Internal server error" }),
     });
   });
 
@@ -148,7 +148,7 @@ describe("task failure and cancellation terminal state", () => {
       executeTask: async () => { throw new Error("wait failure"); },
     });
     const failedId = await failedTasks.submit({ capability: "test_terminal", input: "{}" });
-    await expect(failedTasks.waitForTask(failedId)).resolves.toMatchObject({ status: "failed", error: "wait failure" });
+    await expect(failedTasks.waitForTask(failedId)).resolves.toMatchObject({ status: "failed", error: JSON.stringify({ code: "internal", message: "Internal server error" }) });
 
     const cancelledPersistence = freshStore();
     await cancelledPersistence.withTransaction((uow) => uow.saveTask(seededTask("wait-cancelled", "cancelled")));

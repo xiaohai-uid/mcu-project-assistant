@@ -2,6 +2,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Project } from "@/src/domain/models/project";
+import { toSafeError } from "@/src/shared-contracts/errors";
 
 function slugify(name: string, id: string): string {
   const base = name
@@ -23,6 +24,6 @@ export function writeProjectMirror(workspaceDir: string, project: Project): void
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "project.json"), JSON.stringify(project, null, 2), "utf8");
   } catch (err) {
-    console.warn("workspace mirror write failed (best-effort)", err);
+    console.warn("workspace mirror write failed (best-effort)", { code: toSafeError(err).code });
   }
 }

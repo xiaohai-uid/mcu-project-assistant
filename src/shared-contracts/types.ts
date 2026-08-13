@@ -40,6 +40,11 @@ export interface ArtifactVersionDto {
 
 export type TaskStatusDto = "queued" | "running" | "completed" | "failed" | "cancelled";
 
+export interface TaskErrorDto {
+  code: string;
+  message: string;
+}
+
 export interface TaskDto {
   id: string;
   capability: string;
@@ -48,7 +53,7 @@ export interface TaskDto {
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
-  error: string | null;
+  error: TaskErrorDto | null;
   /** 任务结果（如分析输出 capabilities） */
   output: string | null;
 }

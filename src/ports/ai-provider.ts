@@ -5,10 +5,15 @@
 
 export type ProviderStatus = "available" | "unavailable" | "offline";
 
+export type ProviderErrorCode = "provider_unavailable" | "provider_timeout" | "provider_rate_limited" | "provider_protocol_error";
+
 export class ProviderUnavailableError extends Error {
-  constructor(message = "AI provider is unavailable") {
+  readonly code: ProviderErrorCode;
+
+  constructor(message = "AI provider is unavailable", code: ProviderErrorCode = "provider_unavailable") {
     super(message);
     this.name = "ProviderUnavailableError";
+    this.code = code;
   }
 }
 

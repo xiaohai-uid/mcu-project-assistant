@@ -3,6 +3,13 @@
 import type { AIProviderPort, ProviderStatus, StreamTextRequest, StructuredRequest } from "@/src/ports/ai-provider";
 import { ProviderUnavailableError } from "@/src/ports/ai-provider";
 
+function providerErrorForStatus(status: number): ProviderUnavailableError {
+  if (status === 408 || status === 504) return new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
+  if (status === 429) return new ProviderUnavailableError("AI provider rate limit or quota exceeded", "provider_rate_limited");
+  if (status >= 500 || status === 401 || status === 403) return new ProviderUnavailableError("AI provider is unavailable", "provider_unavailable");
+  return new ProviderUnavailableError("AI provider returned an invalid response", "provider_protocol_error");
+}
+
 export interface SenseNovaAiProviderOptions {
   apiKey: string;
   baseUrl: string;
@@ -136,7 +143,8 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
 
   async function chat(body: Record<string, unknown>, signal: AbortSignal): Promise<Response> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
     const onAbort = () => controller.abort();
     signal.addEventListener("abort", onAbort, { once: true });
     try {
@@ -148,6 +156,10 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
         },
         body: JSON.stringify(body),
         signal: controller.signal,
+      }).catch((error: unknown) => {
+        if (timedOut) throw new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
+        if (signal.aborted) throw error;
+        throw new ProviderUnavailableError("AI provider is unavailable", "provider_unavailable");
       });
     } finally {
       clearTimeout(timer);
@@ -160,9 +172,9 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
     try {
       const response = await chat(probeBody, new AbortController().signal);
       if (!response.ok) {
-        const body = await response.text().catch(() => "");
+        await response.text().catch(() => "");
         if (response.status === 401 || response.status === 403 || response.status >= 500) return "unavailable";
-        console.warn(`[sensenova] probe failed ${response.status}: ${body.slice(0, 200)}`);
+        console.warn(`[sensenova] probe failed status=${response.status}`);
       }
       return "available";
     } catch {
@@ -196,14 +208,15 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
           operation.signal,
         );
         if (!response.ok) {
-          const body = await response.text().catch(() => "");
-          throw new ProviderUnavailableError(`sensenova HTTP ${response.status}: ${body.slice(0, 200)}`);
+          await response.text().catch(() => "");
+          throw providerErrorForStatus(response.status);
         }
-        if (!response.body) throw new ProviderUnavailableError("sensenova: empty stream body");
+        if (!response.body) throw new ProviderUnavailableError("AI provider returned an invalid response", "provider_protocol_error");
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let sawValidFrame = false;
         const abort = () => { void reader.cancel(); };
         operation.signal.addEventListener("abort", abort, { once: true });
         try {
@@ -217,11 +230,15 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
               buffer = buffer.slice(index + 1);
               if (!line.startsWith("data:")) continue;
               const payload = line.slice(5).trim();
-              if (payload === "[DONE]") return;
+              if (payload === "[DONE]") {
+                buffer = "";
+                break;
+              }
               try {
                 const parsed = JSON.parse(payload) as {
                   choices?: Array<{ delta?: { content?: string; reasoning_content?: string } }>;
                 };
+                sawValidFrame = true;
                 const content = parsed.choices?.[0]?.delta?.content;
                 if (content && !req.signal.aborted) req.onChunk(content);
               } catch {
@@ -234,9 +251,10 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
           operation.signal.removeEventListener("abort", abort);
           reader.releaseLock();
         }
-        if (operation.didTimeout()) throw new ProviderUnavailableError(`sensenova stream timed out after ${timeoutMs}ms`);
+        if (!sawValidFrame) throw new ProviderUnavailableError("AI provider returned an invalid response", "provider_protocol_error");
+        if (operation.didTimeout()) throw new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
       } catch (error) {
-        if (operation.didTimeout()) throw new ProviderUnavailableError(`sensenova stream timed out after ${timeoutMs}ms`);
+        if (operation.didTimeout()) throw new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
         throw error;
       } finally {
         operation.dispose();
@@ -266,11 +284,11 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
             operation.signal,
           );
           if (!response.ok) {
-            const body = await response.text().catch(() => "");
-            throw new ProviderUnavailableError(`sensenova HTTP ${response.status}: ${body.slice(0, 200)}`);
+            await response.text().catch(() => "");
+            throw providerErrorForStatus(response.status);
           }
           const responseText = await readResponseText(response, operation.signal);
-          if (operation.didTimeout()) throw new ProviderUnavailableError(`sensenova response timed out after ${timeoutMs}ms`);
+          if (operation.didTimeout()) throw new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
           const payload = JSON.parse(responseText) as {
             choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
           };
@@ -283,13 +301,14 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
           return { data: parsed };
         } catch (error) {
           if (error instanceof ProviderUnavailableError) throw error;
-          if (operation.didTimeout()) throw new ProviderUnavailableError(`sensenova response timed out after ${timeoutMs}ms`);
+          if (operation.didTimeout()) throw new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
           lastError = error;
         } finally {
           operation.dispose();
         }
       }
-      throw new ProviderUnavailableError(`sensenova structured output failed: ${String(lastError)}`);
+      void lastError;
+      throw new ProviderUnavailableError("AI provider returned an invalid response", "provider_protocol_error");
     },
   };
 }

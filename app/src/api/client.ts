@@ -1,8 +1,15 @@
 // app/src/api/client.ts — Capability HTTP 客户端（S1：projects 面；随 Slice 扩展）
 // Progressive Swap：替换 Mock 引擎的 create/open/archive 路径（ISSUE-001 §5）
-import type { BuildOutputEvidenceDto, DeviceInfoDto, FlashResultDto, SerialResultDto, SerialSessionDto } from "@/src/shared-contracts/types";
+import type { BuildOutputEvidenceDto, DeviceInfoDto, FlashResultDto, SerialResultDto, SerialSessionDto, TaskErrorDto } from "@/src/shared-contracts/types";
 
-export class ApiError extends Error {
+export interface AppError {
+  code: string;
+  message: string;
+  status?: number;
+  details?: unknown;
+}
+
+export class ApiError extends Error implements AppError {
   constructor(
     readonly status: number,
     readonly code: string,
@@ -12,6 +19,16 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+export function toAppError(value: unknown, fallback = "Internal server error"): AppError {
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    if (typeof record.code === "string" && typeof record.message === "string") {
+      return { code: record.code, message: record.message, ...(typeof record.status === "number" ? { status: record.status } : {}), ...(record.details !== undefined ? { details: record.details } : {}) };
+    }
+  }
+  return { code: "internal", message: fallback };
 }
 
 interface ErrorEnvelope {
@@ -341,7 +358,7 @@ export interface TaskDto {
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
-  error: string | null;
+  error: TaskErrorDto | null;
   output: string | null;
 }
 
