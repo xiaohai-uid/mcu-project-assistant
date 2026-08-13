@@ -1,21 +1,21 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createPhysicalArduinoDevice } from "@/src/adapters/device/physical-arduino";
 import type { SerialTransport } from "@/src/adapters/device/serial-transport";
+import { createTestTempDir, removeOwnedTestTempDir } from "@/tests/helpers/test-temp";
 
 const FQBN = "esp32:esp32:esp32s3";
 const openDirs: string[] = [];
 
 afterEach(() => {
   for (const dir of openDirs.splice(0)) {
-    try { rmSync(dir, { recursive: true, force: true }); } catch { /* Windows may release the killed fixture a moment later. */ }
+    removeOwnedTestTempDir(dir);
   }
 });
 
 function fixture(mode: "success" | "nonzero" | "timeout" | "changing" | "empty" | "ambiguous") {
-  const dir = mkdtempSync(join(tmpdir(), "mcu-physical-fixture-"));
+  const dir = createTestTempDir("mcu-physical-fixture");
   openDirs.push(dir);
   const marker = join(dir, "upload.json");
   const state = join(dir, "discover.count");

@@ -1,5 +1,8 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { configureTestTempEnvironment } from "./tests/helpers/test-temp";
+
+configureTestTempEnvironment();
 
 export default defineConfig({
   resolve: {

@@ -1,10 +1,10 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { openDatabase } from "@/src/adapters/persistence/sqlite/connection";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
+import { createTestTempDir, removeOwnedTestTempDir } from "@/tests/helpers/test-temp";
 
 const children: ChildProcess[] = [];
 const fixture = join(process.cwd(), "tests", "fixtures", "restart-recovery-process.ts");
@@ -62,7 +62,7 @@ function killProcessTree(child: ChildProcess): void {
 
 describe("durable restart recovery", () => {
   it("recovers the same task exactly once in a fresh OS process", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mcu-restart-recovery-"));
+    const dir = createTestTempDir("mcu-restart-recovery");
     const dbPath = join(dir, "tasks.db");
     const startedPath = join(dir, "started");
     const countPath = join(dir, "completion-count");
@@ -102,7 +102,7 @@ describe("durable restart recovery", () => {
       });
       afterRestartDb.close();
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      removeOwnedTestTempDir(dir);
     }
   }, 30_000);
 });

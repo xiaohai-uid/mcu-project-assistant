@@ -1,9 +1,8 @@
 import { execPath } from "node:process";
-import { mkdtempSync, rmSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createTestTempDir, removeOwnedTestTempDir } from "@/tests/helpers/test-temp";
 
 const children: ChildProcess[] = [];
 const tsx = join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
@@ -68,7 +67,7 @@ async function waitForHealth(port: number, timeoutMs = 8_000): Promise<boolean> 
 
 describe("production startup configuration", () => {
   it("rejects missing and malformed config, then listens with explicit config without logging the key", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mcu-config-startup-"));
+    const dir = createTestTempDir("mcu-config-startup");
     try {
       const missing = start({
         MCU_PORT: "31981",
@@ -125,7 +124,7 @@ describe("production startup configuration", () => {
       });
       expect(output).not.toContain("test-only-not-a-secret");
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      removeOwnedTestTempDir(dir);
     }
   }, 30_000);
 });

@@ -1,14 +1,14 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createTestTempDir, removeOwnedTestTempDir } from "@/tests/helpers/test-temp";
 
 const repoRoot = resolve(process.cwd());
 const entrypoint = resolve(repoRoot, "dist/server/server.js");
 const frontendDist = resolve(repoRoot, "app/dist");
-const testRoot = mkdtempSync(join(tmpdir(), "mcu-production-runtime-"));
+const testRoot = createTestTempDir("mcu-production-runtime");
 const children: ChildProcess[] = [];
 
 async function freePort(): Promise<number> {
@@ -111,7 +111,7 @@ afterAll(async () => {
   for (const child of children) {
     if (child.exitCode === null) child.kill("SIGTERM");
   }
-  rmSync(testRoot, { recursive: true, force: true });
+  removeOwnedTestTempDir(testRoot);
 });
 
 describe("built production runtime boundary", () => {
