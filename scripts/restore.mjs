@@ -1,5 +1,5 @@
 import { loadStorageConfig } from "../src/infrastructure/config.ts";
-import { createRestore, stateLockPath } from "../src/infrastructure/backup-restore.ts";
+import { createRestore } from "../src/infrastructure/backup-restore.ts";
 
 function parseArgs(argv, allowed) {
   const values = new Map();
@@ -25,7 +25,6 @@ try {
     backupDir,
     dbPath: args.get("db") ?? config.dbPath,
     workspaceDir: args.get("workspace") ?? config.workspaceDir,
-    lockPath: stateLockPath(config.dbPath),
   });
   console.log(JSON.stringify(result, null, 2));
 } catch (error) {

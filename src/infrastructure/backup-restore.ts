@@ -10,6 +10,7 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -24,6 +25,7 @@ import { loadVerifiedArtifactContent } from "@/src/shared/persistence-integrity"
 import { assertExistingPathContained, assertSafeRelativeReference, resolveContainedPath } from "@/src/shared/filesystem-confinement";
 
 export type BackupRestoreErrorCode =
+  | "production_state_in_use"
   | "backup_state_in_use"
   | "backup_output_exists"
   | "backup_failed"
@@ -78,18 +80,87 @@ interface StateLock {
   release(): void;
 }
 
+export interface ProductionStateOwnership {
+  dbPath: string;
+  workspaceDir: string;
+  release(): void;
+}
+
+interface StateLockOwner {
+  version: 1;
+  ownerId: string;
+  pid: number;
+  createdAt: string;
+  resourcePath: string;
+  resourceKind: "database" | "workspace" | "custom";
+}
+
 const COMPLETE_MARKER = "BACKUP_COMPLETE";
 const MANIFEST_FILE = "manifest.json";
 const DEFAULT_STATE_LOCK_SUFFIX = ".state.lock";
 const SHA256 = /^[a-f0-9]{64}$/i;
 const APP_VERSION = "0.1.0";
 
-export function stateLockPath(dbPath: string): string {
-  return `${resolve(dbPath)}${DEFAULT_STATE_LOCK_SUFFIX}`;
+function canonicalPath(path: string): string {
+  const absolute = resolve(path);
+  const missing: string[] = [];
+  let current = absolute;
+  while (!existsSync(current)) {
+    const parent = dirname(current);
+    if (parent === current) break;
+    missing.unshift(current.slice(parent.length + 1));
+    current = parent;
+  }
+  const existing = existsSync(current) ? realpathSync.native(current) : current;
+  return missing.length === 0 ? existing : join(existing, ...missing);
 }
 
-export function acquireStateLock(lockPath: string): StateLock {
+function stateResourceLockPath(resourcePath: string): string {
+  return `${resourcePath}${DEFAULT_STATE_LOCK_SUFFIX}`;
+}
+
+function readLockOwner(absolutePath: string): StateLockOwner | null {
+  try {
+    const parsed = JSON.parse(readFileSync(absolutePath, "utf8")) as Partial<StateLockOwner>;
+    if (
+      parsed.version !== 1
+      || typeof parsed.ownerId !== "string"
+      || parsed.ownerId.length === 0
+      || typeof parsed.pid !== "number"
+      || !Number.isInteger(parsed.pid)
+      || parsed.pid < 1
+      || typeof parsed.createdAt !== "string"
+      || typeof parsed.resourcePath !== "string"
+      || (parsed.resourceKind !== "database" && parsed.resourceKind !== "workspace" && parsed.resourceKind !== "custom")
+    ) return null;
+    return parsed as StateLockOwner;
+  } catch {
+    return null;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function acquireStateLock(
+  lockPath: string,
+  resource: { path?: string; kind?: "database" | "workspace" | "custom" } = {},
+): StateLock {
   const absolutePath = resolve(lockPath);
+  const owner: StateLockOwner = {
+    version: 1,
+    ownerId: randomUUID(),
+    pid: process.pid,
+    createdAt: new Date().toISOString(),
+    resourcePath: resolve(resource.path ?? absolutePath),
+    resourceKind: resource.kind ?? "custom",
+  };
   mkdirSync(dirname(absolutePath), { recursive: true });
   const tryCreate = (): number | null => {
     try {
@@ -103,23 +174,11 @@ export function acquireStateLock(lockPath: string): StateLock {
   };
   let fd = tryCreate();
   if (fd === null) {
-    let owner: { pid?: unknown } = {};
-    try {
-      const parsed = JSON.parse(readFileSync(absolutePath, "utf8")) as unknown;
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) owner = parsed as { pid?: unknown };
-    } catch {
+    const current = readLockOwner(absolutePath);
+    if (!current) {
       throw new BackupRestoreError("backup_state_in_use", `Production state lock is unreadable: ${absolutePath}`);
     }
-    const pid = owner.pid;
-    let ownerAlive = true;
-    if (typeof pid === "number" && Number.isInteger(pid) && pid > 0 && pid !== process.pid) {
-      try {
-        process.kill(pid, 0);
-      } catch (error) {
-        ownerAlive = (error as NodeJS.ErrnoException).code === "EPERM";
-      }
-    }
-    if (!ownerAlive) {
+    if (!isProcessAlive(current.pid)) {
       try {
         rmSync(absolutePath, { force: true });
       } catch (error) {
@@ -132,7 +191,7 @@ export function acquireStateLock(lockPath: string): StateLock {
     throw new BackupRestoreError("backup_state_in_use", `Production state lock is already held: ${absolutePath}`);
   }
   try {
-    writeFileSync(fd, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }), "utf8");
+    writeFileSync(fd, JSON.stringify(owner), "utf8");
     fsyncSync(fd);
   } catch (error) {
     closeSync(fd);
@@ -146,7 +205,39 @@ export function acquireStateLock(lockPath: string): StateLock {
       if (released) return;
       released = true;
       closeSync(fd);
-      rmSync(absolutePath, { force: true });
+      const current = readLockOwner(absolutePath);
+      if (current?.ownerId === owner.ownerId) rmSync(absolutePath, { force: true });
+    },
+  };
+}
+
+export function acquireProductionStateOwnership(dbPath: string, workspaceDir: string): ProductionStateOwnership {
+  const canonicalDbPath = canonicalPath(dbPath);
+  const canonicalWorkspaceDir = canonicalPath(workspaceDir);
+  const resources = [
+    { path: canonicalDbPath, lockPath: stateResourceLockPath(canonicalDbPath), kind: "database" as const },
+    { path: canonicalWorkspaceDir, lockPath: stateResourceLockPath(canonicalWorkspaceDir), kind: "workspace" as const },
+  ].sort((left, right) => left.lockPath.localeCompare(right.lockPath));
+  const locks: StateLock[] = [];
+  try {
+    for (const resource of resources) {
+      locks.push(acquireStateLock(resource.lockPath, { path: resource.path, kind: resource.kind }));
+    }
+  } catch (error) {
+    for (const lock of locks.reverse()) lock.release();
+    if (error instanceof BackupRestoreError && error.code === "backup_state_in_use") {
+      throw new BackupRestoreError("production_state_in_use", "Production state is already in use", { cause: error });
+    }
+    throw error;
+  }
+  let released = false;
+  return {
+    dbPath: canonicalDbPath,
+    workspaceDir: canonicalWorkspaceDir,
+    release(): void {
+      if (released) return;
+      released = true;
+      for (const lock of locks.reverse()) lock.release();
     },
   };
 }
@@ -353,14 +444,14 @@ function validateBackupContents(backupDir: string, manifest: BackupManifest): { 
   return { databasePath, workspacePath };
 }
 
-export async function createBackup(input: { dbPath: string; workspaceDir: string; outputDir: string; lockPath?: string }): Promise<BackupResult> {
+export async function createBackup(input: { dbPath: string; workspaceDir: string; outputDir: string }): Promise<BackupResult> {
   const dbPath = resolve(input.dbPath);
   const workspaceDir = resolve(input.workspaceDir);
   const outputDir = resolve(input.outputDir);
   assertNotInside(outputDir, workspaceDir, "Backup output");
   if (existsSync(outputDir)) fail("backup_output_exists", `Backup output already exists: ${outputDir}`);
   if (!existsSync(dbPath) || !lstatSync(dbPath).isFile()) fail("backup_failed", `Database does not exist: ${dbPath}`);
-  const lock = acquireStateLock(input.lockPath ?? stateLockPath(dbPath));
+  const ownership = acquireProductionStateOwnership(dbPath, workspaceDir);
   const parent = dirname(outputDir);
   const staging = join(parent, `.backup-staging-${randomUUID()}`);
   try {
@@ -412,7 +503,7 @@ export async function createBackup(input: { dbPath: string; workspaceDir: string
     if (error instanceof BackupRestoreError) throw error;
     throw new BackupRestoreError("backup_failed", "Backup failed", { cause: error });
   } finally {
-    lock.release();
+    ownership.release();
   }
 }
 
@@ -428,19 +519,15 @@ function assertRestoreTargetEmpty(dbPath: string, workspaceDir: string): void {
   }
 }
 
-export async function createRestore(input: { backupDir: string; dbPath: string; workspaceDir: string; lockPath: string }): Promise<RestoreResult> {
+export async function createRestore(input: { backupDir: string; dbPath: string; workspaceDir: string }): Promise<RestoreResult> {
   const backupDir = resolve(input.backupDir);
   const dbPath = resolve(input.dbPath);
   const workspaceDir = resolve(input.workspaceDir);
-  const lockPath = resolve(input.lockPath);
   assertNotInside(dbPath, workspaceDir, "Restore database");
   assertNotInside(dbPath, backupDir, "Restore database");
   assertNotInside(backupDir, workspaceDir, "Backup source");
   assertNotInside(workspaceDir, backupDir, "Restore workspace");
-  assertNotInside(lockPath, dbPath, "Restore state lock");
-  assertNotInside(lockPath, workspaceDir, "Restore state lock");
-  assertNotInside(lockPath, backupDir, "Restore state lock");
-  const lock = acquireStateLock(lockPath);
+  const ownership = acquireProductionStateOwnership(dbPath, workspaceDir);
   let dbStage: string | null = null;
   let workspaceStage: string | null = null;
   let publishedDb = false;
@@ -497,6 +584,6 @@ export async function createRestore(input: { backupDir: string; dbPath: string; 
     if (workspaceStage) rmSync(workspaceStage, { recursive: true, force: true });
     if (publishedDb && !publishedWorkspace) rmSync(dbPath, { force: true });
     if (publishedWorkspace && !publishedDb) rmSync(workspaceDir, { recursive: true, force: true });
-    lock.release();
+    ownership.release();
   }
 }

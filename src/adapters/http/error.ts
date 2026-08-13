@@ -73,6 +73,7 @@ export type ErrorCode =
   | "artifact_content_unreadable"
   | "persisted_record_corrupt"
   | "idempotency_record_corrupt"
+  | "production_state_in_use"
   | "internal";
 
 export class ApiError extends Error {

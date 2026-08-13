@@ -10,7 +10,7 @@ import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/wor
 import { openDatabase } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
-import { acquireStateLock, createBackup, createRestore, stateLockPath } from "@/src/infrastructure/backup-restore";
+import { acquireProductionStateOwnership, createBackup, createRestore } from "@/src/infrastructure/backup-restore";
 import { analyzeRequirement } from "@/src/application/capabilities/analysis";
 import { runBuild } from "@/src/application/capabilities/build";
 import { flashDevice, createFlashTokenStore, FlashBuildNotVerifiedError } from "@/src/application/capabilities/flash";
@@ -87,7 +87,7 @@ describe("local backup and restore contract", () => {
     ]));
     expect(readdirSync(backupDir)).toEqual(expect.arrayContaining(["database.sqlite", "workspace", "manifest.json", "BACKUP_COMPLETE"]));
 
-    const restored = await createRestore({ backupDir, dbPath: restoredDb, workspaceDir: restoredWorkspace, lockPath: stateLockPath(fixture.dbPath) });
+    const restored = await createRestore({ backupDir, dbPath: restoredDb, workspaceDir: restoredWorkspace });
     expect(restored.projectCount).toBe(1);
     expect(readFileSync(join(restoredWorkspace, fixture.contentRef), "utf8")).toBe("requirements-v1");
     expect(createHash("sha256").update(readFileSync(join(restoredWorkspace, fixture.contentRef))).digest("hex")).toBe(
@@ -97,10 +97,10 @@ describe("local backup and restore contract", () => {
 
   it("refuses a backup lock held by the production state", async () => {
     const fixture = await createFixture();
-    const lock = acquireStateLock(`${fixture.dbPath}.state.lock`);
+    const lock = acquireProductionStateOwnership(fixture.dbPath, fixture.workspaceDir);
     try {
       await expect(createBackup({ dbPath: fixture.dbPath, workspaceDir: fixture.workspaceDir, outputDir: join(fixture.root, "backup") }))
-        .rejects.toMatchObject({ code: "backup_state_in_use" });
+        .rejects.toMatchObject({ code: "production_state_in_use" });
     } finally {
       lock.release();
     }
@@ -111,19 +111,19 @@ describe("local backup and restore contract", () => {
     const backupDir = join(fixture.root, "backups", "snapshot-1");
     await createBackup({ dbPath: fixture.dbPath, workspaceDir: fixture.workspaceDir, outputDir: backupDir });
     rmSync(join(backupDir, "BACKUP_COMPLETE"));
-    await expect(createRestore({ backupDir, dbPath: join(fixture.root, "restore.db"), workspaceDir: join(fixture.root, "restore-workspace"), lockPath: stateLockPath(fixture.dbPath) }))
+    await expect(createRestore({ backupDir, dbPath: join(fixture.root, "restore.db"), workspaceDir: join(fixture.root, "restore-workspace") }))
       .rejects.toMatchObject({ code: "backup_incomplete" });
 
     const validBackup = join(fixture.root, "backups", "snapshot-2");
     await createBackup({ dbPath: fixture.dbPath, workspaceDir: fixture.workspaceDir, outputDir: validBackup });
     const existingDb = join(fixture.root, "existing.db");
     writeFileSync(existingDb, "occupied");
-    await expect(createRestore({ backupDir: validBackup, dbPath: existingDb, workspaceDir: join(fixture.root, "empty-target"), lockPath: stateLockPath(fixture.dbPath) }))
+    await expect(createRestore({ backupDir: validBackup, dbPath: existingDb, workspaceDir: join(fixture.root, "empty-target") }))
       .rejects.toMatchObject({ code: "restore_target_not_empty" });
 
     const emptyWorkspace = join(fixture.root, "empty-workspace");
     mkdirSync(emptyWorkspace, { recursive: true });
-    await expect(createRestore({ backupDir: validBackup, dbPath: join(fixture.root, "empty-workspace.db"), workspaceDir: emptyWorkspace, lockPath: stateLockPath(fixture.dbPath) }))
+    await expect(createRestore({ backupDir: validBackup, dbPath: join(fixture.root, "empty-workspace.db"), workspaceDir: emptyWorkspace }))
       .resolves.toMatchObject({ projectCount: 1 });
   });
 
@@ -146,7 +146,7 @@ describe("local backup and restore contract", () => {
     const backupDir = join(fixture.root, "backups", "tampered");
     await createBackup({ dbPath: fixture.dbPath, workspaceDir: fixture.workspaceDir, outputDir: backupDir });
     writeFileSync(join(backupDir, "workspace", fixture.contentRef), "tampered", "utf8");
-    await expect(createRestore({ backupDir, dbPath: join(fixture.root, "target", "state.db"), workspaceDir: join(fixture.root, "target", "workspace"), lockPath: stateLockPath(fixture.dbPath) }))
+    await expect(createRestore({ backupDir, dbPath: join(fixture.root, "target", "state.db"), workspaceDir: join(fixture.root, "target", "workspace") }))
       .rejects.toMatchObject({ code: "backup_hash_mismatch" });
     expect(existsSync(join(fixture.root, "target", "state.db"))).toBe(false);
     expect(existsSync(join(fixture.root, "target", "workspace"))).toBe(false);
@@ -157,14 +157,14 @@ describe("local backup and restore contract", () => {
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { workspace: { files: Array<{ path: string }> } };
     manifest.workspace.files[0]!.path = "../outside.txt";
     writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
-    await expect(createRestore({ backupDir: traversalDir, dbPath: join(fixture.root, "target2", "state.db"), workspaceDir: join(fixture.root, "target2", "workspace"), lockPath: stateLockPath(fixture.dbPath) }))
+    await expect(createRestore({ backupDir: traversalDir, dbPath: join(fixture.root, "target2", "state.db"), workspaceDir: join(fixture.root, "target2", "workspace") }))
       .rejects.toMatchObject({ code: "backup_invalid" });
 
     const corruptDir = join(fixture.root, "backups", "corrupt");
     await createBackup({ dbPath: fixture.dbPath, workspaceDir: fixture.workspaceDir, outputDir: corruptDir });
     copyFileSync(join(corruptDir, "database.sqlite"), join(corruptDir, "database.sqlite.bak"));
     writeFileSync(join(corruptDir, "database.sqlite"), Buffer.from("not sqlite"));
-    await expect(createRestore({ backupDir: corruptDir, dbPath: join(fixture.root, "target3", "state.db"), workspaceDir: join(fixture.root, "target3", "workspace"), lockPath: stateLockPath(fixture.dbPath) }))
+    await expect(createRestore({ backupDir: corruptDir, dbPath: join(fixture.root, "target3", "state.db"), workspaceDir: join(fixture.root, "target3", "workspace") }))
       .rejects.toMatchObject({ code: "backup_hash_mismatch" });
   });
 
@@ -180,7 +180,7 @@ describe("local backup and restore contract", () => {
     await createBackup({ dbPath: fixture.dbPath, workspaceDir: fixture.workspaceDir, outputDir: backupDir });
     const restoredDb = join(fixture.root, "replay", "state.db");
     const restoredWorkspace = join(fixture.root, "replay", "workspace");
-    await createRestore({ backupDir, dbPath: restoredDb, workspaceDir: restoredWorkspace, lockPath: stateLockPath(fixture.dbPath) });
+    await createRestore({ backupDir, dbPath: restoredDb, workspaceDir: restoredWorkspace });
     const db = openDatabase(restoredDb);
     const persistence = createProjectStore(db);
     let analyzeSubmitCount = 0;
@@ -241,7 +241,7 @@ describe("local backup and restore contract", () => {
     await createBackup({ dbPath: fixture.dbPath, workspaceDir: fixture.workspaceDir, outputDir: backupDir });
     const restoredDb = join(fixture.root, "portable", "state.db");
     const restoredWorkspace = join(fixture.root, "portable", "workspace");
-    await createRestore({ backupDir, dbPath: restoredDb, workspaceDir: restoredWorkspace, lockPath: stateLockPath(fixture.dbPath) });
+    await createRestore({ backupDir, dbPath: restoredDb, workspaceDir: restoredWorkspace });
 
     const restored = openDatabase(restoredDb);
     const restoredPersistence = createProjectStore(restored);
@@ -277,7 +277,7 @@ describe("local backup and restore contract", () => {
     await createBackup({ dbPath: fixture.dbPath, workspaceDir: fixture.workspaceDir, outputDir: backupDir });
     const restoredDb = join(fixture.root, "running-restore", "state.db");
     const restoredWorkspace = join(fixture.root, "running-restore", "workspace");
-    await createRestore({ backupDir, dbPath: restoredDb, workspaceDir: restoredWorkspace, lockPath: stateLockPath(fixture.dbPath) });
+    await createRestore({ backupDir, dbPath: restoredDb, workspaceDir: restoredWorkspace });
     const restored = openDatabase(restoredDb);
     const restoredPersistence = createProjectStore(restored);
     const tasks = (await restoredPersistence.withTransaction((uow) => {
