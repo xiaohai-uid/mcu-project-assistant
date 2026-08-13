@@ -93,7 +93,7 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
   listProjects: () => request<ProjectDto[]>("/api/v1/projects"),
-  getProject: (id: string) => request<ProjectDto>(`/api/v1/projects/${id}`),
+  getProject: (id: string, signal?: AbortSignal) => request<ProjectDto>(`/api/v1/projects/${id}`, { signal }),
   archiveToken: (id: string) =>
     request<{ token: string; expiresAt: string; impact: { projects: number } }>(
       `/api/v1/projects/${id}/archive-token`,
@@ -112,16 +112,16 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ kind }),
     }),
-  listArtifacts: (projectId: string) => request<ArtifactDto[]>(`/api/v1/projects/${projectId}/artifacts`),
+  listArtifacts: (projectId: string, signal?: AbortSignal) => request<ArtifactDto[]>(`/api/v1/projects/${projectId}/artifacts`, { signal }),
   commitVersion: (artifactId: string, content: string) =>
     request<ArtifactVersionDto>(`/api/v1/artifacts/${artifactId}/versions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content }),
     }),
-  listVersions: (artifactId: string) => request<ArtifactVersionDto[]>(`/api/v1/artifacts/${artifactId}/versions`),
-  getVersion: (versionId: string) =>
-    request<{ version: ArtifactVersionDto; content: string | null }>(`/api/v1/versions/${versionId}`),
+  listVersions: (artifactId: string, signal?: AbortSignal) => request<ArtifactVersionDto[]>(`/api/v1/artifacts/${artifactId}/versions`, { signal }),
+  getVersion: (versionId: string, signal?: AbortSignal) =>
+    request<{ version: ArtifactVersionDto; content: string | null }>(`/api/v1/versions/${versionId}`, { signal }),
   // ---------- S3A Commands / Tasks ----------
   analyzeRequirement: (projectId: string, description: string, lab?: Record<string, unknown>) =>
     request<{ taskId: string }>(`/api/v1/projects/${projectId}/commands`, {
@@ -138,9 +138,9 @@ export const api = {
   cancelTask: (taskId: string) =>
     request<{ taskId: string; status: string }>(`/api/v1/commands/${taskId}/cancel`, { method: "POST" }),
   getTask: (taskId: string) => request<TaskDto>(`/api/v1/commands/${taskId}`),
-  listTasks: (projectId: string) => request<TaskDto[]>(`/api/v1/projects/${projectId}/tasks`),
+  listTasks: (projectId: string, signal?: AbortSignal) => request<TaskDto[]>(`/api/v1/projects/${projectId}/tasks`, { signal }),
   // ---------- S3B Proposals ----------
-  listProposals: (projectId: string) => request<ProposalDto[]>(`/api/v1/projects/${projectId}/proposals`),
+  listProposals: (projectId: string, signal?: AbortSignal) => request<ProposalDto[]>(`/api/v1/projects/${projectId}/proposals`, { signal }),
   resolveProposal: (proposalId: string, decision: "accept" | "reject") =>
     request<ProposalDto>(`/api/v1/proposals/${proposalId}/decision`, {
       method: "POST",
@@ -198,8 +198,8 @@ export const api = {
       },
     ),
   // ---------- S5B Stale / Revalidate ----------
-  getStaleMarks: (projectId: string) =>
-    request<{ marks: Array<StaleMarkDto & { kind: string | null }> }>(`/api/v1/projects/${projectId}/stale-marks`),
+  getStaleMarks: (projectId: string, signal?: AbortSignal) =>
+    request<{ marks: Array<StaleMarkDto & { kind: string | null }> }>(`/api/v1/projects/${projectId}/stale-marks`, { signal }),
   revalidateArtifact: (projectId: string, kind?: string) =>
     request<{
       results: Array<{
@@ -229,10 +229,10 @@ export const api = {
     }),
   cancelBuild: (buildId: string) =>
     request<{ buildId: string; status: string }>(`/api/v1/builds/${buildId}/cancel`, { method: "POST" }),
-  getBuilds: (versionId: string) => request<BuildRecordDto[]>(`/api/v1/versions/${versionId}/builds`),
+  getBuilds: (versionId: string, signal?: AbortSignal) => request<BuildRecordDto[]>(`/api/v1/versions/${versionId}/builds`, { signal }),
   getBuild: (buildId: string) => request<BuildRecordDto>(`/api/v1/builds/${buildId}`),
-  checkToolchain: () =>
-    request<{ available: boolean; toolchain: string; version: string | null; reason?: string }>("/api/v1/toolchain"),
+  checkToolchain: (signal?: AbortSignal) =>
+    request<{ available: boolean; toolchain: string; version: string | null; reason?: string }>("/api/v1/toolchain", { signal }),
   // ---------- S8 Diagnosis ----------
   diagnoseBuild: (buildId: string) =>
     request<{
@@ -246,8 +246,8 @@ export const api = {
     }>(`/api/v1/builds/${buildId}/diagnose`, { method: "POST" }),
   // ---------- S9 Device / Flash / Serial ----------
   detectDevice: () => request<DeviceInfoDto>("/api/v1/device/detect", { method: "POST" }),
-  getDeviceState: (projectId: string) =>
-    request<{ lastDevice: DeviceInfoDto | null }>(`/api/v1/projects/${projectId}/device-state`),
+  getDeviceState: (projectId: string, signal?: AbortSignal) =>
+    request<{ lastDevice: DeviceInfoDto | null }>(`/api/v1/projects/${projectId}/device-state`, { signal }),
   issueFlashToken: (deviceId: string) =>
     request<{ token: string; expiresAt: string }>("/api/v1/device/flash-token", {
       method: "POST",

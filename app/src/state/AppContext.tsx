@@ -9,6 +9,7 @@ import {
   useMemo,
   useReducer,
   useRef,
+  useEffect,
   type ReactNode,
 } from "react";
 import type {
@@ -34,6 +35,7 @@ import {
 import { format, getInitialLanguage, getInitialTheme } from "../lib/i18n";
 import { api as clientApi, ApiError, toAppError, type AppError } from "../api/client";
 import { subscribeProjectEvents } from "../api/sse";
+import { createReconnectHydrationRetry } from "./reconnect-hydration";
 import type { AnalysisCapabilityDto, McuCandidateDto, PeripheralDto } from "../api/client";
 import type { TaskDto } from "../api/client";
 import {
@@ -744,8 +746,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   /** S9：设备事件订阅（flash 进度/完成/失败 → 阶段 + 进度 + 串口遥测开始） */
   const subscribeDeviceEvents = useCallback(
-    (projectId: string) =>
+    (projectId: string, onReconnect?: () => void) =>
       subscribeProjectEvents(projectId, {
+        onReconnect,
         onEvent: (type, data) => {
           switch (type) {
             case "device.flashing": {
@@ -816,8 +819,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   /** S7：构建事件订阅（build.output 逐行 → 日志流；终态 → 徽标/状态） */
   const subscribeBuildEvents = useCallback(
-    (projectId: string) =>
+    (projectId: string, onReconnect?: () => void) =>
       subscribeProjectEvents(projectId, {
+        onReconnect,
         onEvent: (type, data) => {
           const event = data as { buildId?: unknown };
           const eventBuildId = typeof event.buildId === "string" ? event.buildId : null;
@@ -877,26 +881,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [s.lang, pushSystem]
   );
 
-  const hydrateProject = useCallback(async (id: string): Promise<ProjectHydrationSnapshot | null> => {
+  const hydrateProject = useCallback(async (id: string, signal?: AbortSignal): Promise<ProjectHydrationSnapshot | null> => {
     const sequence = ++hydrationSeq.current;
     try {
-      const project = await clientApi.getProject(id);
+      const project = await clientApi.getProject(id, signal);
       if (!project) throw new ApiError(404, "not_found", "Project not found");
       const [artifacts, proposals, tasks, stale, device, toolchain] = await Promise.all([
-        clientApi.listArtifacts(id),
-        clientApi.listProposals(id),
-        clientApi.listTasks(id),
-        clientApi.getStaleMarks(id).catch(() => ({ marks: [] })),
-        clientApi.getDeviceState(id).catch(() => ({ lastDevice: null })),
-        clientApi.checkToolchain().catch(() => null),
+        clientApi.listArtifacts(id, signal),
+        clientApi.listProposals(id, signal),
+        clientApi.listTasks(id, signal),
+        clientApi.getStaleMarks(id, signal).catch(() => ({ marks: [] })),
+        clientApi.getDeviceState(id, signal).catch(() => ({ lastDevice: null })),
+        clientApi.checkToolchain(signal).catch(() => null),
       ]);
+      if (signal?.aborted) return null;
       const hydratedArtifacts = await Promise.all(artifacts.map(async (artifact) => {
-        const versions = await clientApi.listVersions(artifact.id);
+        const versions = await clientApi.listVersions(artifact.id, signal);
         const selected = (artifact.currentVersionId ? versions.find((version) => version.id === artifact.currentVersionId) : undefined) ?? versions.at(-1) ?? null;
-        const detail = selected ? await clientApi.getVersion(selected.id) : null;
-        const builds = selected && artifact.kind === "firmware" ? await clientApi.getBuilds(selected.id) : [];
+        const detail = selected ? await clientApi.getVersion(selected.id, signal) : null;
+        const builds = selected && artifact.kind === "firmware" ? await clientApi.getBuilds(selected.id, signal) : [];
         return { artifact, versions, version: selected, content: detail?.content ?? null, builds };
       }));
+      if (signal?.aborted) return null;
       const snapshot: ProjectHydrationSnapshot = {
         project,
         artifacts: hydratedArtifacts,
@@ -909,10 +915,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (sequence === hydrationSeq.current) dispatch({ type: "HYDRATE_PROJECT", snapshot });
       return snapshot;
     } catch {
+      if (signal?.aborted) return null;
       if (sequence === hydrationSeq.current) dispatch({ type: "RUNTIME", patch: { online: false } });
       return null;
     }
   }, []);
+
+  const reconnectHydration = useMemo(
+    () => createReconnectHydrationRetry(async (id, signal) => (await hydrateProject(id, signal)) !== null),
+    [hydrateProject],
+  );
+
+  useEffect(() => () => reconnectHydration.cancel(), [reconnectHydration]);
 
   const closeSerial = useCallback(async (): Promise<void> => {
     serialRef.current.close?.();
@@ -928,6 +942,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const openProject = useCallback(async (id: string) => {
+    reconnectHydration.cancel();
     await closeSerial();
     dispatch({ type: "OPEN_PROJECT", id, name: "" });
     const snapshot = await hydrateProject(id);
@@ -937,16 +952,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     taskRef.current.roundId = 0;
     taskRef.current.close = subscribeProjectEvents(id, {
       onEvent: (type, data) => analysisEventRef.current(id, type, data),
-      onReconnect: () => { void hydrateProject(id); },
+      onReconnect: () => reconnectHydration.request(id),
     });
     buildRef.current.close?.();
-    buildRef.current.close = subscribeBuildEvents(id);
+    buildRef.current.close = subscribeBuildEvents(id, () => reconnectHydration.request(id));
     deviceRef.current.close?.();
-    deviceRef.current.close = subscribeDeviceEvents(id);
+    deviceRef.current.close = subscribeDeviceEvents(id, () => reconnectHydration.request(id));
     // Subscribe first, then reconcile once so an event racing hydration cannot be lost.
     await hydrateProject(id);
     return true;
-  }, [closeSerial, hydrateProject, subscribeBuildEvents, subscribeDeviceEvents]);
+  }, [closeSerial, reconnectHydration, subscribeBuildEvents, subscribeDeviceEvents, hydrateProject]);
 
   /** 归档（D6 语义）：取一次性令牌 → 确认 → 归档（令牌一次性；S9 复用同一机制） */
   const archiveProject = useCallback(
@@ -1094,10 +1109,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    reconnectHydration.cancel();
     taskRef.current.close?.();
     taskRef.current.close = subscribeProjectEvents(projectId, {
       onEvent,
-      onReconnect: () => { void hydrateProject(projectId); },
+      onReconnect: () => reconnectHydration.request(projectId),
     });
 
     void (async () => {
@@ -1115,7 +1131,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           dispatch({ type: "DISC_ERROR", error: err instanceof ApiError ? toAppError(err) : "Analysis failed to start" });
       }
     })();
-  }, [s.runtime.online, s.runtime.providerAvailable, s.runtime.slowMode, s.discoveryPrompt, s.discovery.nextFails, s.discovery.partialNext, s.project?.id, hydrateProject]);
+  }, [s.runtime.online, s.runtime.providerAvailable, s.runtime.slowMode, s.discoveryPrompt, s.discovery.nextFails, s.discovery.partialNext, s.project?.id, reconnectHydration]);
 
   const cancelDiscovery = useCallback(() => {
     cancelRef.current.discovery = true;
