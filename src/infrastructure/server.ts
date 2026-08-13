@@ -15,14 +15,23 @@ import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-st
 import { createAiProvider } from "./ai-provider";
 import { loadConfig } from "./config";
 import { toSafeError } from "@/src/shared-contracts/errors";
+import { acquireStateLock, stateLockPath } from "./backup-restore";
 
 async function startServer(): Promise<void> {
   const config = loadConfig();
   const frontendDist = fileURLToPath(new URL("../../app/dist/", import.meta.url));
   mkdirSync(dirname(config.dbPath), { recursive: true });
   mkdirSync(config.workspaceDir, { recursive: true });
+  const stateLock = acquireStateLock(stateLockPath(config.dbPath));
+  process.once("exit", () => stateLock.release());
   const db = openDatabase(config.dbPath);
-  migrate(db);
+  try {
+    migrate(db);
+  } catch (error) {
+    db.close();
+    stateLock.release();
+    throw error;
+  }
   const persistence = createProjectStore(db);
   const events = createSseEvents();
   const ai = createAiProvider();
@@ -56,10 +65,14 @@ async function startServer(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     void (async () => {
-      await tasks.stop();
-      await device.shutdown();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      db.close();
+      try {
+        await tasks.stop();
+        await device.shutdown();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      } finally {
+        db.close();
+        stateLock.release();
+      }
     })();
   };
   process.once("SIGINT", shutdown);

@@ -229,6 +229,17 @@ export function migrate(db: SqliteDb): void {
   assertCriticalSchema(db);
 }
 
+/** Validate an already migrated database without mutating it. */
+export function validateDatabase(db: SqliteDb): number {
+  assertQuickCheck(db);
+  const applied = (db.prepare("SELECT version FROM schema_migrations").all() as Array<{ version: number }>).map((row) => row.version);
+  const maxSupportedVersion = Math.max(...MIGRATIONS.map((m) => m.version));
+  if (applied.some((version) => version > maxSupportedVersion)) throw new UnsupportedDatabaseSchemaError();
+  assertCriticalSchema(db);
+  if (applied.length === 0) throw new IncompleteDatabaseSchemaError();
+  return Math.max(...applied);
+}
+
 function assertQuickCheck(db: SqliteDb): void {
   let result: unknown;
   try {

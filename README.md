@@ -56,6 +56,17 @@ MCU_DEVICE_PROVIDER=companion MCU_AI_PROVIDER=sensenova SENSENOVA_API_KEY=... SE
 
 Configuration: use `.env.example` as a reference for the environment passed to the server (`MCU_PORT`, absolute `MCU_DB_PATH`, absolute `MCU_WORKSPACE_DIR`, explicit `MCU_DEVICE_PROVIDER=companion|physical`, `MCU_ARDUINO_CLI_PATH`, the optional positive `SENSENOVA_TIMEOUT_MS`, and the required explicit real AI provider settings). If the storage variables are omitted, the runtime uses its application-root `data/mcu.db` and `workspace` defaults; any explicitly supplied storage path must be absolute. The server does not auto-load a `.env` file and refuses to start when the provider, device provider, storage paths, or provider credentials are missing or malformed. Physical mode starts without hardware but reports typed tool/device errors, never falls back to Companion, and only reports physical verification after a fresh Arduino CLI discovery plus successful upload. Serial-session baud is selected by the request and defaults to the adapter's current 115200 setting when omitted. Deterministic mock adapters are test fixtures only. The production server resolves its built frontend relative to the server artifact, not the launch cwd.
 
+### Offline backup and restore
+
+Back up and restore only while the production server is stopped. These are explicit local operator commands; there is no automatic or cloud backup:
+
+```text
+npm run backup -- --output C:\path\to\backup
+npm run restore -- --backup C:\path\to\backup --db C:\path\to\new\mcu.db --workspace C:\path\to\new\workspace
+```
+
+The backup is a versioned manifest containing the SQLite online-backup snapshot and workspace file hashes. A backup is valid only when `BACKUP_COMPLETE` is present. Do not copy a live SQLite main file or overwrite a database with stale `-wal`/`-shm` sidecars. Restore validates the complete backup before publishing and refuses existing database, WAL/SHM, or workspace targets; it never merges state. Provider credentials (`MCU_ZHIPU_API_KEY`, `SENSENOVA_API_KEY`, and environment secrets) are not included. Artifact content restores to a different workspace root, but historical build evidence containing absolute paths may remain unusable for flash and is fail-closed.
+
 ## Testing
 
 ```bash

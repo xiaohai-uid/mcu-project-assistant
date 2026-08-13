@@ -12,6 +12,11 @@ export interface AppConfig {
   buildTimeoutMs: number;
 }
 
+export interface StorageConfig {
+  dbPath: string;
+  workspaceDir: string;
+}
+
 const APPLICATION_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot = APPLICATION_ROOT): AppConfig {
@@ -37,17 +42,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot
   const buildTimeoutMs = Number(rawBuildTimeout);
   const arduinoCliPath = env.MCU_ARDUINO_CLI_PATH?.trim() || "arduino-cli";
 
-  const rawDbPath = env.MCU_DB_PATH?.trim();
-  const rawWorkspaceDir = env.MCU_WORKSPACE_DIR?.trim();
-  if (rawDbPath && !isAbsolute(rawDbPath)) throw new Error("MCU_DB_PATH must be an absolute path");
-  if (rawWorkspaceDir && !isAbsolute(rawWorkspaceDir)) throw new Error("MCU_WORKSPACE_DIR must be an absolute path");
-
-  const dbPath = rawDbPath ? resolve(rawDbPath) : join(root, "data", "mcu.db");
-  const workspaceDir = rawWorkspaceDir ? resolve(rawWorkspaceDir) : join(root, "workspace");
-  const workspaceRelativeDbPath = relative(workspaceDir, dbPath);
-  if (workspaceRelativeDbPath === "" || (!workspaceRelativeDbPath.startsWith("..") && !isAbsolute(workspaceRelativeDbPath))) {
-    throw new Error("MCU_DB_PATH must not be inside MCU_WORKSPACE_DIR");
-  }
+  const storage = loadStorageConfig(env, root);
 
   const deviceProvider = env.MCU_DEVICE_PROVIDER?.trim();
   if (deviceProvider !== "companion" && deviceProvider !== "physical") {
@@ -57,10 +52,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot
   return {
     host, // M1 local single-user; loopback by default (Security Spec §5)
     port,
-    dbPath,
-    workspaceDir,
+    dbPath: storage.dbPath,
+    workspaceDir: storage.workspaceDir,
     deviceProvider,
     arduinoCliPath,
     buildTimeoutMs,
   };
+}
+
+export function loadStorageConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot = APPLICATION_ROOT): StorageConfig {
+  const rawDbPath = env.MCU_DB_PATH?.trim();
+  const rawWorkspaceDir = env.MCU_WORKSPACE_DIR?.trim();
+  if (rawDbPath && !isAbsolute(rawDbPath)) throw new Error("MCU_DB_PATH must be an absolute path");
+  if (rawWorkspaceDir && !isAbsolute(rawWorkspaceDir)) throw new Error("MCU_WORKSPACE_DIR must be an absolute path");
+  const dbPath = rawDbPath ? resolve(rawDbPath) : join(applicationRoot, "data", "mcu.db");
+  const workspaceDir = rawWorkspaceDir ? resolve(rawWorkspaceDir) : join(applicationRoot, "workspace");
+  const workspaceRelativeDbPath = relative(workspaceDir, dbPath);
+  if (workspaceRelativeDbPath === "" || (!workspaceRelativeDbPath.startsWith("..") && !isAbsolute(workspaceRelativeDbPath))) {
+    throw new Error("MCU_DB_PATH must not be inside MCU_WORKSPACE_DIR");
+  }
+  return { dbPath, workspaceDir };
 }
