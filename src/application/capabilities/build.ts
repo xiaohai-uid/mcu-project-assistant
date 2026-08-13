@@ -14,6 +14,12 @@ import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort } from "@/src/ports/task-execution";
 import type { BuildRecordDto, BuildStatusDto } from "@/src/shared-contracts/types";
 import { toSafeError } from "@/src/shared-contracts/errors";
+import {
+  assertExistingPathContained,
+  assertParentContainedForWrite,
+  assertSafeRelativeReference,
+  resolveContainedPath,
+} from "@/src/shared/filesystem-confinement";
 
 export class ProjectNotFoundError extends Error {
   constructor() { super("Project not found"); this.name = "ProjectNotFoundError"; }
@@ -56,7 +62,9 @@ const TARGET = "esp32-s3";
 const BUILD_OUTPUT_ROOT = ".build";
 
 export function buildLogRef(buildId: string): string {
-  return join(BUILD_OUTPUT_ROOT, buildId, "build.log");
+  const ref = join(BUILD_OUTPUT_ROOT, buildId, "build.log");
+  assertSafeRelativeReference(ref);
+  return ref;
 }
 
 function isWithin(root: string, target: string): boolean {
@@ -72,8 +80,14 @@ export interface BuildPaths {
 
 /** Resolve only the firmware source layout; this is not a general filesystem sandbox. */
 export function resolveBuildPaths(workspaceDir: string, contentRef: string, buildId: string): BuildPaths {
+  try {
+    assertSafeRelativeReference(contentRef);
+    assertSafeRelativeReference(join(BUILD_OUTPUT_ROOT, buildId, "output"));
+  } catch {
+    throw new BuildInputError("Firmware content reference or build output path is invalid");
+  }
   if (!contentRef || isAbsolute(contentRef)) throw new BuildInputError("Firmware content reference must be a relative path");
-  const sourceFile = resolve(workspaceDir, contentRef);
+  const sourceFile = resolveContainedPath(workspaceDir, resolve(workspaceDir, contentRef));
   if (!isWithin(workspaceDir, sourceFile) || !sourceFile.endsWith(`${sep}src${sep}main.cpp`)) {
     throw new BuildInputError("Firmware version does not resolve to workspace/src/main.cpp");
   }
@@ -84,12 +98,21 @@ export function resolveBuildPaths(workspaceDir: string, contentRef: string, buil
   }
   if (!existsSync(sourceFile) || !statSync(sourceFile).isFile()) throw new BuildInputError("Firmware source file is missing");
   if (!existsSync(sourceDir) || !statSync(sourceDir).isDirectory()) throw new BuildInputError("Firmware source directory is missing");
+  try {
+    assertExistingPathContained(workspaceDir, sourceDir);
+    assertExistingPathContained(workspaceDir, sourceFile);
+    assertParentContainedForWrite(workspaceDir, outputDir);
+  } catch {
+    throw new BuildInputError("Firmware source or output path escapes the configured workspace");
+  }
   return { sourceDir, sourceFile, outputDir };
 }
 
 function appendLog(workspaceDir: string, buildId: string, line: string): void {
-  const target = join(workspaceDir, buildLogRef(buildId));
+  const target = resolveContainedPath(workspaceDir, resolve(workspaceDir, buildLogRef(buildId)));
+  assertParentContainedForWrite(workspaceDir, target);
   mkdirSync(dirname(target), { recursive: true });
+  assertParentContainedForWrite(workspaceDir, target);
   appendFileSync(target, `${line}\n`, "utf8");
 }
 
@@ -114,6 +137,10 @@ export async function executeBuildTask(
   if (!record) throw new BuildNotFoundError();
   const version = await deps.persistence.getVersion(record.artifactVersionId);
   if (!version) throw new VersionNotFoundError();
+  const artifact = await deps.persistence.getArtifact(version.artifactId);
+  if (!artifact || artifact.projectId !== input.projectId || artifact.kind !== "firmware") {
+    throw new BuildInputError("Firmware version does not belong to the requested project");
+  }
   const currentRecord = { ...record, taskId: ctx.taskId };
   await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(currentRecord));
 
@@ -133,8 +160,10 @@ export async function executeBuildTask(
     throw new BuildExecutionError("BUILD_SOURCE_INVALID", safe.message);
   }
 
+  assertParentContainedForWrite(deps.workspaceDir, paths.outputDir);
   rmSync(paths.outputDir, { recursive: true, force: true });
   mkdirSync(paths.outputDir, { recursive: true });
+  assertExistingPathContained(deps.workspaceDir, paths.outputDir);
   const request = {
     target: record.target,
     toolchain: "esp32-arduino" as const,
@@ -221,6 +250,8 @@ export async function runBuild(
   assertNotArchived(project);
   const version = await deps.persistence.getVersion(input.versionId);
   if (!version) throw new VersionNotFoundError();
+  const artifact = await deps.persistence.getArtifact(version.artifactId);
+  if (!artifact || artifact.projectId !== input.projectId || artifact.kind !== "firmware") throw new BuildInputError("Firmware version does not belong to the requested project");
   const target = input.target ?? TARGET;
   if (target !== TARGET) throw new UnsupportedBuildTargetError(target);
 

@@ -1,7 +1,7 @@
 // unit/application/flash-security — S9 安全验收组（ISSUE-011 §11 必须单独成组）
 // Flash 必须显式用户确认：无令牌/过期/复用/错误设备/L3 Stale/设备断开 全部被拒；
 // 断线重连后令牌不可复用；烧录中断不留半成品证据；会话不建表（仅 last_device → preferences）。
-import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -285,6 +285,42 @@ describe("S9 安全验收组（Flash 确认令牌；无绕过路径）", () => {
       flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: "forged", buildId: "build-1", artifactVersionId: versionId }, d.flashDeps),
     ).rejects.toThrow(ConfirmationMissingError);
     expect(existsSync(join(dir, "ws", ".evidence"))).toBe(false);
+  });
+
+  it("拒绝外部 firmware output 与 lexical-inside 但 realpath 在外部的 firmware output", async () => {
+    const d = deps();
+    const { projectId, versionId } = await seedFirmware(d);
+    const outside = join(dir, "outside-firmware.bin");
+    writeFileSync(outside, "firmware-fixture", "utf8");
+    const outputDir = join(dir, "ws", ".build", "build-1", "output");
+    mkdirSync(outputDir, { recursive: true });
+    const linked = join(outputDir, "fixture.bin");
+    unlinkSync(linked);
+    symlinkSync(outside, linked, "file");
+    await d.persistence.withTransaction((uow) => uow.updateBuildRecord({
+      ...d.persistence.mem.builds.get("build-1")!,
+      status: "succeeded",
+      completedAt: NOW,
+      exitCode: 0,
+      outputDir,
+      outputs: [{ path: linked, kind: "bin", sizeBytes: 16, sha256: "4872aaf92b449866c0452a5fb55712c1cb0c8db425a046235c5ca4c4ad1feafe" }],
+    }));
+    await detectDevice({}, d.flashDeps);
+    const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
+    await expect(flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: token, buildId: "build-1", artifactVersionId: versionId }, d.flashDeps)).rejects.toThrow(/missing|verified/i);
+
+    const foreignOutputDir = join(dir, "foreign-output");
+    mkdirSync(foreignOutputDir, { recursive: true });
+    const foreignPath = join(foreignOutputDir, "fixture.bin");
+    writeFileSync(foreignPath, "firmware-fixture", "utf8");
+    await d.persistence.withTransaction((uow) => uow.updateBuildRecord({
+      ...d.persistence.mem.builds.get("build-1")!,
+      status: "succeeded",
+      outputDir: foreignOutputDir,
+      outputs: [{ path: foreignPath, kind: "bin", sizeBytes: 16, sha256: "4872aaf92b449866c0452a5fb55712c1cb0c8db425a046235c5ca4c4ad1feafe" }],
+    }));
+    const second = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
+    await expect(flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: second.token, buildId: "build-1", artifactVersionId: versionId }, d.flashDeps)).rejects.toThrow(/verified/i);
   });
 
   it("会话不建表：检测只持久化 last_device → preferences（无 device_sessions 表）", async () => {

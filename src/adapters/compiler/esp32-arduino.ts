@@ -6,8 +6,9 @@ import { spawn, spawnSync } from "node:child_process";
 import type { BuildRequest, BuildResult, CompilerPort, ToolchainInfo } from "@/src/ports/compiler";
 import { BuildTimeoutError, ToolchainUnavailableError, UnsupportedBuildTargetError } from "@/src/ports/compiler";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
+import { assertExistingPathContained, assertNoExistingLinks } from "@/src/shared/filesystem-confinement";
 
 const FQBN: Record<string, string> = {
   "esp32-s3": "esp32:esp32:esp32s3",
@@ -28,23 +29,34 @@ interface CompilerOptions {
 }
 
 function outputEvidence(outputDir: string) {
-  if (!existsSync(outputDir)) return [];
-  const files: string[] = [];
-  const visit = (dir: string) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) visit(path);
-      else if (entry.isFile() && [".bin", ".elf", ".hex"].includes(extname(entry.name).toLowerCase())) files.push(resolve(path));
-    }
-  };
-  visit(outputDir);
-  return files
-    .map((path) => {
-      const stat = statSync(path);
-      const kind = extname(basename(path)).slice(1).toLowerCase() as "bin" | "elf" | "hex";
-      return { path, kind, sizeBytes: stat.size, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") };
-    })
-    .filter((item) => item.sizeBytes > 0);
+  try {
+    if (!existsSync(outputDir)) return [];
+    assertExistingPathContained(outputDir, outputDir);
+    assertNoExistingLinks(outputDir, outputDir);
+    const files: string[] = [];
+    const visit = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        const stat = lstatSync(path);
+        if (stat.isSymbolicLink()) throw new Error("Build output contains a symlink or junction");
+        if (stat.isDirectory()) visit(path);
+        else if (stat.isFile() && [".bin", ".elf", ".hex"].includes(extname(entry.name).toLowerCase())) {
+          assertExistingPathContained(outputDir, path);
+          files.push(resolve(path));
+        }
+      }
+    };
+    visit(outputDir);
+    return files
+      .map((path) => {
+        const stat = lstatSync(path);
+        const kind = extname(basename(path)).slice(1).toLowerCase() as "bin" | "elf" | "hex";
+        return { path, kind, sizeBytes: stat.size, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") };
+      })
+      .filter((item) => item.sizeBytes > 0);
+  } catch {
+    return [];
+  }
 }
 
 function stopChild(child: import("node:child_process").ChildProcess, force = false): void {

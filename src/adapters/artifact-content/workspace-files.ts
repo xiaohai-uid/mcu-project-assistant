@@ -3,9 +3,15 @@
 // 内容布局：<workspace>/<projectId>/<kind>/NNNN.json（内容本体 = 工作区文件，SQLite 只存引用）。
 // S6 固件：subpath → <workspace>/<projectId>/firmware/NNNN/src/main.cpp 等真实文件（Git-friendly）。
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import type { ArtifactContentPort, VersionRef } from "@/src/ports/artifact-content";
+import {
+  assertExistingPathContained,
+  assertParentContainedForWrite,
+  assertSafeRelativeReference,
+  resolveContainedPath,
+} from "@/src/shared/filesystem-confinement";
 
 function sha256(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
@@ -17,10 +23,15 @@ export function createWorkspaceFilesContent(workspaceDir: string): ArtifactConte
       const contentRef = ref.subpath
         ? `${ref.projectId}/${ref.kind}/${String(ref.versionNo).padStart(4, "0")}/${ref.subpath}`
         : `${ref.projectId}/${ref.kind}/${String(ref.versionNo).padStart(4, "0")}.json`;
-      const target = join(workspaceDir, contentRef);
+      assertSafeRelativeReference(contentRef);
+      const target = resolveContainedPath(workspaceDir, resolve(workspaceDir, contentRef));
+      assertParentContainedForWrite(workspaceDir, target);
+      if (!existsSync(workspaceDir)) mkdirSync(workspaceDir, { recursive: true });
       mkdirSync(dirname(target), { recursive: true });
+      assertParentContainedForWrite(workspaceDir, target);
       // 原子写：临时文件 → rename（同目录同文件系统）
-      const tmp = join(dirname(target), `.tmp-${randomBytes(6).toString("hex")}`);
+      const tmp = resolve(dirname(target), `.tmp-${randomBytes(6).toString("hex")}`);
+      assertParentContainedForWrite(workspaceDir, tmp);
       try {
         writeFileSync(tmp, content, "utf8");
         renameSync(tmp, target);
@@ -31,7 +42,10 @@ export function createWorkspaceFilesContent(workspaceDir: string): ArtifactConte
       return { contentRef, contentHash: sha256(content) };
     },
     async load(contentRef: string): Promise<string> {
-      const target = join(workspaceDir, contentRef);
+      assertSafeRelativeReference(contentRef);
+      const target = resolveContainedPath(workspaceDir, resolve(workspaceDir, contentRef));
+      if (!existsSync(target)) throw new Error(`Artifact content not found: ${contentRef}`);
+      assertExistingPathContained(workspaceDir, target);
       try {
         return readFileSync(target, "utf8");
       } catch {

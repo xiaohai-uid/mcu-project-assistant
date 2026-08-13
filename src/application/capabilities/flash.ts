@@ -4,7 +4,7 @@
 // DeviceSession = 运行时状态（适配器内存态；持久化仅 last_device → preferences）。
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { DevicePort, DeviceInfo, DeviceTruth } from "@/src/ports/device";
 import type { DeviceExecutionReality, FlashResultDto } from "@/src/shared-contracts/types";
@@ -13,6 +13,7 @@ import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort } from "@/src/ports/task-execution";
 import type { BuildRecord } from "@/src/domain/models/build-record";
 import { toSafeError } from "@/src/shared-contracts/errors";
+import { assertExistingPathContained, resolveContainedPath } from "@/src/shared/filesystem-confinement";
 
 export class ConfirmationMissingError extends Error {
   constructor() {
@@ -240,19 +241,27 @@ export async function executeFlashTask(
   void now;
 }
 
-function isWithin(root: string, target: string): boolean {
-  const rel = relative(resolve(root), resolve(target));
-  return rel === "" || (!rel.startsWith(`..${sep}`) && rel !== ".." && !isAbsolute(rel));
-}
-
 function verifiedFirmwareEvidence(build: BuildRecord | null, artifactVersionId: string, workspaceDir: string): { outputDir: string; path: string; sha256: string } {
   if (!build || build.artifactVersionId !== artifactVersionId || build.status !== "succeeded" || !build.outputDir) throw new FlashBuildNotVerifiedError();
   const outputDir = resolve(build.outputDir);
-  if (!isWithin(join(resolve(workspaceDir), ".build"), outputDir)) throw new FlashBuildNotVerifiedError();
+  const buildRoot = resolve(workspaceDir, ".build");
+  if (outputDir === buildRoot) throw new FlashBuildNotVerifiedError();
+  try {
+    resolveContainedPath(buildRoot, outputDir);
+    assertExistingPathContained(buildRoot, outputDir);
+  } catch {
+    throw new FlashBuildNotVerifiedError();
+  }
   const output = build.outputs.find((item) => item.kind === "bin" && item.sizeBytes > 0 && /^[a-f0-9]{64}$/i.test(item.sha256));
   if (!output) throw new FlashBuildNotVerifiedError();
   const path = resolve(output.path);
-  if (!existsSync(path) || !statSync(path).isFile() || !isWithin(outputDir, path)) throw new FlashFirmwareMissingError();
+  if (!existsSync(path) || !statSync(path).isFile()) throw new FlashFirmwareMissingError();
+  try {
+    resolveContainedPath(outputDir, path);
+    assertExistingPathContained(outputDir, path);
+  } catch {
+    throw new FlashFirmwareMissingError();
+  }
   const actual = createHash("sha256").update(readFileSync(path)).digest("hex");
   if (actual !== output.sha256 || statSync(path).size !== output.sizeBytes) throw new FlashFirmwareHashMismatchError();
   return { outputDir, path, sha256: output.sha256 };

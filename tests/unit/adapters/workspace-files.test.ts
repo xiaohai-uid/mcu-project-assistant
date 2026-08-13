@@ -1,6 +1,6 @@
 // unit/adapters/workspace-files — ArtifactContentPort 的 Workspace Files 实现（ADR-0006；ISSUE-002 §9/§11）
 // store → <projectId>/<kind>/NNNN.json 原子写（临时文件→rename）；load 往返；hash = SHA-256；临时文件清理。
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -67,5 +67,40 @@ describe("WorkspaceFiles（ADR-0006）", () => {
   it("load 不存在的 contentRef → 明确错误（不吞）", async () => {
     const port = createWorkspaceFilesContent(dir);
     await expect(port.load("pinmap/9999.json")).rejects.toThrow(/not found/i);
+  });
+
+  it("拒绝 traversal、absolute path、symlink read 与 project/subpath escape write", async () => {
+    const port = createWorkspaceFilesContent(dir);
+    const outside = mkdtempSync(join(tmpdir(), "mcu-s2-outside-"));
+    try {
+      const secret = join(outside, "secret.txt");
+      writeFileSync(secret, "outside-secret", "utf8");
+      await expect(port.load("../outside/secret.txt")).rejects.toThrow(/workspace|reference|unsafe/i);
+      await expect(port.load(secret)).rejects.toThrow(/workspace|reference|unsafe/i);
+
+      const linkDir = join(dir, "p1", "pinmap");
+      mkdirSync(linkDir, { recursive: true });
+      symlinkSync(secret, join(linkDir, "link.json"), "file");
+      await expect(port.load("p1/pinmap/link.json")).rejects.toThrow(/symlink|workspace/i);
+
+      await expect(port.store({ projectId: "../escaped", kind: "pinmap", versionNo: 1 }, "escape")).rejects.toThrow(/workspace|reference|unsafe/i);
+      await expect(port.store({ projectId: "p1", kind: "pinmap", versionNo: 1, subpath: "../../escaped.txt" }, "escape")).rejects.toThrow(/workspace|reference|unsafe/i);
+      expect(existsSync(join(dir, "..", "escaped"))).toBe(false);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("workspace root 缺失时也拒绝通过 symlink ancestor 创建到外部", async () => {
+    const outside = mkdtempSync(join(tmpdir(), "mcu-s2-root-outside-"));
+    try {
+      const linkedParent = join(dir, "linked-workspace-parent");
+      symlinkSync(outside, linkedParent, "junction");
+      const port = createWorkspaceFilesContent(join(linkedParent, "new-workspace"));
+      await expect(port.store({ projectId: "p1", kind: "pinmap", versionNo: 1 }, "escape")).rejects.toThrow(/symlink|workspace/i);
+      expect(existsSync(join(outside, "new-workspace"))).toBe(false);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 });

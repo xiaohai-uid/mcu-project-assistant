@@ -1,7 +1,7 @@
 // unit/application/build — run_build（application-contract 2.12；ISSUE-009 §11）
 // 202 → BuildRecord running → 逐行输出（SSE build.output + .build 日志）→ 终态（succeeded/failed/cancelled）。
 // D2 断言：Build 不产生 Firmware 版本；503 ToolchainUnavailable（真实检测）；L3 门禁 409。
-import { mkdtempSync, rmSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -292,6 +292,40 @@ describe("run_build（contract 2.12；D2 Build 不产生版本）", () => {
     base.persistence.mem.versions.set(versionId, invalidVersion);
     await expect(runBuild({ projectId: project.id, versionId }, { ...base.buildDeps, compiler })).rejects.toBeInstanceOf(BuildInputError);
     expect(base.persistence.mem.builds.size).toBe(0);
+  });
+
+  it("rejects cross-project versions, symlinked firmware source, and symlinked build output before compiler execution", async () => {
+    const base = deps();
+    const first = await seedJourney(base);
+    const second = await createProjectCapability({ name: "Other", now }, { persistence: base.persistence });
+    let spawnCount = 0;
+    const compiler = {
+      discoverToolchain: base.buildDeps.compiler.discoverToolchain,
+      build: async (...args: Parameters<typeof base.buildDeps.compiler.build>) => {
+        spawnCount++;
+        throw new Error(`compiler must not run: ${args[0].sourceDir}`);
+      },
+    };
+    await expect(runBuild({ projectId: second.id, versionId: first.versionId }, { ...base.buildDeps, compiler })).rejects.toThrow(BuildInputError);
+    expect(spawnCount).toBe(0);
+
+    const workspace = join(dir, "symlink-ws");
+    const outside = join(dir, "outside-source");
+    const outsideSrc = join(outside, "src");
+    mkdirSync(outsideSrc, { recursive: true });
+    writeFileSync(join(outsideSrc, "main.cpp"), "outside", "utf8");
+    mkdirSync(join(workspace, "project", "firmware", "0001"), { recursive: true });
+    symlinkSync(outsideSrc, join(workspace, "project", "firmware", "0001", "src"), "junction");
+    expect(() => resolveBuildPaths(workspace, "project/firmware/0001/src/main.cpp", "build-1")).toThrow(BuildInputError);
+
+    const outputWorkspace = join(dir, "symlink-output-ws");
+    const outputOutside = join(dir, "outside-build-output");
+    mkdirSync(join(outputWorkspace, "project", "firmware", "0001", "src"), { recursive: true });
+    writeFileSync(join(outputWorkspace, "project", "firmware", "0001", "src", "main.cpp"), "inside", "utf8");
+    mkdirSync(join(outputWorkspace, ".build", "build-1"), { recursive: true });
+    mkdirSync(outputOutside, { recursive: true });
+    symlinkSync(outputOutside, join(outputWorkspace, ".build", "build-1", "output"), "junction");
+    expect(() => resolveBuildPaths(outputWorkspace, "project/firmware/0001/src/main.cpp", "build-1")).toThrow(BuildInputError);
   });
 
   it("clears stale output before a failed attempt so old firmware cannot become this build's evidence", async () => {

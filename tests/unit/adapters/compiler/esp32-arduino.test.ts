@@ -21,11 +21,11 @@ function fixtureRoot(): { root: string; sourceDir: string; outputDir: string } {
   return { root, sourceDir: resolve(sourceDir), outputDir: resolve(outputDir) };
 }
 
-function compilerScript(mode: "success" | "missing" | "nonzero" | "sleep", pidMarker?: string, cwdMarker?: string): string {
-  return `const fs=require('node:fs');const path=require('node:path');const args=process.argv.slice(1);if(args[0]==='version'){console.log('controlled-fixture 1.0');process.exit(0)};if(${JSON.stringify(pidMarker)})fs.writeFileSync(${JSON.stringify(pidMarker)},String(process.pid));if(${JSON.stringify(cwdMarker)})fs.writeFileSync(${JSON.stringify(cwdMarker)},process.cwd());if(${JSON.stringify(mode)}==='sleep'){setInterval(()=>{},1000)}else if(${JSON.stringify(mode)}==='nonzero'){process.exit(7)}else if(${JSON.stringify(mode)}==='missing'){process.exit(0)}else{const out=args[args.indexOf('--output-dir')+1];fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'fixture.bin'),Buffer.from('firmware-fixture'));process.exit(0)};`;
+function compilerScript(mode: "success" | "missing" | "nonzero" | "sleep" | "symlink" | "directory-symlink", pidMarker?: string, cwdMarker?: string): string {
+  return `const fs=require('node:fs');const path=require('node:path');const args=process.argv.slice(1);if(args[0]==='version'){console.log('controlled-fixture 1.0');process.exit(0)};if(${JSON.stringify(pidMarker)})fs.writeFileSync(${JSON.stringify(pidMarker)},String(process.pid));if(${JSON.stringify(cwdMarker)})fs.writeFileSync(${JSON.stringify(cwdMarker)},process.cwd());if(${JSON.stringify(mode)}==='sleep'){setInterval(()=>{},1000)}else if(${JSON.stringify(mode)}==='nonzero'){process.exit(7)}else if(${JSON.stringify(mode)}==='missing'){process.exit(0)}else{const out=args[args.indexOf('--output-dir')+1];fs.mkdirSync(out,{recursive:true});if(${JSON.stringify(mode)}==='symlink'){const outside=path.join(path.dirname(out),'outside.bin');fs.writeFileSync(outside,Buffer.from('firmware-fixture'));fs.symlinkSync(outside,path.join(out,'fixture.bin'),'file')}else if(${JSON.stringify(mode)}==='directory-symlink'){const outside=path.join(path.dirname(out),'outside-dir');fs.mkdirSync(outside,{recursive:true});fs.writeFileSync(path.join(outside,'fixture.bin'),Buffer.from('firmware-fixture'));fs.symlinkSync(outside,path.join(out,'nested'),'junction')}else{fs.writeFileSync(path.join(out,'fixture.bin'),Buffer.from('firmware-fixture'))};process.exit(0)};`;
 }
 
-function createFixture(mode: "success" | "missing" | "nonzero" | "sleep", timeoutMs = 500, pidMarker?: string, cwdMarker?: string): ReturnType<typeof createEsp32ArduinoCompiler> {
+function createFixture(mode: "success" | "missing" | "nonzero" | "sleep" | "symlink" | "directory-symlink", timeoutMs = 500, pidMarker?: string, cwdMarker?: string): ReturnType<typeof createEsp32ArduinoCompiler> {
   return createEsp32ArduinoCompiler({
     arduinoCliPath: process.execPath,
     executableArgsPrefix: ["-e", compilerScript(mode, pidMarker, cwdMarker)],
@@ -92,6 +92,20 @@ describe("controlled external compiler fixture (not Arduino CLI)", () => {
     const missing = await createFixture("missing").build(request(missingRoot), () => {}, new AbortController().signal);
     expect(missing.exitCode).toBe(0);
     expect(missing.outputs).toEqual([]);
+  });
+
+  it("does not read firmware through a symlink in the compiler output tree", async () => {
+    const root = fixtureRoot();
+    const result = await createFixture("symlink").build(request(root), () => {}, new AbortController().signal);
+    expect(result.exitCode).toBe(0);
+    expect(result.outputs).toEqual([]);
+  });
+
+  it("does not recurse through a symlinked output directory", async () => {
+    const root = fixtureRoot();
+    const result = await createFixture("directory-symlink").build(request(root), () => {}, new AbortController().signal);
+    expect(result.exitCode).toBe(0);
+    expect(result.outputs).toEqual([]);
   });
 
   it("times out and aborts the actual child without a late success", async () => {
