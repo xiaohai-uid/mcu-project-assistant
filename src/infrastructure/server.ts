@@ -17,6 +17,27 @@ import { createAiProvider } from "./ai-provider";
 import { loadConfig } from "./config";
 import { toSafeError } from "@/src/shared-contracts/errors";
 import { acquireProductionStateOwnership } from "./backup-restore";
+import { createShutdownCoordinator, createShutdownState } from "./shutdown";
+
+export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
+
+function waitForListening(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onListening = () => { server.removeListener("error", onError); resolve(); };
+    const onError = (error: Error) => { server.removeListener("listening", onListening); reject(error); };
+    server.once("listening", onListening);
+    server.once("error", onError);
+  });
+}
+
+function closeServer(server: Server | null): Promise<void> {
+  if (!server) return Promise.resolve();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => { if (!settled) { settled = true; resolve(); } };
+    try { server.close(finish); } catch { finish(); }
+  });
+}
 
 async function startServer(): Promise<void> {
   const config = loadConfig();
@@ -24,18 +45,22 @@ async function startServer(): Promise<void> {
   mkdirSync(dirname(config.dbPath), { recursive: true });
   mkdirSync(config.workspaceDir, { recursive: true });
   const ownership = acquireProductionStateOwnership(config.dbPath, config.workspaceDir);
+  const shutdownState = createShutdownState();
   let released = false;
   let db: ReturnType<typeof openDatabase> | null = null;
   let stopTasks: (() => Promise<void>) | null = null;
   let shutdownDevice: (() => Promise<void>) | null = null;
   let server: Server | null = null;
+  let forcedShutdown = false;
   const releaseOwnership = (): void => {
     if (released) return;
     released = true;
     db?.close();
     ownership.release();
   };
-  process.once("exit", releaseOwnership);
+  process.once("exit", () => {
+    if (!forcedShutdown) releaseOwnership();
+  });
 
   try {
     db = openDatabase(config.dbPath);
@@ -60,6 +85,7 @@ async function startServer(): Promise<void> {
       device,
       ai,
       frontendDist,
+      shutdown: shutdownState,
     });
 
     // Recovery claims/schedules before listen; long executions continue after HTTP is exposed.
@@ -69,27 +95,37 @@ async function startServer(): Promise<void> {
     server = app.listen(config.port, config.host, () => {
       console.log(`MCU Project Assistant local server listening on http://${config.host}:${config.port} (ai=${ai.name})`);
     });
+    await waitForListening(server);
 
-    let shuttingDown = false;
-    const shutdown = (): void => {
-      if (shuttingDown) return;
-      shuttingDown = true;
-      void (async () => {
-        try {
-          await tasks.stop();
-          await device.shutdown();
-          await new Promise<void>((resolve) => server?.close(() => resolve()));
-        } finally {
-          releaseOwnership();
-        }
-      })();
-    };
-    process.once("SIGINT", shutdown);
-    process.once("SIGTERM", shutdown);
+    const shutdown = createShutdownCoordinator({
+      state: shutdownState,
+      closeSseStreams: app.closeSseStreams,
+      stopAccepting: () => {
+        server?.closeIdleConnections?.();
+        return closeServer(server);
+      },
+      stopTasks: tasks.stop,
+      shutdownDevice: device.shutdown,
+      forceClose: () => {
+        app.closeSseStreams();
+        server?.closeAllConnections?.();
+        server?.closeIdleConnections?.();
+      },
+      releaseOwnership,
+      timeoutMs: DEFAULT_SHUTDOWN_TIMEOUT_MS,
+      onTimeout: () => {
+        forcedShutdown = true;
+        process.exitCode = 1;
+        process.exit(1);
+      },
+    });
+    const onSignal = (): void => { void shutdown.beginShutdown(); };
+    process.on("SIGINT", onSignal);
+    process.on("SIGTERM", onSignal);
   } catch (error) {
     try { await stopTasks?.(); } catch { /* startup cleanup */ }
     try { await shutdownDevice?.(); } catch { /* startup cleanup */ }
-    if (server) await new Promise<void>((resolve) => server?.close(() => resolve()));
+    await closeServer(server);
     releaseOwnership();
     throw error;
   }
@@ -98,8 +134,11 @@ async function startServer(): Promise<void> {
 void startServer().catch((err) => {
   const safe = toSafeError(err);
   const raw = typeof err === "object" && err !== null ? (err as { name?: unknown; message?: unknown }) : {};
+  const rawCode = typeof err === "object" && err !== null && "code" in err ? String((err as { code?: unknown }).code) : "";
   const actionable = raw.name === "BackupRestoreError"
     ? safe.message
+    : rawCode === "EADDRINUSE"
+      ? "EADDRINUSE: configured HTTP address is already in use"
     : (raw.name === "AiProviderConfigurationError" || (typeof raw.message === "string" && /^MCU_[A-Z0-9_]+\b/.test(raw.message)))
       ? String(raw.message)
       : safe.message;

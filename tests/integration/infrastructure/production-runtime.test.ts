@@ -179,6 +179,39 @@ describe("built production runtime boundary", () => {
     expect(output).toMatch(/absolute path/i);
   });
 
+  it("routes asynchronous listen failure through startup cleanup and releases ownership", async () => {
+    const dir = join(testRoot, "listen-failure");
+    const dbPath = join(dir, "state.db");
+    const workspaceDir = join(dir, "workspace");
+    const blocker = createServer();
+    await new Promise<void>((resolvePromise, reject) => {
+      blocker.once("error", reject);
+      blocker.listen(0, "127.0.0.1", () => resolvePromise());
+    });
+    const port = (blocker.address() as { port: number }).port;
+    const child = spawn(process.execPath, [entrypoint], {
+      cwd: testRoot,
+      env: envFor(dbPath, workspaceDir, port),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let output = "";
+    child.stdout?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
+    child.stderr?.on("data", (chunk: Buffer) => { output += chunk.toString(); });
+    const code = await new Promise<number | null>((resolvePromise, reject) => {
+      const timer = setTimeout(() => reject(new Error("listen failure process did not exit")), 5000);
+      child.once("exit", (exitCode) => { clearTimeout(timer); resolvePromise(exitCode); });
+    });
+    await new Promise<void>((resolvePromise) => blocker.close(() => resolvePromise()));
+
+    expect(code).not.toBe(0);
+    expect(output).toMatch(/EADDRINUSE|address already in use/i);
+    expect(existsSync(`${dbPath}.state.lock`)).toBe(false);
+    expect(existsSync(`${workspaceDir}.state.lock`)).toBe(false);
+
+    const recovered = await startProduction(dbPath, workspaceDir, dirname(testRoot));
+    await stopProduction(recovered.child);
+  });
+
   it("keeps runtime data and source-only development controls out of production artifacts", () => {
     expect(readdirSync(resolve(repoRoot, "dist/server")).some((name) => name.endsWith(".db"))).toBe(false);
     expect(readdirSync(frontendDist, { withFileTypes: true }).some((entry) => entry.name === "workspace" || entry.name === "docs")).toBe(false);

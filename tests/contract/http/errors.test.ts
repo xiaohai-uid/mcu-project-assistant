@@ -13,12 +13,14 @@ import { createCompanionLocalDevice } from "@/src/adapters/device/companion-loca
 import { openDatabase, type SqliteDb } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
+import { createShutdownState } from "@/src/infrastructure/shutdown";
+import type { ShutdownState } from "@/src/infrastructure/shutdown";
 
 let dir: string;
 let db: SqliteDb;
 let app: ReturnType<typeof createApp>;
 
-function makeApp(frontendDist?: string, persistenceOverride?: ReturnType<typeof createProjectStore>): ReturnType<typeof createApp> {
+function makeApp(frontendDist?: string, persistenceOverride?: ReturnType<typeof createProjectStore>, shutdown?: ShutdownState): ReturnType<typeof createApp> {
   const persistence = persistenceOverride ?? createProjectStore(db);
   const events = createNoopEvents();
   const deps: AppDeps = {
@@ -31,6 +33,7 @@ function makeApp(frontendDist?: string, persistenceOverride?: ReturnType<typeof 
     device: createCompanionLocalDevice(),
     ai: createMockAiProvider(),
     frontendDist,
+    shutdown,
   };
   return createApp(deps);
 }
@@ -89,5 +92,54 @@ describe("production HTTP error boundary", () => {
     expect(JSON.stringify(response.body)).not.toMatch(/RAW_PROVIDER_SECRET_MARKER|stack|C:\\secret|internal\\path/i);
     expect(spy.mock.calls.flat().join(" ")).not.toContain("RAW_PROVIDER_SECRET_MARKER");
     spy.mockRestore();
+  });
+
+  it("rejects mutating API work before route side effects while draining", async () => {
+    const shutdown = createShutdownState();
+    shutdown.begin();
+    app = makeApp(undefined, undefined, shutdown);
+    const response = await request(app)
+      .post("/api/v1/projects")
+      .send({ name: "must not persist" });
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({ error: { code: "server_draining", message: "Server is shutting down" } });
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM projects").get()).toMatchObject({ count: 0 });
+  });
+
+  it("blocks analyze/build admission and preserves browser trust precedence while draining", async () => {
+    const shutdown = createShutdownState();
+    shutdown.begin();
+    app = makeApp(undefined, undefined, shutdown);
+
+    const analyze = await request(app)
+      .post("/api/v1/projects/project-1/commands")
+      .send({ capability: "analyze_requirement", payload: { description: "must not run" } });
+    const build = await request(app)
+      .post("/api/v1/projects/project-1/builds")
+      .send({ versionId: "version-1", target: "esp32-s3" });
+    const hostile = await request(app)
+      .post("/api/v1/projects/project-1/commands")
+      .set("Origin", "http://evil.example")
+      .send({ capability: "analyze_requirement", payload: { description: "must not run" } });
+
+    expect(analyze.status).toBe(503);
+    expect(build.status).toBe(503);
+    expect(hostile.status).toBe(403);
+    expect(analyze.body.error).toEqual({ code: "server_draining", message: "Server is shutting down" });
+    expect(build.body.error).toEqual({ code: "server_draining", message: "Server is shutting down" });
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM tasks").get()).toMatchObject({ count: 0 });
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM build_records").get()).toMatchObject({ count: 0 });
+  });
+
+  it("blocks a mutation on an existing keep-alive agent after drain begins", async () => {
+    const shutdown = createShutdownState();
+    app = makeApp(undefined, undefined, shutdown);
+    const agent = request.agent(app);
+    await agent.get("/api/v1/health");
+    shutdown.begin();
+    const response = await agent.post("/api/v1/projects").send({ name: "must not persist" });
+    expect(response.status).toBe(503);
+    expect(response.body.error).toEqual({ code: "server_draining", message: "Server is shutting down" });
+    expect(await db.prepare("SELECT COUNT(*) AS count FROM projects").get()).toMatchObject({ count: 0 });
   });
 });

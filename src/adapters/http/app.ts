@@ -122,6 +122,7 @@ import { MAX_HTTP_BODY_BYTES, MAX_SERIAL_WRITE_BYTES, ResourceLimitError, assert
 import { SerialWriteTooLargeError } from "@/src/ports/device";
 import { browserTrustMiddleware } from "./browser-trust";
 import { IdempotencyConflictError, InvalidIdempotencyKeyError, makeIdempotencyRequest, parseIdempotencyKey } from "@/src/shared/idempotency";
+import type { ShutdownState } from "@/src/infrastructure/shutdown";
 
 export interface AppDeps {
   persistence: PersistencePort;
@@ -134,6 +135,11 @@ export interface AppDeps {
   ai: AIProviderPort;
   frontendDist?: string;
   now?: () => Date;
+  shutdown?: ShutdownState;
+}
+
+export interface HttpApp extends Express {
+  closeSseStreams(): void;
 }
 
 interface ArchiveTokenEntry {
@@ -145,9 +151,16 @@ interface ArchiveTokenEntry {
 
 const ARCHIVE_TOKEN_TTL_MS = 60_000;
 
-export function createApp(deps: AppDeps): Express {
-  const app = express();
+export function createApp(deps: AppDeps): HttpApp {
+  const app = express() as HttpApp;
   app.use("/api", browserTrustMiddleware);
+  app.use("/api", (req, res, next) => {
+    if (deps.shutdown?.isDraining() && ["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+      res.status(503).json({ error: { code: "server_draining", message: "Server is shutting down" } });
+      return;
+    }
+    next();
+  });
   app.use("/api", (req, res, next) => {
     try {
       if (req.header("Idempotency-Key") !== undefined) parseIdempotencyKey(req.header("Idempotency-Key"));
@@ -211,6 +224,13 @@ export function createApp(deps: AppDeps): Express {
   );
 
   const archiveTokens = new Map<string, ArchiveTokenEntry>();
+  const serialStreams = new Set<() => void>();
+
+  const closeSseStreams = (): void => {
+    const sse = deps.events as Partial<import("@/src/adapters/events/sse").SseEvents>;
+    sse.closeAll?.();
+    for (const close of [...serialStreams]) close();
+  };
 
   const handleCreate = async (req: Request, res: Response) => {
     const name = typeof req.body?.name === "string" ? req.body.name : "";
@@ -486,6 +506,7 @@ export function createApp(deps: AppDeps): Express {
   };
 
   const handleEvents = (req: Request, res: Response) => {
+    if (deps.shutdown?.isDraining()) throw new ApiError(503, "server_draining", "Server is shutting down");
     // Subscribe before committing SSE headers so setup failures still reach the
     // shared JSON error boundary.
     const sse = deps.events as import("@/src/adapters/events/sse").SseEvents;
@@ -795,6 +816,7 @@ export function createApp(deps: AppDeps): Express {
   };
 
   const handleSerialStream = (req: Request, res: Response) => {
+    if (deps.shutdown?.isDraining()) throw new ApiError(503, "server_draining", "Server is shutting down");
     const projectId = req.params.projectId as string;
     const sessionId = req.params.sessionId as string;
     const current = deps.device.getSerialSession(projectId, sessionId);
@@ -802,22 +824,26 @@ export function createApp(deps: AppDeps): Express {
     let closed = false;
     let backpressured = false;
     let unsubscribe: () => void = () => undefined;
+    const timerRef: { current?: NodeJS.Timeout } = {};
+    const closeStream = (): void => {
+      if (closed) return;
+      closed = true;
+      if (timerRef.current) clearInterval(timerRef.current);
+      unsubscribe();
+      res.removeListener("drain", onDrain);
+      serialStreams.delete(closeStream);
+      if (!res.writableEnded) res.end();
+    };
     const write = (frame: string): void => {
       if (closed) return;
       if (backpressured) {
-        closed = true;
-        unsubscribe();
-        res.removeListener("drain", onDrain);
-        res.end();
+        closeStream();
         return;
       }
       try {
         if (!res.write(frame)) backpressured = true;
       } catch {
-        closed = true;
-        unsubscribe();
-        res.removeListener("drain", onDrain);
-        res.end();
+        closeStream();
       }
     };
     const onDrain = () => { backpressured = false; };
@@ -831,7 +857,7 @@ export function createApp(deps: AppDeps): Express {
         write(`event: serial.session.error\ndata: ${JSON.stringify({ sessionId, projectId, deviceId: event.session.deviceId, code: safe.code, message: safe.message, timestamp: event.receivedAt })}\n\n`);
       } else {
         write(`event: serial.session.closed\ndata: ${JSON.stringify({ sessionId, projectId, reason: event.reason, timestamp: event.receivedAt })}\n\n`);
-        if (!closed) { closed = true; res.end(); }
+        closeStream();
       }
       });
     } catch (err) {
@@ -853,19 +879,15 @@ export function createApp(deps: AppDeps): Express {
     // physical adapter's tickSerial is intentionally a no-op: physical lines
     // can only arrive from OS transport bytes. This timer is stream-scoped and
     // never replays buffered lines.
-    const timer = setInterval(() => {
+    timerRef.current = setInterval(() => {
       if (!deps.device.getSerialSession(projectId, sessionId)) {
-        clearInterval(timer);
+        if (timerRef.current) clearInterval(timerRef.current);
         return;
       }
       deps.device.tickSerial();
     }, 800);
-    req.on("close", () => {
-      closed = true;
-      clearInterval(timer);
-      unsubscribe();
-      res.removeListener("drain", onDrain);
-    });
+    serialStreams.add(closeStream);
+    req.on("close", closeStream);
   };
 
   // S8：诊断（Build FAILED → 原因/建议/Fix 提案；不写版本）
@@ -941,5 +963,6 @@ export function createApp(deps: AppDeps): Express {
   // failures and handlers that are not wrapped by a route-specific adapter.
   app.use(apiErrorBoundary());
 
+  app.closeSseStreams = closeSseStreams;
   return app;
 }

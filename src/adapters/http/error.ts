@@ -74,6 +74,7 @@ export type ErrorCode =
   | "persisted_record_corrupt"
   | "idempotency_record_corrupt"
   | "production_state_in_use"
+  | "server_draining"
   | "internal";
 
 export class ApiError extends Error {

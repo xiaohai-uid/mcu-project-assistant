@@ -89,6 +89,7 @@ const SAFE_MESSAGES: Record<string, string> = {
   persisted_record_corrupt: "A persisted record is corrupt",
   idempotency_record_corrupt: "A persisted idempotency record is corrupt",
   production_state_in_use: "Production state is already in use",
+  server_draining: "Server is shutting down",
 };
 
 const CODE_ALIASES: Record<string, string> = {

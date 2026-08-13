@@ -19,6 +19,7 @@ export interface SseEvents extends EventPort {
   subscribe(projectId: string, res: Response): void;
   unsubscribe(res: Response): void;
   subscriberCount(projectId?: string): number;
+  closeAll(): void;
 }
 
 export function createSseEvents(): SseEvents {
@@ -54,6 +55,12 @@ export function createSseEvents(): SseEvents {
     subscriberCount(projectId?: string): number {
       if (!projectId) return subscribers.size;
       return [...subscribers].filter((s) => s.projectId === projectId).length;
+    },
+    closeAll(): void {
+      for (const sub of [...subscribers]) {
+        sub.onClose();
+        if (!sub.res.writableEnded) sub.res.end();
+      }
     },
     publish(event: LogicalEvent): void {
       const pid = projectIdOf(event);
