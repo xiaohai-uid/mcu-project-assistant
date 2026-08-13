@@ -17,6 +17,11 @@ import { MAX_REQUIREMENT_CHARS, ResourceLimitError, createResourceSemaphore } fr
 import { randomUUID } from "node:crypto";
 import type { IdempotencyRequest } from "@/src/shared/idempotency";
 import { IdempotencyConflictError } from "@/src/shared/idempotency";
+import { isRecord, parseIdempotencyResponse } from "@/src/shared/persistence-integrity";
+
+function isTaskSubmissionResponse(value: unknown): value is { taskId: string } {
+  return isRecord(value) && typeof value.taskId === "string";
+}
 
 export class AnalysisNotFoundError extends Error {
   constructor() {
@@ -292,7 +297,7 @@ export async function analyzeRequirement(
     const existing = await deps.persistence.getIdempotencyRecord(input.idempotency.scope, input.idempotency.key);
     if (existing) {
       if (existing.requestHash !== input.idempotency.requestHash) throw new IdempotencyConflictError();
-      return JSON.parse(existing.responseBodyJson) as { taskId: string };
+      return parseIdempotencyResponse(existing.responseBodyJson, isTaskSubmissionResponse);
     }
   }
 
@@ -329,7 +334,7 @@ export async function analyzeRequirement(
     if (!uow.claimIdempotency) throw new Error("Durable idempotency is unavailable");
     const claim = uow.claimIdempotency(input.idempotency!, 202, JSON.stringify({ taskId }));
     if (claim.kind === "conflict") throw new IdempotencyConflictError();
-    if (claim.kind === "replay") return JSON.parse(claim.record.responseBodyJson) as { taskId: string };
+    if (claim.kind === "replay") return parseIdempotencyResponse(claim.record.responseBodyJson, isTaskSubmissionResponse);
     uow.saveTask(task);
     return { taskId };
   });

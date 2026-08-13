@@ -15,6 +15,7 @@ import { createCompanionLocalDevice } from "@/src/adapters/device/companion-loca
 import { openDatabase, type SqliteDb } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
+import { makeIdempotencyRequest } from "@/src/shared/idempotency";
 
 let dir: string;
 let db: SqliteDb;
@@ -142,7 +143,53 @@ async function seedBuild(projectId: string): Promise<{ artifactId: string; versi
   return { ...seeded, buildId: response.body.buildId as string };
 }
 
+function insertCorruptReplay(scope: string, key: string, payload: unknown, responseStatus: number): void {
+  const identity = makeIdempotencyRequest(key, scope, payload, "2026-08-13T00:00:00.000Z");
+  if (!identity) throw new Error("test idempotency identity was not created");
+  db.prepare("INSERT INTO idempotency_records (scope, key, request_hash, response_status, response_body_json, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(identity.scope, identity.key, identity.requestHash, responseStatus, "{", identity.createdAt);
+}
+
 describe("durable HTTP request idempotency", () => {
+  it("fails closed on corrupt replay bodies without repeating project/analyze/build/flash side effects", async () => {
+    const projectPayload = { name: "corrupt replay" };
+    insertCorruptReplay("POST:/api/v1/projects", "corrupt-project", projectPayload, 201);
+    const projectReplay = await request(app).post("/api/v1/projects").set("Idempotency-Key", "corrupt-project").send(projectPayload);
+    expect(projectReplay.status).toBe(500);
+    expect(projectReplay.body.error.code).toBe("idempotency_record_corrupt");
+    expect((await request(app).get("/api/v1/projects")).body).toHaveLength(0);
+
+    const projectId = await createProject();
+    const analysisPayload = { description: "corrupt analyze", lab: { partialNext: true } };
+    const analysisScope = `POST:/api/v1/projects/${projectId}/commands:analyze_requirement`;
+    insertCorruptReplay(analysisScope, "corrupt-analyze", analysisPayload, 202);
+    const analysisReplay = await request(app).post(`/api/v1/projects/${projectId}/commands`)
+      .set("Idempotency-Key", "corrupt-analyze")
+      .send({ capability: "analyze_requirement", payload: analysisPayload });
+    expect(analysisReplay.status).toBe(500);
+    expect(analysisReplay.body.error.code).toBe("idempotency_record_corrupt");
+    expect(aiCalls.stream).toBe(0);
+    expect(aiCalls.structured).toBe(0);
+    expect(await createProjectStore(db).listTasks!(projectId)).toHaveLength(0);
+
+    const { versionId } = await seedFirmware(projectId);
+    const buildScope = `POST:/api/v1/projects/${projectId}/builds`;
+    insertCorruptReplay(buildScope, "corrupt-build", { versionId }, 202);
+    const buildReplay = await request(app).post(`/api/v1/projects/${projectId}/builds`).set("Idempotency-Key", "corrupt-build").send({ versionId });
+    expect(buildReplay.status).toBe(500);
+    expect(buildReplay.body.error.code).toBe("idempotency_record_corrupt");
+    expect(compilerCalls.build).toBe(0);
+    expect((await request(app).get(`/api/v1/versions/${versionId}/builds`)).body).toHaveLength(0);
+
+    const flashProjectId = "corrupt-flash-project";
+    const flashBody = { projectId: flashProjectId, deviceId: "companion-esp32s3", confirmationToken: "not-consumed", buildId: "no-build", artifactVersionId: "no-version" };
+    insertCorruptReplay(`POST:/api/v1/device/flash:${flashProjectId}`, "corrupt-flash", flashBody, 202);
+    const flashReplay = await request(app).post("/api/v1/device/flash").set("Idempotency-Key", "corrupt-flash").send(flashBody);
+    expect(flashReplay.status).toBe(500);
+    expect(flashReplay.body.error.code).toBe("idempotency_record_corrupt");
+    expect(flashCalls.count).toBe(0);
+  });
+
   it("validates keys, binds payloads, and separates route/resource scopes", async () => {
     const first = await request(app).post("/api/v1/projects").set("Idempotency-Key", "project-1").send({ name: "A" });
     const replay = await request(app).post("/api/v1/projects").set("Idempotency-Key", "project-1").send({ name: "A" });

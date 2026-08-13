@@ -1,7 +1,7 @@
 // contract/http/artifacts — S2 HTTP surface（implementation-spec §10.1；ISSUE-002 §11）
 // POST /projects/:pid/artifacts、POST/GET /artifacts/:aid/versions、GET /versions/:vid
 // 错误信封；404/400/409；Idempotency-Key 重放。
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -129,6 +129,27 @@ describe("S2 HTTP surface", () => {
     const res = await request(app).get("/api/v1/versions/no-such-version");
     expect(res.status).toBe(404);
     expect(res.body.error?.code).toBe("not_found");
+  });
+
+  it("GET /versions/:vid：内容缺失或被篡改 → integrity error，不返回 200/null", async () => {
+    const project = await request(app).post("/api/v1/projects").send({ name: "Integrity" });
+    const artifact = await request(app).post(`/api/v1/projects/${project.body.id}/artifacts`).send({ kind: "pinmap" });
+    const created = await request(app).post(`/api/v1/artifacts/${artifact.body.id}/versions`).send({ content: "{\"pin\":4}" });
+    const versionId = created.body.id as string;
+    const ref = created.body.contentRef as string;
+    const target = join(dir, "ws", ref);
+
+    writeFileSync(target, "tampered", "utf8");
+    const mismatch = await request(app).get(`/api/v1/versions/${versionId}`);
+    expect(mismatch.status).toBe(409);
+    expect(mismatch.body.error.code).toBe("artifact_content_hash_mismatch");
+    expect(mismatch.body.content).toBeUndefined();
+
+    unlinkSync(target);
+    const missing = await request(app).get(`/api/v1/versions/${versionId}`);
+    expect(missing.status).toBe(409);
+    expect(missing.body.error.code).toBe("artifact_content_missing");
+    expect(missing.body.content).toBeUndefined();
   });
 
   it("POST /artifacts/:aid/versions：Artifact 不存在 → 404", async () => {

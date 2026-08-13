@@ -1,6 +1,11 @@
 // adapters/persistence/sqlite/migrations.ts — 版本化迁移（schema 随 Slice 增长）
 // S1 仅 projects 表；S2 增 artifacts + artifact_versions（ISSUE-002 §8）；禁止一次性建未来 Slice 的表。
 import type { SqliteDb } from "./connection";
+import {
+  DatabaseIntegrityError,
+  IncompleteDatabaseSchemaError,
+  UnsupportedDatabaseSchemaError,
+} from "@/src/shared/persistence-integrity";
 
 const MIGRATIONS: Array<{ version: number; name: string; sql: string }> = [
   {
@@ -193,6 +198,7 @@ CREATE INDEX idx_idempotency_created ON idempotency_records(created_at);
 ];
 
 export function migrate(db: SqliteDb): void {
+  assertQuickCheck(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
@@ -203,6 +209,10 @@ export function migrate(db: SqliteDb): void {
   const applied = new Set(
     (db.prepare("SELECT version FROM schema_migrations").all() as Array<{ version: number }>).map((r) => r.version),
   );
+  const maxSupportedVersion = Math.max(...MIGRATIONS.map((m) => m.version));
+  if ([...applied].some((version) => version > maxSupportedVersion)) {
+    throw new UnsupportedDatabaseSchemaError();
+  }
   for (const m of MIGRATIONS) {
     if (applied.has(m.version)) continue;
     const run = db.transaction(() => {
@@ -214,5 +224,51 @@ export function migrate(db: SqliteDb): void {
       );
     });
     run();
+  }
+  assertQuickCheck(db);
+  assertCriticalSchema(db);
+}
+
+function assertQuickCheck(db: SqliteDb): void {
+  let result: unknown;
+  try {
+    result = db.pragma("quick_check", { simple: true });
+  } catch {
+    throw new DatabaseIntegrityError();
+  }
+  if (result !== "ok") throw new DatabaseIntegrityError();
+}
+
+function assertCriticalSchema(db: SqliteDb): void {
+  const criticalTables = [
+    "projects",
+    "artifacts",
+    "artifact_versions",
+    "tasks",
+    "build_records",
+    "proposals",
+    "idempotency_records",
+    "schema_migrations",
+  ];
+  const existing = new Set(
+    (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((row) => row.name),
+  );
+  if (criticalTables.some((table) => !existing.has(table))) throw new IncompleteDatabaseSchemaError();
+
+  const requiredColumns: Record<string, string[]> = {
+    projects: ["id", "name", "created_at"],
+    artifacts: ["id", "project_id", "kind", "current_version_id"],
+    artifact_versions: ["id", "artifact_id", "version_no", "content_ref", "content_hash"],
+    tasks: ["id", "capability", "input", "status", "output"],
+    build_records: ["id", "artifact_version_id", "status", "options", "diagnostics", "outputs_json"],
+    proposals: ["id", "project_id", "artifact_id", "payload", "status"],
+    idempotency_records: ["scope", "key", "request_hash", "response_status", "response_body_json"],
+    schema_migrations: ["version", "name", "applied_at"],
+  };
+  for (const [table, columns] of Object.entries(requiredColumns)) {
+    const actual = new Set(
+      (db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((column) => column.name),
+    );
+    if (columns.some((column) => !actual.has(column))) throw new IncompleteDatabaseSchemaError();
   }
 }

@@ -40,7 +40,7 @@ function freshStore() {
 const task = (id: string, status: TaskRecord["status"] = "queued"): TaskRecord => ({
   id,
   capability: "analyze_requirement",
-  input: "greenhouse",
+  input: JSON.stringify({ projectId: "project-1" }),
   status,
   createdAt: "2026-08-11T00:00:00Z",
   startedAt: status === "queued" ? null : "2026-08-11T00:00:01Z",

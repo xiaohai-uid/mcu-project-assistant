@@ -11,6 +11,7 @@ import type { TaskContext, TaskRecord } from "@/src/ports/task-execution";
 import { executeFlashTask, type FlashTaskDeps } from "@/src/application/capabilities/flash";
 import type { DevicePort } from "@/src/ports/device";
 import type { FlashTokenStore } from "@/src/application/capabilities/flash";
+import { isRecord, parsePersistedJson } from "@/src/shared/persistence-integrity";
 
 export interface ProductionTaskRuntimeDeps {
   persistence: PersistencePort;
@@ -25,11 +26,7 @@ export interface ProductionTaskRuntimeDeps {
 }
 
 function parseInput<T>(task: TaskRecord): T {
-  try {
-    return JSON.parse(task.input) as T;
-  } catch {
-    throw new Error(`Persisted task ${task.id} has invalid JSON input`);
-  }
+  return parsePersistedJson(task.input, "task", task.id, "input", isRecord) as T;
 }
 
 /**

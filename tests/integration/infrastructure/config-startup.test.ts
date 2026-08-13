@@ -1,8 +1,11 @@
 import { execPath } from "node:process";
 import { spawn, type ChildProcess } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTestTempDir, removeOwnedTestTempDir } from "@/tests/helpers/test-temp";
+import { openDatabase } from "@/src/adapters/persistence/sqlite/connection";
+import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 
 const children: ChildProcess[] = [];
 const tsx = join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs");
@@ -127,4 +130,48 @@ describe("production startup configuration", () => {
       removeOwnedTestTempDir(dir);
     }
   }, 30_000);
+
+  it("rejects a non-SQLite database before opening an HTTP listener", async () => {
+    const dir = createTestTempDir("mcu-integrity-startup");
+    try {
+      const dbPath = join(dir, "not-sqlite.db");
+      const { writeFileSync } = await import("node:fs");
+      writeFileSync(dbPath, "not-a-sqlite", "utf8");
+      const child = start({
+        MCU_AI_PROVIDER: "sensenova",
+        SENSENOVA_API_KEY: "test-only-not-a-secret",
+        SENSENOVA_BASE_URL: "https://example.invalid/v1",
+        SENSENOVA_CHAT_MODEL: "deepseek-v4-flash",
+        MCU_DEVICE_PROVIDER: "companion",
+        MCU_PORT: "31985",
+        MCU_DB_PATH: dbPath,
+        MCU_WORKSPACE_DIR: join(dir, "workspace"),
+      });
+      expect(await waitForExit(child)).not.toBe(0);
+      expect(await waitForHealth(31985, 500)).toBe(false);
+
+      const truncatedPath = join(dir, "truncated.db");
+      const database = openDatabase(truncatedPath);
+      migrate(database);
+      database.pragma("wal_checkpoint(TRUNCATE)");
+      database.close();
+      const truncatedBytes = readFileSync(truncatedPath).subarray(0, 4096);
+      writeFileSync(truncatedPath, truncatedBytes);
+      const truncated = start({
+        MCU_AI_PROVIDER: "sensenova",
+        SENSENOVA_API_KEY: "test-only-not-a-secret",
+        SENSENOVA_BASE_URL: "https://example.invalid/v1",
+        SENSENOVA_CHAT_MODEL: "deepseek-v4-flash",
+        MCU_DEVICE_PROVIDER: "companion",
+        MCU_PORT: "31986",
+        MCU_DB_PATH: truncatedPath,
+        MCU_WORKSPACE_DIR: join(dir, "truncated-workspace"),
+      });
+      expect(await waitForExit(truncated)).not.toBe(0);
+      expect(await waitForHealth(31986, 500)).toBe(false);
+      expect(readFileSync(truncatedPath)).toEqual(truncatedBytes);
+    } finally {
+      removeOwnedTestTempDir(dir);
+    }
+  }, 15_000);
 });

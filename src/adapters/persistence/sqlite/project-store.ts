@@ -8,6 +8,15 @@ import type { ArtifactKind, ArtifactVersionStatus, StaleMarkDto, TaskStatusDto, 
 import type { PersistencePort, UnitOfWork } from "@/src/ports/persistence";
 import type { SqliteDb } from "./connection";
 import type { IdempotencyRecord, IdempotencyRequest } from "@/src/shared/idempotency";
+import {
+  IdempotencyRecordCorruptError,
+  isBuildOutputArray,
+  isDecisionHistory,
+  isDiagnosticArray,
+  isRecord,
+  isStringArray,
+  parsePersistedJson,
+} from "@/src/shared/persistence-integrity";
 
 interface ProjectRow {
   id: string;
@@ -157,6 +166,10 @@ function toArtifactVersion(row: ArtifactVersionRow): ArtifactVersion {
 }
 
 function toTask(row: TaskRow): TaskRecord {
+  if (row.capability === "analyze_requirement" || row.capability === "run_build" || row.capability === "flash_device") {
+    parsePersistedJson(row.input, "task", row.id, "input", isRecord);
+    if (row.output !== null) parsePersistedJson(row.output, "task", row.id, "output", isRecord);
+  }
   return {
     id: row.id,
     capability: row.capability,
@@ -171,6 +184,7 @@ function toTask(row: TaskRow): TaskRecord {
 }
 
 function toProposal(row: ProposalRow): Proposal {
+  parsePersistedJson(row.payload, "proposal", row.id, "payload", (_value: unknown): _value is unknown => true);
   return {
     id: row.id,
     projectId: row.project_id,
@@ -178,14 +192,14 @@ function toProposal(row: ProposalRow): Proposal {
     baseVersionId: row.base_version_id,
     type: row.type as Proposal["type"],
     payload: row.payload,
-    diff: row.diff ? (JSON.parse(row.diff) as Record<string, unknown>) : null,
-    impacts: JSON.parse(row.impacts) as string[],
+    diff: row.diff ? parsePersistedJson(row.diff, "proposal", row.id, "diff", isRecord) : null,
+    impacts: parsePersistedJson(row.impacts, "proposal", row.id, "impacts", isStringArray),
     reason: row.reason,
     status: row.status as Proposal["status"],
     createdBy: row.created_by,
     createdAt: row.created_at,
     decidedAt: row.decided_at,
-    decisionHistory: JSON.parse(row.decision_history) as Proposal["decisionHistory"],
+    decisionHistory: parsePersistedJson(row.decision_history, "proposal", row.id, "decision_history", isDecisionHistory) as Proposal["decisionHistory"],
     number: 0, // 列表序号由 capability 填充
   };
 }
@@ -198,18 +212,18 @@ function toBuild(row: BuildRow): BuildRecord {
     target: row.target,
     toolchain: row.toolchain,
     toolchainVersion: row.toolchain_version,
-    options: JSON.parse(row.options) as Record<string, unknown>,
+    options: parsePersistedJson(row.options, "build", row.id, "options", isRecord),
     status: row.status as BuildRecord["status"],
     startedAt: row.started_at,
     completedAt: row.completed_at,
     stdoutRef: row.stdout_ref,
     stderrRef: row.stderr_ref,
     exitCode: row.exit_code,
-    diagnostics: JSON.parse(row.diagnostics) as BuildRecord["diagnostics"],
+    diagnostics: parsePersistedJson(row.diagnostics, "build", row.id, "diagnostics", isDiagnosticArray) as BuildRecord["diagnostics"],
     sourceDir: row.source_dir ?? null,
     outputDir: row.output_dir ?? null,
-    command: row.command_json ? JSON.parse(row.command_json) as string[] : [],
-    outputs: row.outputs_json ? JSON.parse(row.outputs_json) as NonNullable<BuildRecord["outputs"]> : [],
+    command: row.command_json ? parsePersistedJson(row.command_json, "build", row.id, "command_json", isStringArray) : [],
+    outputs: row.outputs_json ? parsePersistedJson(row.outputs_json, "build", row.id, "outputs_json", isBuildOutputArray) as unknown as NonNullable<BuildRecord["outputs"]> : [],
   };
 }
 
@@ -226,14 +240,19 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     `UPDATE idempotency_records SET response_status = @response_status, response_body_json = @response_body_json
      WHERE scope = @scope AND key = @key AND request_hash = @request_hash`,
   );
-  const toIdempotency = (row: IdempotencyRow): IdempotencyRecord => ({
+  const toIdempotency = (row: IdempotencyRow): IdempotencyRecord => {
+    if (!/^[a-f0-9]{64}$/i.test(row.request_hash) || !Number.isInteger(row.response_status) || row.response_status < 100 || row.response_status > 599) {
+      throw new IdempotencyRecordCorruptError();
+    }
+    return {
     scope: row.scope,
     key: row.key,
     requestHash: row.request_hash,
     responseStatus: row.response_status,
     responseBodyJson: row.response_body_json,
     createdAt: row.created_at,
-  });
+    };
+  };
   const insert = db.prepare(
     "INSERT INTO projects (id, name, created_at, archived_at, archived_reason) VALUES (@id, @name, @created_at, @archived_at, @archived_reason)",
   );
@@ -345,7 +364,7 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
   const selectTask = db.prepare("SELECT * FROM tasks WHERE id = ?");
   const selectTasks = db.prepare("SELECT * FROM tasks ORDER BY created_at ASC, rowid ASC");
   const selectLatestOutput = db.prepare(
-    "SELECT output FROM tasks WHERE capability = ? AND status = 'completed' ORDER BY completed_at DESC, rowid DESC LIMIT 1",
+    "SELECT id, output FROM tasks WHERE capability = ? AND status = 'completed' ORDER BY completed_at DESC, rowid DESC LIMIT 1",
   );
   // 崩溃恢复由 requeueOrphanedTasks 先清理 running；claim 只取 queued，保证并发 claimant 不重复拿同一任务。
   const claimNext = db.prepare(
@@ -625,16 +644,14 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     },
     listTasks: async (projectId: string) =>
       (selectTasks.all() as TaskRow[]).flatMap((row) => {
-        try {
-          const input = JSON.parse(row.input) as { projectId?: unknown };
-          return input.projectId === projectId ? [toTask(row)] : [];
-        } catch {
-          return [];
-        }
+        const input = parsePersistedJson(row.input, "task", row.id, "input", isRecord);
+        return input.projectId === projectId ? [toTask(row)] : [];
       }),
     latestTaskOutput: async (capability: string) => {
-      const row = selectLatestOutput.get(capability) as { output: string | null } | undefined;
-      return row?.output ?? null;
+      const row = selectLatestOutput.get(capability) as { id: string; output: string | null } | undefined;
+      if (!row || row.output === null) return null;
+      parsePersistedJson(row.output, "task", row.id, "output", isRecord);
+      return row.output;
     },
     getProposal: async (id: string) => {
       const row = selectProposal.get(id) as ProposalRow | undefined;
@@ -660,9 +677,9 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
         id: row.id,
         artifactVersionId: row.artifact_version_id,
         kind: row.kind,
-        rules: JSON.parse(row.rules) as string[],
+        rules: parsePersistedJson(row.rules, "validation", row.id, "rules", isStringArray),
         result: row.result as ValidationRecordDto["result"],
-        diagnostics: JSON.parse(row.diagnostics) as ValidationRecordDto["diagnostics"],
+        diagnostics: parsePersistedJson(row.diagnostics, "validation", row.id, "diagnostics", isDiagnosticArray) as ValidationRecordDto["diagnostics"],
         startedAt: row.started_at,
         completedAt: row.completed_at,
       };

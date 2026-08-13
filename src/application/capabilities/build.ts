@@ -23,6 +23,11 @@ import {
 import { MAX_BUILD_LOG_BYTES, ResourceLimitError, createResourceSemaphore } from "@/src/shared/resource-limits";
 import type { IdempotencyRequest } from "@/src/shared/idempotency";
 import { IdempotencyConflictError } from "@/src/shared/idempotency";
+import { isRecord, parseIdempotencyResponse } from "@/src/shared/persistence-integrity";
+
+function isBuildSubmissionResponse(value: unknown): value is { buildId: string; taskId?: string } {
+  return isRecord(value) && typeof value.buildId === "string" && (value.taskId === undefined || typeof value.taskId === "string");
+}
 
 export class ProjectNotFoundError extends Error {
   constructor() { super("Project not found"); this.name = "ProjectNotFoundError"; }
@@ -286,7 +291,7 @@ export async function runBuild(
     const existing = await deps.persistence.getIdempotencyRecord(input.idempotency.scope, input.idempotency.key);
     if (existing) {
       if (existing.requestHash !== input.idempotency.requestHash) throw new IdempotencyConflictError();
-      return JSON.parse(existing.responseBodyJson) as { buildId: string };
+      return parseIdempotencyResponse(existing.responseBodyJson, isBuildSubmissionResponse);
     }
   }
 
@@ -327,7 +332,7 @@ export async function runBuild(
       if (!uow.claimIdempotency) throw new Error("Durable idempotency is unavailable");
       const claim = uow.claimIdempotency(input.idempotency, 202, JSON.stringify({ buildId, taskId }));
       if (claim.kind === "conflict") throw new IdempotencyConflictError();
-      if (claim.kind === "replay") return JSON.parse(claim.record.responseBodyJson) as { buildId: string; taskId: string };
+      if (claim.kind === "replay") return parseIdempotencyResponse(claim.record.responseBodyJson, isBuildSubmissionResponse) as { buildId: string; taskId: string };
     }
     uow.createBuildRecord(record);
     uow.saveTask(task);

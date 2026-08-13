@@ -80,6 +80,7 @@ import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime"
 import type { ArtifactKind, DeviceExecutionReality, SerialSessionDto } from "@/src/shared-contracts/types";
 import { toSafeError } from "@/src/shared-contracts/errors";
 import { ApiError, apiErrorBoundary, withErrorHandler } from "./error";
+import { loadVerifiedArtifactContent, PersistenceIntegrityError } from "@/src/shared/persistence-integrity";
 import { writeProjectMirror } from "@/src/infrastructure/workspace";
 import {
   BuildNotCancellableError,
@@ -329,8 +330,15 @@ export function createApp(deps: AppDeps): Express {
   const handleGetVersion = async (req: Request, res: Response) => {
     const version = await getVersionCapability({ versionId: req.params.versionId as string }, capDeps);
     if (!version) throw new ApiError(404, "not_found", "Version not found");
-    const content = await deps.content.load(version.contentRef).catch(() => null);
-    res.json({ version, content });
+    try {
+      const content = await loadVerifiedArtifactContent(version, deps.content);
+      res.json({ version, content });
+    } catch (error) {
+      if (error instanceof PersistenceIntegrityError) {
+        throw new ApiError(409, error.code, error.message);
+      }
+      throw error;
+    }
   };
 
   // ---------- S3A Commands / Tasks / SSE ----------

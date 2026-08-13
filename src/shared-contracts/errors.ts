@@ -80,6 +80,14 @@ const SAFE_MESSAGES: Record<string, string> = {
   analysis_recovery_unsafe_replay: "Analysis was interrupted and cannot be safely replayed",
   build_recovery_orphaned: "Build record was interrupted before its task was durably linked",
   unknown: "An earlier task failure was recorded without a stable code",
+  database_integrity_failed: "The local database failed its integrity check",
+  unsupported_database_schema: "The local database schema is newer than this application supports",
+  database_schema_incomplete: "The local database schema is incomplete",
+  artifact_content_missing: "Referenced artifact content is missing",
+  artifact_content_hash_mismatch: "Referenced artifact content failed integrity verification",
+  artifact_content_unreadable: "Referenced artifact content is unreadable",
+  persisted_record_corrupt: "A persisted record is corrupt",
+  idempotency_record_corrupt: "A persisted idempotency record is corrupt",
 };
 
 const CODE_ALIASES: Record<string, string> = {

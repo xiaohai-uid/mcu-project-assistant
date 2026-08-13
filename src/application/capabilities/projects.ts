@@ -9,6 +9,14 @@ import {
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { IdempotencyRequest } from "@/src/shared/idempotency";
 import { IdempotencyConflictError } from "@/src/shared/idempotency";
+import { isRecord, parseIdempotencyResponse } from "@/src/shared/persistence-integrity";
+
+function isProjectResponse(value: unknown): value is Project {
+  if (!isRecord(value)) return false;
+  return typeof value.id === "string" && typeof value.name === "string" && typeof value.createdAt === "string" &&
+    (value.archivedAt === null || typeof value.archivedAt === "string") &&
+    (value.archivedReason === null || typeof value.archivedReason === "string");
+}
 
 export interface ProjectCapabilityDeps {
   persistence: PersistencePort;
@@ -24,7 +32,7 @@ export async function createProject(
       if (!uow.claimIdempotency) throw new Error("Durable idempotency is unavailable");
       const claim = uow.claimIdempotency(input.idempotency, 201, JSON.stringify(project));
       if (claim.kind === "conflict") throw new IdempotencyConflictError();
-      if (claim.kind === "replay") return JSON.parse(claim.record.responseBodyJson) as Project;
+      if (claim.kind === "replay") return parseIdempotencyResponse(claim.record.responseBodyJson, isProjectResponse);
     }
     uow.createProject(project);
     return project;

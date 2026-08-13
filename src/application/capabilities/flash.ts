@@ -17,6 +17,22 @@ import { assertExistingPathContained, resolveContainedPath } from "@/src/shared/
 import { MAX_FLASH_EVIDENCE_BYTES, appendBoundedLine } from "@/src/shared/resource-limits";
 import type { IdempotencyRequest } from "@/src/shared/idempotency";
 import { IdempotencyConflictError } from "@/src/shared/idempotency";
+import { isRecord, parseIdempotencyResponse, parsePersistedJson } from "@/src/shared/persistence-integrity";
+
+function isFlashReplay(value: unknown): value is PersistedFlashOutput & { taskId?: string } {
+  if (!isRecord(value)) return false;
+  if (value.taskId !== undefined && typeof value.taskId !== "string") return false;
+  if (value.exitCode === undefined) return typeof value.taskId === "string" && Object.keys(value).every((key) => key === "taskId");
+  if (typeof value.exitCode !== "number" || !Number.isInteger(value.exitCode) || typeof value.sessionId !== "string") return false;
+  if (!isRecord(value.truth) || typeof value.truth.executionReality !== "string" || typeof value.truth.verification !== "string" ||
+    typeof value.truth.physicalVerified !== "boolean" || typeof value.truth.adapter !== "string") return false;
+  return true;
+}
+
+function isFlashTaskOutput(value: unknown): value is PersistedFlashOutput {
+  if (!isFlashReplay(value) || value.exitCode === undefined || typeof value.sessionId !== "string") return false;
+  return value.taskId === undefined;
+}
 
 export class ConfirmationMissingError extends Error {
   constructor() {
@@ -307,10 +323,10 @@ export async function flashDevice(
     const existing = await deps.persistence.getIdempotencyRecord?.(input.idempotency.scope, input.idempotency.key);
     if (existing) {
       if (existing.requestHash !== input.idempotency.requestHash) throw new IdempotencyConflictError();
-      const replay = JSON.parse(existing.responseBodyJson) as PersistedFlashOutput & { taskId?: string };
+      const replay = parseIdempotencyResponse(existing.responseBodyJson, isFlashReplay);
       if (replay.taskId && replay.exitCode === undefined) {
         const task = await deps.tasks.getTask(replay.taskId);
-        if (task?.output) return { ...(JSON.parse(task.output) as PersistedFlashOutput), taskId: replay.taskId };
+        if (task?.output) return { ...parsePersistedJson(task.output, "task", task.id, "output", isFlashTaskOutput), taskId: replay.taskId };
       }
       return replay;
     }
@@ -398,10 +414,10 @@ async function flashIdempotentSubmission(
       return result;
     });
     if (claim.kind === "replay") {
-      const replay = JSON.parse(claim.record.responseBodyJson) as PersistedFlashOutput & { taskId?: string };
+      const replay = parseIdempotencyResponse(claim.record.responseBodyJson, isFlashReplay);
       if (replay.taskId && replay.exitCode === undefined) {
         const existingTask = await deps.tasks.getTask(replay.taskId);
-        if (existingTask?.output) return { ...(JSON.parse(existingTask.output) as PersistedFlashOutput), taskId: replay.taskId };
+        if (existingTask?.output) return { ...parsePersistedJson(existingTask.output, "task", existingTask.id, "output", isFlashTaskOutput), taskId: replay.taskId };
       }
       return replay;
     }
@@ -424,7 +440,7 @@ async function flashIdempotentSubmission(
         }
       })();
   if (!completedTask) throw new Error(`Flash task ${taskId} disappeared before reaching a terminal state`);
-  const output = completedTask.output ? (JSON.parse(completedTask.output) as PersistedFlashOutput) : null;
+  const output = completedTask.output ? parsePersistedJson(completedTask.output, "task", completedTask.id, "output", isFlashTaskOutput) : null;
   if (completedTask.status === "failed" && output?.errorCode === "device_busy") throw new DeviceBusyError();
   const response: PersistedFlashOutput = output
     ? output

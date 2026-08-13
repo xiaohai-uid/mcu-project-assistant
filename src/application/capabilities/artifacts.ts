@@ -17,6 +17,15 @@ import type { ArtifactKind } from "@/src/shared-contracts/types";
 import { computeDownstreamMarks } from "@/src/application/capabilities/revalidate";
 import type { IdempotencyRequest } from "@/src/shared/idempotency";
 import { IdempotencyConflictError } from "@/src/shared/idempotency";
+import { isRecord, parseIdempotencyResponse } from "@/src/shared/persistence-integrity";
+
+function isArtifactVersionResponse(value: unknown): value is ArtifactVersion {
+  if (!isRecord(value)) return false;
+  return typeof value.id === "string" && typeof value.artifactId === "string" && Number.isInteger(value.versionNo) &&
+    typeof value.contentRef === "string" && typeof value.contentHash === "string" && typeof value.status === "string" &&
+    typeof value.sourceKind === "string" && (value.sourceProposalId === null || typeof value.sourceProposalId === "string") &&
+    typeof value.createdAt === "string" && typeof value.createdBy === "string";
+}
 
 export class ArtifactNotFoundError extends Error {
   constructor() {
@@ -94,7 +103,7 @@ export async function commitManualEdit(
     const existing = await deps.persistence.getIdempotencyRecord(input.idempotency.scope, input.idempotency.key);
     if (existing) {
       if (existing.requestHash !== input.idempotency.requestHash) throw new IdempotencyConflictError();
-      return JSON.parse(existing.responseBodyJson) as ArtifactVersion;
+      return parseIdempotencyResponse(existing.responseBodyJson, isArtifactVersionResponse);
     }
   }
 
@@ -165,7 +174,7 @@ export async function commitManualEdit(
           if (!uow.claimIdempotency) throw new Error("Durable idempotency is unavailable");
           const claim = uow.claimIdempotency(input.idempotency, 201, JSON.stringify(version));
           if (claim.kind === "conflict") throw new IdempotencyConflictError();
-          if (claim.kind === "replay") return JSON.parse(claim.record.responseBodyJson) as ArtifactVersion;
+          if (claim.kind === "replay") return parseIdempotencyResponse(claim.record.responseBodyJson, isArtifactVersionResponse);
         }
         uow.createVersion(version);
         uow.setCurrentVersion(artifact.id, version.id);

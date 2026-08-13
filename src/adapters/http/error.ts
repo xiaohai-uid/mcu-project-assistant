@@ -65,6 +65,14 @@ export type ErrorCode =
   | "serial_line_too_large"
   | "already_archived"
   | "archived_read_only"
+  | "database_integrity_failed"
+  | "unsupported_database_schema"
+  | "database_schema_incomplete"
+  | "artifact_content_missing"
+  | "artifact_content_hash_mismatch"
+  | "artifact_content_unreadable"
+  | "persisted_record_corrupt"
+  | "idempotency_record_corrupt"
   | "internal";
 
 export class ApiError extends Error {
