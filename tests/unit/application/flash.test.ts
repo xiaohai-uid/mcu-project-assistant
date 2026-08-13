@@ -245,6 +245,23 @@ describe("S9 正常路径（检测 → 令牌 → 烧录 → 证据 → 串口�
     expect(response).toContain("STATUS moisture=");
     void projectId;
   });
+
+  it("Flash 证据超过上限 → 失败且不写入证据文件", async () => {
+    const d = deps();
+    const { projectId, versionId } = await seedFirmware(d);
+    await detectDevice({}, d.flashDeps);
+    const originalFlash = d.device.flash;
+    d.device.flash = async (input, onEvent, signal) => {
+      onEvent({ type: "line", line: "x".repeat(1024 * 1024 + 1) });
+      return originalFlash(input, onEvent, signal);
+    };
+    const { token } = await issueFlashToken({ deviceId: "companion-esp32s3" }, d.flashDeps);
+    const build = [...d.persistence.mem.builds.values()][0]!;
+    const result = await flashDevice({ projectId, deviceId: "companion-esp32s3", confirmationToken: token, buildId: build.id, artifactVersionId: versionId }, d.flashDeps);
+    expect(result.exitCode).toBe(1);
+    expect(result.errorCode).toBe("process_output_limit_exceeded");
+    expect(existsSync(join(dir, "ws", ".evidence"))).toBe(false);
+  });
 });
 
 describe("S12 flash build evidence boundary", () => {

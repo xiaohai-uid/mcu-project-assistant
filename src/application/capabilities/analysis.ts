@@ -13,6 +13,7 @@ import type { TaskExecutionPort, TaskRecord } from "@/src/ports/task-execution";
 import type { RequirementAnalysisOutput } from "@/src/shared-contracts/types";
 import { toSafeError } from "@/src/shared-contracts/errors";
 import { assertNotArchived } from "@/src/domain/models/project";
+import { MAX_REQUIREMENT_CHARS, ResourceLimitError, createResourceSemaphore } from "@/src/shared/resource-limits";
 
 export class AnalysisNotFoundError extends Error {
   constructor() {
@@ -63,6 +64,17 @@ interface ClarificationGate {
 }
 
 const OBSERVABILITY_HEARTBEAT_MS = 8_000;
+const analyzeResources = createResourceSemaphore(4);
+
+async function withAnalyzeCapacity<T>(run: () => Promise<T>): Promise<T> {
+  const lease = analyzeResources.tryAcquire();
+  if (!lease) throw new ResourceLimitError("resource_capacity_exceeded");
+  try {
+    return await run();
+  } finally {
+    lease.release();
+  }
+}
 
 function withProviderPhase<T>(
   ctx: import("@/src/ports/task-execution").TaskContext,
@@ -136,7 +148,7 @@ export async function executeRequirementAnalysis(
     });
 
     let streamed = false;
-    await withProviderPhase(ctx, "stream_text", (setPhase) => deps.ai.streamText({
+    await withAnalyzeCapacity(() => withProviderPhase(ctx, "stream_text", (setPhase) => deps.ai.streamText({
       prompt: input.description,
       hint: lab,
       signal: ctx.signal,
@@ -156,21 +168,21 @@ export async function executeRequirementAnalysis(
           timestamp: now().toISOString(),
         });
       },
-    }), deps.heartbeatIntervalMs);
+    }), deps.heartbeatIntervalMs));
 
     let roundId = 0;
     let output: RequirementAnalysisOutput | null = null;
     for (;;) {
       if (ctx.signal.aborted) throw new Error("analysis aborted");
-      const { data } = await withProviderPhase(ctx, "generate_structured", () =>
-        deps.ai.generateStructured<RequirementAnalysisOutput>({
-          prompt: input.description,
-          schema: "requirement-analysis",
-          context: { ...lab, roundId },
-          signal: ctx.signal,
-        }),
-        deps.heartbeatIntervalMs,
-      );
+      const { data } = await withAnalyzeCapacity(() => withProviderPhase(ctx, "generate_structured", () =>
+          deps.ai.generateStructured<RequirementAnalysisOutput>({
+            prompt: input.description,
+            schema: "requirement-analysis",
+            context: { ...lab, roundId },
+            signal: ctx.signal,
+          }),
+          deps.heartbeatIntervalMs,
+        ));
       output = data;
       ctx.progress("processing", "application");
 
@@ -265,6 +277,9 @@ export async function analyzeRequirement(
 ): Promise<{ taskId: string }> {
   if (typeof input.description !== "string" || input.description.trim().length === 0) {
     throw new InvalidDescriptionError();
+  }
+  if (input.description.length > MAX_REQUIREMENT_CHARS) {
+    throw new ResourceLimitError("input_too_large");
   }
   const project = await deps.persistence.getProject(input.projectId);
   if (!project) throw new AnalysisNotFoundError();

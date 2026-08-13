@@ -56,6 +56,22 @@ export class DeviceBusyError extends Error {
   constructor() { super("Device is busy with another operation"); this.name = "DeviceBusyError"; }
 }
 
+export class SerialWriteTooLargeError extends Error {
+  readonly code = "serial_write_too_large";
+  constructor(readonly maxBytes: number) {
+    super(`Serial write exceeded ${maxBytes} bytes`);
+    this.name = "SerialWriteTooLargeError";
+  }
+}
+
+export class SerialSubscriberLimitError extends Error {
+  readonly code = "subscriber_limit_reached";
+  constructor(readonly maxSubscribers: number) {
+    super(`Serial subscriber limit ${maxSubscribers} reached`);
+    this.name = "SerialSubscriberLimitError";
+  }
+}
+
 export interface DeviceSession {
   device: DeviceInfo | null;
   stage: DeviceStage;

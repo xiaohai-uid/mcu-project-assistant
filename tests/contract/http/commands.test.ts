@@ -21,6 +21,7 @@ import type { TaskDto } from "@/src/shared-contracts/types";
 let dir: string;
 let db: SqliteDb;
 let app: ReturnType<typeof createApp>;
+let tasks: ReturnType<typeof createInProcessTasks>;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "mcu-s3a-http-"));
@@ -28,12 +29,13 @@ beforeEach(() => {
   migrate(db);
   const persistence = createProjectStore(db);
   const events = createNoopEvents();
+  tasks = createInProcessTasks({ persistence, events });
   const deps: AppDeps = {
     persistence,
     workspaceDir: join(dir, "ws"),
     content: createWorkspaceFilesContent(join(dir, "ws")),
     events,
-    tasks: createInProcessTasks({ persistence, events }),
+    tasks,
     compiler: createMockCompiler(),
     device: createCompanionLocalDevice(),
 
@@ -43,7 +45,8 @@ beforeEach(() => {
   app = createApp(deps);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await tasks.stop();
   try {
     db.close();
   } catch {
@@ -101,6 +104,16 @@ describe("S3A commands surface", () => {
     expect(res.body.error?.code).toBe("invalid_description");
   });
 
+  it("超出需求字符上限 → 413 input_too_large，且不创建任务", async () => {
+    const p = await createProject();
+    const res = await request(app)
+      .post(`/api/v1/projects/${p.id}/commands`)
+      .send({ capability: "analyze_requirement", payload: { description: "x".repeat(256 * 1024 + 1) } });
+    expect(res.status).toBe(413);
+    expect(res.body.error?.code).toBe("input_too_large");
+    expect(await request(app).get(`/api/v1/projects/${p.id}/tasks`).then((result) => result.body)).toEqual([]);
+  });
+
   it("项目不存在 → 404", async () => {
     const res = await request(app)
       .post("/api/v1/projects/nope/commands")
@@ -155,12 +168,13 @@ describe("S3A commands surface", () => {
     migrate(db2);
     const persistence2 = createProjectStore(db2);
     const events2 = createNoopEvents();
+    const tasks2 = createInProcessTasks({ persistence: persistence2, events: events2 });
     const app2 = createApp({
       persistence: persistence2,
       workspaceDir: join(dir, "ws2"),
       content: createWorkspaceFilesContent(join(dir, "ws2")),
       events: events2,
-      tasks: createInProcessTasks({ persistence: persistence2, events: events2 }),
+      tasks: tasks2,
       compiler: createMockCompiler(),
       device: createCompanionLocalDevice(),
 
@@ -173,6 +187,7 @@ describe("S3A commands surface", () => {
       .send({ capability: "analyze_requirement", payload: { description: "greenhouse" } });
     expect(res.status).toBe(503);
     expect(res.body.error?.code).toBe("provider_unavailable");
+    await tasks2.stop();
     db2.close();
   });
 });

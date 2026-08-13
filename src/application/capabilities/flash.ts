@@ -14,6 +14,7 @@ import type { TaskExecutionPort } from "@/src/ports/task-execution";
 import type { BuildRecord } from "@/src/domain/models/build-record";
 import { toSafeError } from "@/src/shared-contracts/errors";
 import { assertExistingPathContained, resolveContainedPath } from "@/src/shared/filesystem-confinement";
+import { MAX_FLASH_EVIDENCE_BYTES, appendBoundedLine } from "@/src/shared/resource-limits";
 
 export class ConfirmationMissingError extends Error {
   constructor() {
@@ -172,6 +173,7 @@ export async function executeFlashTask(
   const evidence = verifiedFirmwareEvidence(build, input.artifactVersionId, deps.workspaceDir);
   const sessionId = { value: "" };
   const lines: string[] = [];
+  const evidenceBytes = { value: 0 };
 
   const actualTruth = deps.device.session().truth;
   if (input.executionReality && input.executionReality !== actualTruth.executionReality) {
@@ -194,7 +196,7 @@ export async function executeFlashTask(
         if (e.type === "progress") {
           ctx.emit({ type: "device.flashing", projectId, deviceId: input.deviceId, percent: e.percent, message: e.message });
         } else if (e.type === "line") {
-          lines.push(e.line);
+          appendBoundedLine(lines, e.line, evidenceBytes, MAX_FLASH_EVIDENCE_BYTES, "process_output_limit_exceeded");
         }
       },
       ctx.signal,

@@ -58,6 +58,14 @@ describe("production HTTP error boundary", () => {
     expect(response.body).toEqual({ error: { code: "invalid_json", message: "Request body contains invalid JSON" } });
   });
 
+  it("rejects request bodies above the transport limit before route handling", async () => {
+    const response = await request(app)
+      .post("/api/v1/projects")
+      .send({ name: "x".repeat(2 * 1024 * 1024) });
+    expect(response.status).toBe(413);
+    expect(response.body).toEqual({ error: { code: "payload_too_large", message: "Request body exceeds the supported size" } });
+  });
+
   it.each([undefined, join(process.cwd(), "app", "dist")])("returns JSON 404 for unknown API routes (%s)", async (frontendDist) => {
     app = makeApp(frontendDist);
     const response = await request(app).get("/api/v1/does-not-exist");

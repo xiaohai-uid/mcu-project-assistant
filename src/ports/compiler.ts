@@ -67,3 +67,11 @@ export class BuildTimeoutError extends Error {
     this.name = "BuildTimeoutError";
   }
 }
+
+export class ProcessOutputLimitError extends Error {
+  readonly code = "process_output_limit_exceeded";
+  constructor(readonly maxBytes: number) {
+    super(`External process output exceeded ${maxBytes} bytes`);
+    this.name = "ProcessOutputLimitError";
+  }
+}

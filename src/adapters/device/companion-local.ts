@@ -3,7 +3,8 @@
 // DeviceSession 为运行时内存态（不建表）；断线/烧录中断不留半成品证据（烧录证据由 capability 写 .evidence/）。
 import { randomUUID } from "node:crypto";
 import { createResourceLock, type ResourceLease } from "@/src/adapters/device/resource-lock";
-import { DeviceBusyError, SerialDeviceNotFoundError, SerialSessionNotOpenError, type DeviceInfo, type DevicePort, type DeviceSession, type DeviceTruth, type FlashEvent, type FlashResult, type SerialSession, type SerialSessionEvent } from "@/src/ports/device";
+import { DeviceBusyError, SerialDeviceNotFoundError, SerialSessionNotOpenError, SerialSubscriberLimitError, SerialWriteTooLargeError, type DeviceInfo, type DevicePort, type DeviceSession, type DeviceTruth, type FlashEvent, type FlashResult, type SerialSession, type SerialSessionEvent } from "@/src/ports/device";
+import { MAX_SERIAL_HISTORY_LINES, MAX_SERIAL_SUBSCRIBERS, MAX_SERIAL_WRITE_BYTES, retainBoundedLine } from "@/src/shared/resource-limits";
 
 const companionTruth = (verification: DeviceTruth["verification"] = "verified"): DeviceTruth => ({
   executionReality: "companion",
@@ -55,7 +56,7 @@ export function createCompanionLocalDevice(opts?: { device?: DeviceInfo }): Devi
   };
 
   const line = (value: string): void => {
-    session.serialLines.push(value);
+    retainBoundedLine(session.serialLines, value, MAX_SERIAL_HISTORY_LINES);
     if (!activeSerial) return;
     emit({ type: "line", session: { ...activeSerial.session }, line: value, receivedAt: new Date().toISOString() });
   };
@@ -156,6 +157,7 @@ export function createCompanionLocalDevice(opts?: { device?: DeviceInfo }): Devi
     subscribeSerialSession(projectId: string, sessionId: string, listener: (event: SerialSessionEvent) => void): () => void {
       if (!activeSerial || activeSerial.session.projectId !== projectId || activeSerial.session.sessionId !== sessionId) return () => undefined;
       const sessionListeners = listeners.get(sessionId) ?? new Set<(event: SerialSessionEvent) => void>();
+      if (sessionListeners.size >= MAX_SERIAL_SUBSCRIBERS) throw new SerialSubscriberLimitError(MAX_SERIAL_SUBSCRIBERS);
       sessionListeners.add(listener);
       listeners.set(sessionId, sessionListeners);
       return () => {
@@ -165,6 +167,7 @@ export function createCompanionLocalDevice(opts?: { device?: DeviceInfo }): Devi
     },
     async writeSerial(sessionId: string, command: string) {
       if (!activeSerial || activeSerial.session.sessionId !== sessionId) throw new SerialSessionNotOpenError();
+      if (Buffer.byteLength(command, "utf8") > MAX_SERIAL_WRITE_BYTES) throw new SerialWriteTooLargeError(MAX_SERIAL_WRITE_BYTES);
       return sendSerial(command);
     },
     tickSerial(): void {

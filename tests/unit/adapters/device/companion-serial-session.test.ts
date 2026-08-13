@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createCompanionLocalDevice } from "@/src/adapters/device/companion-local";
+import { MAX_SERIAL_HISTORY_LINES, MAX_SERIAL_SUBSCRIBERS } from "@/src/shared/resource-limits";
 
 describe("companion explicit serial session", () => {
   it("does not expose telemetry before open and stops deterministic ticks after close", async () => {
@@ -29,6 +30,21 @@ describe("companion explicit serial session", () => {
     await expect(device.openSerialSession({ projectId: "project-b", deviceId: detected.id })).rejects.toMatchObject({ code: "DEVICE_BUSY" });
     expect(device.getSerialSession("project-a", first.sessionId)).toMatchObject({ sessionId: first.sessionId });
     await device.closeSerialSession(first.sessionId);
+  });
+
+  it("bounds live subscribers and serial history", async () => {
+    const device = createCompanionLocalDevice();
+    const detected = await device.detectBoard();
+    const serial = await device.openSerialSession({ projectId: "project-a", deviceId: detected.id });
+    const unsubscribe = Array.from({ length: MAX_SERIAL_SUBSCRIBERS }, () =>
+      device.subscribeSerialSession("project-a", serial.sessionId, () => undefined),
+    );
+    await expect(Promise.resolve().then(() => device.subscribeSerialSession("project-a", serial.sessionId, () => undefined)))
+      .rejects.toMatchObject({ code: "subscriber_limit_reached" });
+    for (let index = 0; index < MAX_SERIAL_HISTORY_LINES + 10; index += 1) device.tickSerial();
+    expect(device.session().serialLines.length).toBe(MAX_SERIAL_HISTORY_LINES);
+    for (const remove of unsubscribe) remove();
+    await device.closeSerialSession(serial.sessionId);
   });
 
   it("allows only one companion flash and does not interleave progress", async () => {

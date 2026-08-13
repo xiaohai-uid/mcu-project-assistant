@@ -4,12 +4,13 @@
 // 工具链缺失（ENOENT）→ ToolchainUnavailableError（HTTP 503 + UI 横幅 + 重检测）。
 import { spawnSync } from "node:child_process";
 import type { BuildRequest, BuildResult, CompilerPort, ToolchainInfo } from "@/src/ports/compiler";
-import { BuildTimeoutError, ToolchainUnavailableError, UnsupportedBuildTargetError } from "@/src/ports/compiler";
+import { BuildTimeoutError, ProcessOutputLimitError, ToolchainUnavailableError, UnsupportedBuildTargetError } from "@/src/ports/compiler";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { assertExistingPathContained, assertNoExistingLinks } from "@/src/shared/filesystem-confinement";
 import { spawnOwnedChild, stopOwnedChild } from "@/src/infrastructure/owned-child";
+import { MAX_PROCESS_OUTPUT_BYTES } from "@/src/shared/resource-limits";
 
 const FQBN: Record<string, string> = {
   "esp32-s3": "esp32:esp32:esp32s3",
@@ -146,10 +147,24 @@ export function createEsp32ArduinoCompiler(opts?: CompilerOptions): CompilerPort
         };
         const onAbort = () => terminate(false);
         const timeout = setTimeout(() => terminate(true), timeoutMs);
+        let outputBytes = 0;
+        let outputLimitHit = false;
+        let outputCallbackError: unknown = null;
         signal.addEventListener("abort", onAbort, { once: true });
         const onChunk = (buf: Buffer) => {
-          for (const line of buf.toString("utf8").split("\n")) {
-            if (line.trim().length) onOutput(line.replace(/\r$/, ""));
+          outputBytes += buf.byteLength;
+          if (outputBytes > MAX_PROCESS_OUTPUT_BYTES) {
+            outputLimitHit = true;
+            terminate(false);
+            return;
+          }
+          try {
+            for (const line of buf.toString("utf8").split("\n")) {
+              if (line.trim().length) onOutput(line.replace(/\r$/, ""));
+            }
+          } catch (error) {
+            outputCallbackError = error;
+            terminate(false);
           }
         };
         child.stdout?.on("data", onChunk);
@@ -159,6 +174,14 @@ export function createEsp32ArduinoCompiler(opts?: CompilerOptions): CompilerPort
           finish(() => reject(new ToolchainUnavailableError(code === "ENOENT" ? "arduino-cli not found on PATH" : `build failed to start: ${err.message}`)));
         });
         child.on("close", (code) => {
+          if (outputLimitHit) {
+            finish(() => reject(new ProcessOutputLimitError(MAX_PROCESS_OUTPUT_BYTES)));
+            return;
+          }
+          if (outputCallbackError) {
+            finish(() => reject(outputCallbackError));
+            return;
+          }
           finish(() => resolve({
             exitCode: signal.aborted ? 1 : code ?? 1,
             toolchain: "esp32-arduino",

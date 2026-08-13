@@ -146,6 +146,21 @@ describe("S9 device surface", () => {
     expect(after.body.lastDevice).not.toHaveProperty("session");
   });
 
+  it("串口写入超过 UTF-8 上限 → 413 serial_write_too_large", async () => {
+    boot();
+    const projectId = await createProject();
+    const detected = await request(app).post("/api/v1/device/detect");
+    const opened = await request(app)
+      .post(`/api/v1/projects/${projectId}/device/serial/session`)
+      .send({ deviceId: detected.body.id });
+    expect(opened.status).toBe(201);
+    const response = await request(app)
+      .post(`/api/v1/projects/${projectId}/device/serial/session/${opened.body.sessionId}/write`)
+      .send({ command: "x".repeat(64 * 1024 + 1) });
+    expect(response.status).toBe(413);
+    expect(response.body.error?.code).toBe("serial_write_too_large");
+  });
+
   it("检测 → 令牌 → Flash 完成（202 + .evidence 证据）→ 串口命令回显", async () => {
     boot();
     const projectId = await createProject();

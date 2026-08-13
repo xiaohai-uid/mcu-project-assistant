@@ -118,6 +118,8 @@ import {
   TokenReusedError,
 } from "@/src/application/capabilities/flash";
 import { createFlashTokenStore } from "@/src/application/capabilities/flash";
+import { MAX_HTTP_BODY_BYTES, MAX_SERIAL_WRITE_BYTES, ResourceLimitError, assertUtf8Bytes } from "@/src/shared/resource-limits";
+import { SerialWriteTooLargeError } from "@/src/ports/device";
 
 export interface AppDeps {
   persistence: PersistencePort;
@@ -143,7 +145,7 @@ const ARCHIVE_TOKEN_TTL_MS = 60_000;
 
 export function createApp(deps: AppDeps): Express {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: MAX_HTTP_BODY_BYTES }));
 
   const capDeps = { persistence: deps.persistence };
   const artifactDeps = { persistence: deps.persistence, content: deps.content, events: deps.events };
@@ -340,6 +342,8 @@ export function createApp(deps: AppDeps): Express {
         res.status(202).json({ taskId });
       } catch (err) {
         if (err instanceof InvalidDescriptionError) throw new ApiError(400, "invalid_description", err.message);
+        if (err instanceof ResourceLimitError && err.code === "input_too_large") throw new ApiError(413, "input_too_large", err.message);
+        if (err instanceof ResourceLimitError && err.code === "resource_capacity_exceeded") throw new ApiError(503, "resource_capacity_exceeded", err.message);
         if (err instanceof AnalysisNotFoundError) throw new ApiError(404, "not_found", err.message);
         if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
         if (err instanceof ProviderUnavailableError) throw new ApiError(503, "provider_unavailable", err.message);
@@ -461,7 +465,14 @@ export function createApp(deps: AppDeps): Express {
     // Subscribe before committing SSE headers so setup failures still reach the
     // shared JSON error boundary.
     const sse = deps.events as import("@/src/adapters/events/sse").SseEvents;
-    sse.subscribe(req.params.projectId as string, res);
+    try {
+      sse.subscribe(req.params.projectId as string, res);
+    } catch (err) {
+      if (err instanceof ResourceLimitError && err.code === "subscriber_limit_reached") {
+        throw new ApiError(503, "subscriber_limit_reached", "Subscriber limit reached");
+      }
+      throw err;
+    }
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
@@ -572,6 +583,7 @@ export function createApp(deps: AppDeps): Express {
       if (err instanceof ToolchainUnavailableError) throw new ApiError(503, "toolchain_unavailable", err.message);
       if (err instanceof UnsupportedBuildTargetError) throw new ApiError(400, "unsupported_build_target", err.message);
       if (err instanceof BuildInputError) throw new ApiError(400, "invalid_build_source", err.message);
+      if (err instanceof ResourceLimitError && err.code === "resource_capacity_exceeded") throw new ApiError(503, "resource_capacity_exceeded", err.message);
       if (err instanceof BlockingStaleError) throw new ApiError(409, "blocking_stale", err.message);
       if (err instanceof ArchivedProjectError) throw new ApiError(409, "archived_read_only", err.message);
       throw err;
@@ -726,6 +738,14 @@ export function createApp(deps: AppDeps): Express {
     const sessionId = req.params.sessionId as string;
     const command = typeof req.body?.command === "string" ? req.body.command : "";
     if (!command.trim()) throw new ApiError(400, "invalid_capability", "command required");
+    try {
+      assertUtf8Bytes(command, MAX_SERIAL_WRITE_BYTES, "serial_write_too_large");
+    } catch (err) {
+      if (err instanceof ResourceLimitError || err instanceof SerialWriteTooLargeError) {
+        throw new ApiError(413, "serial_write_too_large", "Serial write exceeds the supported size");
+      }
+      throw err;
+    }
     if (!deps.device.getSerialSession(projectId, sessionId)) throw new ApiError(404, "serial_session_not_found", "Serial session not found");
     try {
       res.json(await sendSerialCapability({ sessionId, command }, flashDeps));
@@ -733,6 +753,7 @@ export function createApp(deps: AppDeps): Express {
       const code = err instanceof Error && "code" in err ? String((err as Error & { code?: unknown }).code) : "";
       if (code === "SERIAL_SESSION_NOT_OPEN") throw new ApiError(409, "serial_session_not_open", err instanceof Error ? err.message : String(err));
       if (code === "SERIAL_LINE_TOO_LARGE") throw new ApiError(409, "serial_line_too_large", err instanceof Error ? err.message : String(err));
+      if (code === "SERIAL_WRITE_TOO_LARGE" || code === "serial_write_too_large") throw new ApiError(413, "serial_write_too_large", "Serial write exceeds the supported size");
       throw new ApiError(409, "serial_transport_error", err instanceof Error ? err.message : String(err));
     }
   };
@@ -742,24 +763,56 @@ export function createApp(deps: AppDeps): Express {
     const sessionId = req.params.sessionId as string;
     const current = deps.device.getSerialSession(projectId, sessionId);
     if (!current) throw new ApiError(404, "serial_session_not_found", "Serial session not found");
-    const unsubscribe = deps.device.subscribeSerialSession(projectId, sessionId, (event) => {
-      if (event.type === "line") {
-        res.write(`event: serial.line\ndata: ${JSON.stringify({ sessionId, projectId, deviceId: event.session.deviceId, executionReality: event.session.executionReality, timestamp: event.receivedAt, line: event.line })}\n\n`);
-      } else if (event.type === "error") {
-        const safe = toSafeError({ code: event.code, message: event.message });
-        res.write(`event: serial.session.error\ndata: ${JSON.stringify({ sessionId, projectId, deviceId: event.session.deviceId, code: safe.code, message: safe.message, timestamp: event.receivedAt })}\n\n`);
-      } else {
-        res.write(`event: serial.session.closed\ndata: ${JSON.stringify({ sessionId, projectId, reason: event.reason, timestamp: event.receivedAt })}\n\n`);
+    let closed = false;
+    let backpressured = false;
+    let unsubscribe: () => void = () => undefined;
+    const write = (frame: string): void => {
+      if (closed) return;
+      if (backpressured) {
+        closed = true;
+        unsubscribe();
+        res.removeListener("drain", onDrain);
+        res.end();
+        return;
+      }
+      try {
+        if (!res.write(frame)) backpressured = true;
+      } catch {
+        closed = true;
+        unsubscribe();
+        res.removeListener("drain", onDrain);
         res.end();
       }
-    });
+    };
+    const onDrain = () => { backpressured = false; };
+    res.on("drain", onDrain);
+    try {
+      unsubscribe = deps.device.subscribeSerialSession(projectId, sessionId, (event) => {
+      if (event.type === "line") {
+        write(`event: serial.line\ndata: ${JSON.stringify({ sessionId, projectId, deviceId: event.session.deviceId, executionReality: event.session.executionReality, timestamp: event.receivedAt, line: event.line })}\n\n`);
+      } else if (event.type === "error") {
+        const safe = toSafeError({ code: event.code, message: event.message });
+        write(`event: serial.session.error\ndata: ${JSON.stringify({ sessionId, projectId, deviceId: event.session.deviceId, code: safe.code, message: safe.message, timestamp: event.receivedAt })}\n\n`);
+      } else {
+        write(`event: serial.session.closed\ndata: ${JSON.stringify({ sessionId, projectId, reason: event.reason, timestamp: event.receivedAt })}\n\n`);
+        if (!closed) { closed = true; res.end(); }
+      }
+      });
+    } catch (err) {
+      if (err instanceof Error && "code" in err && ["SUBSCRIBER_LIMIT_REACHED", "subscriber_limit_reached"].includes(String((err as Error & { code?: unknown }).code))) {
+        res.removeListener("drain", onDrain);
+        throw new ApiError(503, "subscriber_limit_reached", "Subscriber limit reached");
+      }
+      res.removeListener("drain", onDrain);
+      throw err;
+    }
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     });
-    res.write(": connected\n\n");
+    write(": connected\n\n");
     // Companion is deterministic but still models a live serial producer. The
     // physical adapter's tickSerial is intentionally a no-op: physical lines
     // can only arrive from OS transport bytes. This timer is stream-scoped and
@@ -772,8 +825,10 @@ export function createApp(deps: AppDeps): Express {
       deps.device.tickSerial();
     }, 800);
     req.on("close", () => {
+      closed = true;
       clearInterval(timer);
       unsubscribe();
+      res.removeListener("drain", onDrain);
     });
   };
 

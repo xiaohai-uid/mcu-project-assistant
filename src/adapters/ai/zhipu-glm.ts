@@ -4,6 +4,8 @@
 // 无 fallback：status() 不可用即 unavailable（调用方合法降级）；生产单一路径由 server.ts 显式注入。
 import type { AIProviderPort, ProviderStatus, StreamTextRequest, StructuredRequest } from "@/src/ports/ai-provider";
 import { ProviderUnavailableError } from "@/src/ports/ai-provider";
+import { readBoundedResponseText } from "@/src/shared/bounded-response";
+import { MAX_AI_RESPONSE_BYTES, ResourceLimitError } from "@/src/shared/resource-limits";
 
 function providerErrorForStatus(status: number): ProviderUnavailableError {
   if (status === 408 || status === 504) return new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
@@ -154,7 +156,9 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
     try {
       const res = await chat(PROBE_BODY, new AbortController().signal);
       if (!res.ok) {
-        await res.text().catch(() => "");
+        await readBoundedResponseText(res, new AbortController().signal).catch((error) => {
+          if (error instanceof ResourceLimitError) throw error;
+        });
         if (res.status === 401 || res.status === 403) return "unavailable";
         if (res.status >= 500) return "unavailable";
         console.warn(`[zhipu-glm] probe failed status=${res.status}`);
@@ -192,7 +196,7 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
         operation.signal,
       );
       if (!res.ok) {
-        await res.text().catch(() => "");
+        await readBoundedResponseText(res, operation.signal);
         throw providerErrorForStatus(res.status);
       }
       if (!res.body) throw new ProviderUnavailableError("AI provider returned an invalid response", "provider_protocol_error");
@@ -200,11 +204,17 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let responseBytes = 0;
       let sawValidFrame = false;
       try {
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
+          responseBytes += value.byteLength;
+          if (responseBytes > MAX_AI_RESPONSE_BYTES) {
+            await reader.cancel().catch(() => undefined);
+            throw new ProviderUnavailableError("AI provider response exceeds the supported size", "provider_response_too_large");
+          }
           buffer += decoder.decode(value, { stream: true });
           let idx: number;
           while ((idx = buffer.indexOf("\n")) >= 0) {
@@ -264,10 +274,11 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
             operation.signal,
           );
           if (!res.ok) {
-            await res.text().catch(() => "");
+            await readBoundedResponseText(res, operation.signal);
             throw providerErrorForStatus(res.status);
           }
-          const payload = (await res.json()) as {
+          const responseText = await readBoundedResponseText(res, operation.signal);
+          const payload = JSON.parse(responseText) as {
             choices?: Array<{ message?: { content?: string } }>;
           };
           const content = payload.choices?.[0]?.message?.content;
@@ -301,10 +312,11 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
               operation.signal,
             );
             if (!extra.ok) {
-              await extra.text().catch(() => "");
+              await readBoundedResponseText(extra, operation.signal);
               throw providerErrorForStatus(extra.status);
             }
-            const extraPayload = (await extra.json()) as { choices?: Array<{ message?: { content?: string } }> };
+            const extraText = await readBoundedResponseText(extra, operation.signal);
+            const extraPayload = JSON.parse(extraText) as { choices?: Array<{ message?: { content?: string } }> };
             const extraContent = extraPayload.choices?.[0]?.message?.content;
             if (extraContent) {
               const extraParsed = extractJson(extraContent) as { proposals?: unknown[] };
@@ -316,6 +328,9 @@ export function createZhipuAiProvider(opts: ZhipuAiProviderOptions): AIProviderP
           return { data: parsed };
         } catch (err) {
           if (err instanceof ProviderUnavailableError) throw err;
+          if (err instanceof ResourceLimitError) {
+            throw new ProviderUnavailableError("AI provider response exceeds the supported size", "provider_response_too_large");
+          }
           if (operation.didTimeout()) throw new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
           lastErr = err;
         } finally {

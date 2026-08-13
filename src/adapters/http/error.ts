@@ -7,6 +7,11 @@ export type ErrorCode =
   | "invalid_kind"
   | "invalid_content"
   | "invalid_description"
+  | "payload_too_large"
+  | "input_too_large"
+  | "serial_write_too_large"
+  | "subscriber_limit_reached"
+  | "resource_capacity_exceeded"
   | "invalid_capability"
   | "invalid_mcu"
   | "invalid_round"
@@ -77,6 +82,10 @@ export function apiErrorBoundary(): ErrorRequestHandler {
       return;
     }
     const record = typeof err === "object" && err !== null ? (err as Record<string, unknown>) : null;
+    if (record?.type === "entity.too.large" || record?.status === 413) {
+      res.status(413).json({ error: { code: "payload_too_large", message: "Request body exceeds the supported size" } });
+      return;
+    }
     if (record?.type === "entity.parse.failed") {
       res.status(400).json({ error: { code: "invalid_json", message: "Request body contains invalid JSON" } });
       return;

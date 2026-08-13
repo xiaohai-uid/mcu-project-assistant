@@ -4,10 +4,14 @@
 // M1 禁止：Event Store / persisted stream / replay engine / ring buffer。
 import type { Response } from "express";
 import type { EventPort, LogicalEvent } from "@/src/ports/events";
+import { MAX_PROJECT_SSE_SUBSCRIBERS, ResourceLimitError } from "@/src/shared/resource-limits";
 
 interface Subscriber {
   projectId: string;
   res: Response;
+  backpressured: boolean;
+  onDrain: () => void;
+  onClose: () => void;
 }
 
 export interface SseEvents extends EventPort {
@@ -26,15 +30,25 @@ export function createSseEvents(): SseEvents {
 
   return {
     subscribe(projectId: string, res: Response): void {
-      const sub: Subscriber = { projectId, res };
-      subscribers.add(sub);
-      res.on("close", () => {
+      const count = [...subscribers].filter((s) => s.projectId === projectId).length;
+      if (count >= MAX_PROJECT_SSE_SUBSCRIBERS) throw new ResourceLimitError("subscriber_limit_reached");
+      const onDrain = () => { sub.backpressured = false; };
+      const onClose = () => {
         subscribers.delete(sub);
-      });
+        res.removeListener("drain", onDrain);
+      };
+      const sub: Subscriber = { projectId, res, backpressured: false, onDrain, onClose };
+      subscribers.add(sub);
+      res.on("drain", onDrain);
+      res.on("close", onClose);
     },
     unsubscribe(res: Response): void {
       for (const sub of subscribers) {
-        if (sub.res === res) subscribers.delete(sub);
+        if (sub.res === res) {
+          subscribers.delete(sub);
+          sub.res.removeListener("drain", sub.onDrain);
+          sub.res.removeListener("close", sub.onClose);
+        }
       }
     },
     subscriberCount(projectId?: string): number {
@@ -46,11 +60,15 @@ export function createSseEvents(): SseEvents {
       for (const sub of subscribers) {
         if (sub.projectId !== pid) continue;
         try {
-          sub.res.write(`event: ${event.type}\n`);
-          sub.res.write(`data: ${JSON.stringify(event)}\n\n`);
-        } catch {
-          // 客户端断开：清理由 res.on('close') 负责
-          subscribers.delete(sub);
+          if (sub.backpressured) {
+            sub.res.end();
+            sub.onClose();
+            continue;
+          }
+          sub.backpressured = !sub.res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+          } catch {
+          // 客户端断开：同步清理订阅及监听器。
+          sub.onClose();
         }
       }
     },

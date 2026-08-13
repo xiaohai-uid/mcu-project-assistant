@@ -5,7 +5,7 @@
 
 export type ProviderStatus = "available" | "unavailable" | "offline";
 
-export type ProviderErrorCode = "provider_unavailable" | "provider_timeout" | "provider_rate_limited" | "provider_protocol_error";
+export type ProviderErrorCode = "provider_unavailable" | "provider_timeout" | "provider_rate_limited" | "provider_protocol_error" | "provider_response_too_large";
 
 export class ProviderUnavailableError extends Error {
   readonly code: ProviderErrorCode;

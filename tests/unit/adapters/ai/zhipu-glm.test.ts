@@ -165,6 +165,15 @@ describe("zhipu-glm adapter (real AIProviderPort)", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("generateStructured: oversized response is rejected before JSON.parse", async () => {
+    const provider = createZhipuAiProvider({ apiKey: "k" });
+    fetchMock.mockResolvedValueOnce(new Response("x".repeat(2 * 1024 * 1024 + 1), { status: 200 }));
+    await expect(
+      provider.generateStructured<unknown>({ prompt: "p", schema: "build-diagnosis", signal: new AbortController().signal }),
+    ).rejects.toMatchObject({ code: "provider_response_too_large", message: "AI provider response exceeds the supported size" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("generateStructured: 空 key → ProviderUnavailableError（status 先不可用）", async () => {
     const provider = createZhipuAiProvider({ apiKey: "" });
     expect(await provider.status()).toBe("unavailable");

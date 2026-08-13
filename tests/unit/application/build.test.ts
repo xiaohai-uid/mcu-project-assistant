@@ -17,6 +17,7 @@ import { createInProcessTasks } from "@/src/adapters/task/in-process";
 import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
 import type { EventPort, LogicalEvent } from "@/src/ports/events";
 import { ToolchainUnavailableError } from "@/src/ports/compiler";
+import type { CompilerPort } from "@/src/ports/compiler";
 import { BuildExecutionError, BuildInputError, executeBuildTask, resolveBuildPaths, runBuild, getBuildRecord, listBuilds, cancelBuild } from "@/src/application/capabilities/build";
 import { selectMcu } from "@/src/application/capabilities/mcu";
 import { createProject as createProjectCapability } from "@/src/application/capabilities/projects";
@@ -224,6 +225,23 @@ describe("run_build（contract 2.12；D2 Build 不产生版本）", () => {
       exitCode: 1,
     });
     expect(JSON.stringify(failed)).not.toMatch(/PUMP_RELAY_PIN|src\\main\.cpp|C:\\secret/i);
+  });
+
+  it("编译器输出超过上限 → BuildRecord failed 且不继续写入日志", async () => {
+    const compiler = {
+      discoverToolchain: async () => ({ available: true as const, toolchain: "esp32-arduino" as const, version: "fixture" }),
+      build: async (_request: Parameters<CompilerPort["build"]>[0], onOutput: Parameters<CompilerPort["build"]>[1]) => {
+        onOutput("x".repeat(2 * 1024 * 1024 + 1));
+        throw new Error("compiler callback should abort the operation");
+      },
+    } satisfies CompilerPort;
+    const d = deps(compiler);
+    const { project, versionId } = await seedJourney(d);
+    const { buildId } = await runBuild({ projectId: project.id, versionId }, d.buildDeps);
+    await waitFor(async () => (await getBuildRecord({ buildId }, d.buildDeps))?.status === "failed");
+    const failed = (await getBuildRecord({ buildId }, d.buildDeps))!;
+    expect(failed.diagnostics[0]?.code).toBe("process_output_limit_exceeded");
+    expect(existsSync(join(dir, "ws", failed.stdoutRef!))).toBe(false);
   });
 
   it("取消：running 可取消 → build.cancelled；终态不可取消（幂等 409 语义）", async () => {

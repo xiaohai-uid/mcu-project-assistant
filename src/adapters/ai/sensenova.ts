@@ -2,6 +2,8 @@
 // Production selection is explicit in infrastructure/ai-provider.ts; there is no fallback.
 import type { AIProviderPort, ProviderStatus, StreamTextRequest, StructuredRequest } from "@/src/ports/ai-provider";
 import { ProviderUnavailableError } from "@/src/ports/ai-provider";
+import { readBoundedResponseText } from "@/src/shared/bounded-response";
+import { MAX_AI_RESPONSE_BYTES, ResourceLimitError } from "@/src/shared/resource-limits";
 
 function providerErrorForStatus(status: number): ProviderUnavailableError {
   if (status === 408 || status === 504) return new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
@@ -120,27 +122,6 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
     };
   }
 
-  async function readResponseText(response: Response, signal: AbortSignal): Promise<string> {
-    if (!response.body) return "";
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    const chunks: string[] = [];
-    const abort = () => { void reader.cancel(); };
-    signal.addEventListener("abort", abort, { once: true });
-    try {
-      for (;;) {
-        const { done, value } = await readWithAbort(reader, signal);
-        if (done) break;
-        chunks.push(decoder.decode(value, { stream: true }));
-      }
-      chunks.push(decoder.decode());
-      return chunks.join("");
-    } finally {
-      signal.removeEventListener("abort", abort);
-      reader.releaseLock();
-    }
-  }
-
   async function chat(body: Record<string, unknown>, signal: AbortSignal): Promise<Response> {
     const controller = new AbortController();
     let timedOut = false;
@@ -172,7 +153,9 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
     try {
       const response = await chat(probeBody, new AbortController().signal);
       if (!response.ok) {
-        await response.text().catch(() => "");
+        await readBoundedResponseText(response, new AbortController().signal).catch((error) => {
+          if (error instanceof ResourceLimitError) throw error;
+        });
         if (response.status === 401 || response.status === 403 || response.status >= 500) return "unavailable";
         console.warn(`[sensenova] probe failed status=${response.status}`);
       }
@@ -208,7 +191,7 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
           operation.signal,
         );
         if (!response.ok) {
-          await response.text().catch(() => "");
+          await readBoundedResponseText(response, operation.signal);
           throw providerErrorForStatus(response.status);
         }
         if (!response.body) throw new ProviderUnavailableError("AI provider returned an invalid response", "provider_protocol_error");
@@ -216,6 +199,7 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let responseBytes = 0;
         let sawValidFrame = false;
         const abort = () => { void reader.cancel(); };
         operation.signal.addEventListener("abort", abort, { once: true });
@@ -223,6 +207,11 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
           for (;;) {
             const { done, value } = await readWithAbort(reader, operation.signal);
             if (done) break;
+            responseBytes += value.byteLength;
+            if (responseBytes > MAX_AI_RESPONSE_BYTES) {
+              await reader.cancel().catch(() => undefined);
+              throw new ProviderUnavailableError("AI provider response exceeds the supported size", "provider_response_too_large");
+            }
             buffer += decoder.decode(value, { stream: true });
             let index: number;
             while ((index = buffer.indexOf("\n")) >= 0) {
@@ -284,10 +273,10 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
             operation.signal,
           );
           if (!response.ok) {
-            await response.text().catch(() => "");
+            await readBoundedResponseText(response, operation.signal);
             throw providerErrorForStatus(response.status);
           }
-          const responseText = await readResponseText(response, operation.signal);
+          const responseText = await readBoundedResponseText(response, operation.signal);
           if (operation.didTimeout()) throw new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
           const payload = JSON.parse(responseText) as {
             choices?: Array<{ message?: { content?: string; reasoning_content?: string } }>;
@@ -301,6 +290,9 @@ export function createSenseNovaAiProvider(opts: SenseNovaAiProviderOptions): AIP
           return { data: parsed };
         } catch (error) {
           if (error instanceof ProviderUnavailableError) throw error;
+          if (error instanceof ResourceLimitError) {
+            throw new ProviderUnavailableError("AI provider response exceeds the supported size", "provider_response_too_large");
+          }
           if (operation.didTimeout()) throw new ProviderUnavailableError("AI provider request timed out", "provider_timeout");
           lastError = error;
         } finally {

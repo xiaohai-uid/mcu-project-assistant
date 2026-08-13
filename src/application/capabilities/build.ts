@@ -20,6 +20,7 @@ import {
   assertSafeRelativeReference,
   resolveContainedPath,
 } from "@/src/shared/filesystem-confinement";
+import { MAX_BUILD_LOG_BYTES, ResourceLimitError, createResourceSemaphore } from "@/src/shared/resource-limits";
 
 export class ProjectNotFoundError extends Error {
   constructor() { super("Project not found"); this.name = "ProjectNotFoundError"; }
@@ -108,13 +109,18 @@ export function resolveBuildPaths(workspaceDir: string, contentRef: string, buil
   return { sourceDir, sourceFile, outputDir };
 }
 
-function appendLog(workspaceDir: string, buildId: string, line: string): void {
+function appendLog(workspaceDir: string, buildId: string, line: string, currentBytes: { value: number }): void {
+  const bytes = Buffer.byteLength(`${line}\n`, "utf8");
+  if (currentBytes.value + bytes > MAX_BUILD_LOG_BYTES) throw new ResourceLimitError("process_output_limit_exceeded");
   const target = resolveContainedPath(workspaceDir, resolve(workspaceDir, buildLogRef(buildId)));
   assertParentContainedForWrite(workspaceDir, target);
   mkdirSync(dirname(target), { recursive: true });
   assertParentContainedForWrite(workspaceDir, target);
   appendFileSync(target, `${line}\n`, "utf8");
+  currentBytes.value += bytes;
 }
+
+const buildResources = createResourceSemaphore(2);
 
 function diagnostic(code: string, message: string, details?: Record<string, unknown>) {
   return [{ code, severity: "error", message, ...(details ? { details } : {}) }];
@@ -145,6 +151,7 @@ export async function executeBuildTask(
   await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(currentRecord));
 
   let paths: BuildPaths;
+  const logBytes = { value: 0 };
   try {
     paths = resolveBuildPaths(deps.workspaceDir, version.contentRef, input.buildId);
     if (record.sourceDir && resolve(record.sourceDir) !== paths.sourceDir) throw new BuildInputError("Durable source binding changed");
@@ -160,83 +167,101 @@ export async function executeBuildTask(
     throw new BuildExecutionError("BUILD_SOURCE_INVALID", safe.message);
   }
 
-  assertParentContainedForWrite(deps.workspaceDir, paths.outputDir);
-  rmSync(paths.outputDir, { recursive: true, force: true });
-  mkdirSync(paths.outputDir, { recursive: true });
-  assertExistingPathContained(deps.workspaceDir, paths.outputDir);
-  const request = {
-    target: record.target,
-    toolchain: "esp32-arduino" as const,
-    options: record.options,
-    sourceDir: paths.sourceDir,
-    outputDir: paths.outputDir,
-  };
-  let result: Awaited<ReturnType<CompilerPort["build"]>> | null = null;
-  try {
-    result = await deps.compiler.build(
-      request,
-      (line) => {
-        appendLog(deps.workspaceDir, input.buildId, line);
-        ctx.emit({ type: "build.output", projectId: input.projectId, buildId: input.buildId, line });
-      },
-      ctx.signal,
-    );
-    if (ctx.signal.aborted) {
-      const finalized = finalizeBuildRecord(currentRecord, {
-        status: "cancelled", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: result.exitCode,
-        sourceDir: paths.sourceDir, outputDir: paths.outputDir, command: result.command, outputs: [],
-      });
-      await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
-      ctx.emit({ type: "build.cancelled", projectId: input.projectId, buildId: input.buildId });
-      return;
-    }
-    const hasFirmware = result.outputs.some((output) => output.kind === "bin" && output.sizeBytes > 0 && output.sha256.length === 64);
-    const status: BuildStatusDto = result.exitCode === 0 && hasFirmware ? "succeeded" : "failed";
-    const failureCode = result.exitCode !== 0 ? "BUILD_EXIT_NONZERO" : "BUILD_OUTPUT_MISSING";
-    const failureMessage = result.exitCode !== 0 ? "Firmware build failed" : "Firmware build produced no verified output";
-    const failureSafe = toSafeError({ diagnosticCode: failureCode, message: failureMessage });
+  const lease = buildResources.tryAcquire();
+  if (!lease) {
+    const capacityError = new ResourceLimitError("resource_capacity_exceeded");
+    const safe = toSafeError(capacityError);
     const finalized = finalizeBuildRecord(currentRecord, {
-      status,
-      completedAt: now().toISOString(),
-      stdoutRef: buildLogRef(input.buildId),
-      exitCode: result.exitCode,
-      sourceDir: paths.sourceDir,
-      outputDir: paths.outputDir,
-      command: result.command,
-      outputs: result.outputs,
-      diagnostics: status === "failed" ? diagnostic(failureCode, failureSafe.message) : [],
+      status: "failed", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: 1,
+      diagnostics: diagnostic(safe.code, safe.message),
     });
     await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
-    if (status === "succeeded") {
-      ctx.emit({ type: "build.succeeded", projectId: input.projectId, buildId: input.buildId, exitCode: result.exitCode });
-      return;
-    }
-    ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, taskId: ctx.taskId, code: failureSafe.code, message: failureSafe.message, timestamp: now().toISOString(), exitCode: result.exitCode });
-    throw new BuildExecutionError(failureCode, failureMessage, result.exitCode);
-  } catch (err) {
-    if (ctx.signal.aborted) {
+    ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, taskId: ctx.taskId, code: safe.code, message: safe.message, timestamp: now().toISOString(), exitCode: 1 });
+    throw capacityError;
+  }
+
+  try {
+    assertParentContainedForWrite(deps.workspaceDir, paths.outputDir);
+    rmSync(paths.outputDir, { recursive: true, force: true });
+    mkdirSync(paths.outputDir, { recursive: true });
+    assertExistingPathContained(deps.workspaceDir, paths.outputDir);
+    const request = {
+      target: record.target,
+      toolchain: "esp32-arduino" as const,
+      options: record.options,
+      sourceDir: paths.sourceDir,
+      outputDir: paths.outputDir,
+    };
+    let result: Awaited<ReturnType<CompilerPort["build"]>> | null = null;
+    try {
+      result = await deps.compiler.build(
+        request,
+        (line) => {
+          appendLog(deps.workspaceDir, input.buildId, line, logBytes);
+          ctx.emit({ type: "build.output", projectId: input.projectId, buildId: input.buildId, line });
+        },
+        ctx.signal,
+      );
+      if (ctx.signal.aborted) {
+        const finalized = finalizeBuildRecord(currentRecord, {
+          status: "cancelled", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: result.exitCode,
+          sourceDir: paths.sourceDir, outputDir: paths.outputDir, command: result.command, outputs: [],
+        });
+        await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
+        ctx.emit({ type: "build.cancelled", projectId: input.projectId, buildId: input.buildId });
+        return;
+      }
+      const hasFirmware = result.outputs.some((output) => output.kind === "bin" && output.sizeBytes > 0 && output.sha256.length === 64);
+      const status: BuildStatusDto = result.exitCode === 0 && hasFirmware ? "succeeded" : "failed";
+      const failureCode = result.exitCode !== 0 ? "BUILD_EXIT_NONZERO" : "BUILD_OUTPUT_MISSING";
+      const failureMessage = result.exitCode !== 0 ? "Firmware build failed" : "Firmware build produced no verified output";
+      const failureSafe = toSafeError({ diagnosticCode: failureCode, message: failureMessage });
       const finalized = finalizeBuildRecord(currentRecord, {
-        status: "cancelled", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: result?.exitCode ?? 1,
-        sourceDir: paths.sourceDir, outputDir: paths.outputDir, command: result?.command ?? [], outputs: [],
+        status,
+        completedAt: now().toISOString(),
+        stdoutRef: buildLogRef(input.buildId),
+        exitCode: result.exitCode,
+        sourceDir: paths.sourceDir,
+        outputDir: paths.outputDir,
+        command: result.command,
+        outputs: result.outputs,
+        diagnostics: status === "failed" ? diagnostic(failureCode, failureSafe.message) : [],
       });
       await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
-      ctx.emit({ type: "build.cancelled", projectId: input.projectId, buildId: input.buildId });
-      return;
+      if (status === "succeeded") {
+        ctx.emit({ type: "build.succeeded", projectId: input.projectId, buildId: input.buildId, exitCode: result.exitCode });
+        return;
+      }
+      ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, taskId: ctx.taskId, code: failureSafe.code, message: failureSafe.message, timestamp: now().toISOString(), exitCode: result.exitCode });
+      throw new BuildExecutionError(failureCode, failureMessage, result.exitCode);
+    } catch (err) {
+      if (ctx.signal.aborted) {
+        const finalized = finalizeBuildRecord(currentRecord, {
+          status: "cancelled", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: result?.exitCode ?? 1,
+          sourceDir: paths.sourceDir, outputDir: paths.outputDir, command: result?.command ?? [], outputs: [],
+        });
+        await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
+        ctx.emit({ type: "build.cancelled", projectId: input.projectId, buildId: input.buildId });
+        return;
+      }
+      const code = err instanceof ResourceLimitError ? err.code
+        : err instanceof BuildTimeoutError ? "BUILD_TIMEOUT"
+        : err instanceof BuildExecutionError ? err.diagnosticCode
+          : err instanceof UnsupportedBuildTargetError ? "BUILD_TARGET_UNSUPPORTED" : "BUILD_EXECUTION_FAILED";
+      const safe = toSafeError({ ...(typeof err === "object" && err !== null ? err : {}), diagnosticCode: code });
+      if (!(err instanceof BuildExecutionError)) {
+        const finalized = finalizeBuildRecord(currentRecord, {
+          status: "failed", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: result?.exitCode ?? 1,
+          sourceDir: paths.sourceDir, outputDir: paths.outputDir, command: result?.command ?? [], outputs: result?.outputs ?? [],
+          diagnostics: diagnostic(code, safe.message),
+        });
+        await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
+        ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, taskId: ctx.taskId, code: safe.code, message: safe.message, timestamp: now().toISOString(), exitCode: result?.exitCode ?? 1 });
+      }
+      throw err;
     }
-    const code = err instanceof BuildTimeoutError ? "BUILD_TIMEOUT"
-      : err instanceof BuildExecutionError ? err.diagnosticCode
-        : err instanceof UnsupportedBuildTargetError ? "BUILD_TARGET_UNSUPPORTED" : "BUILD_EXECUTION_FAILED";
-    const safe = toSafeError({ ...(typeof err === "object" && err !== null ? err : {}), diagnosticCode: code });
-    if (!(err instanceof BuildExecutionError)) {
-      const finalized = finalizeBuildRecord(currentRecord, {
-        status: "failed", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: result?.exitCode ?? 1,
-        sourceDir: paths.sourceDir, outputDir: paths.outputDir, command: result?.command ?? [], outputs: result?.outputs ?? [],
-        diagnostics: diagnostic(code, safe.message),
-      });
-      await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
-      ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, taskId: ctx.taskId, code: safe.code, message: safe.message, timestamp: now().toISOString(), exitCode: result?.exitCode ?? 1 });
-    }
-    throw err;
+  } finally {
+    lease.release();
   }
 }
 

@@ -11,6 +11,8 @@ import {
   SerialDeviceChangedError,
   SerialDeviceNotFoundError,
   SerialSessionNotOpenError,
+  SerialSubscriberLimitError,
+  SerialWriteTooLargeError,
   type DeviceInfo,
   type DevicePort,
   type DeviceSession,
@@ -22,6 +24,8 @@ import {
 } from "@/src/ports/device";
 import { safeMessageForCode } from "@/src/shared-contracts/errors";
 import { spawnOwnedChild, stopOwnedChild } from "@/src/infrastructure/owned-child";
+import { MAX_FLASH_EVIDENCE_BYTES, MAX_SERIAL_HISTORY_LINES, MAX_SERIAL_SUBSCRIBERS, MAX_SERIAL_WRITE_BYTES, retainBoundedLine } from "@/src/shared/resource-limits";
+import { ProcessOutputLimitError } from "@/src/ports/compiler";
 
 const ESP32_S3_FQBN = "esp32:esp32:esp32s3";
 
@@ -146,7 +150,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
 
   const emitLine = (serial: { session: SerialSession; transport: SerialTransport; lineBuffer: string; decoder: TextDecoder }, value: string): void => {
     if (activeSerial?.session.sessionId !== serial.session.sessionId) return;
-    session.serialLines.push(value);
+    retainBoundedLine(session.serialLines, value, MAX_SERIAL_HISTORY_LINES);
     emit({ type: "line", session: { ...serial.session }, line: value, receivedAt: new Date().toISOString() });
   };
 
@@ -211,7 +215,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
       session.device = device;
       session.stage = "detected";
       session.truth = device.truth;
-      session.serialLines.push(`[system] Physical board detected: ${device.model} on ${device.port}`);
+      retainBoundedLine(session.serialLines, `[system] Physical board detected: ${device.model} on ${device.port}`, MAX_SERIAL_HISTORY_LINES);
       return device;
     },
     async disconnect(): Promise<void> {
@@ -222,7 +226,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
       session.serialSessionId = null;
       session.truth = physicalTruth("blocked", false);
       if (session.device) session.device = { ...session.device, truth: session.truth };
-      session.serialLines.push("[system] Device disconnected");
+      retainBoundedLine(session.serialLines, "[system] Device disconnected", MAX_SERIAL_HISTORY_LINES);
     },
     flash(input, onEvent, signal): Promise<FlashResult> {
       return new Promise((resolve, reject) => {
@@ -270,6 +274,8 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
         let child: import("node:child_process").ChildProcess;
         let settled = false;
         let timeoutRequested = false;
+        let outputBytes = 0;
+        let outputLimitHit = false;
         let grace: NodeJS.Timeout | undefined;
         const finish = (fn: () => void) => {
           if (settled) return;
@@ -305,6 +311,12 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
         signal.addEventListener("abort", onAbort, { once: true });
         const onChunk = (buffer: Buffer) => {
           try {
+            outputBytes += buffer.byteLength;
+            if (outputBytes > MAX_FLASH_EVIDENCE_BYTES) {
+              outputLimitHit = true;
+              abort(false);
+              return;
+            }
             for (const line of buffer.toString("utf8").split("\n")) if (line.trim()) onEvent({ type: "line", line });
           } catch (error) {
             finish(() => {
@@ -337,6 +349,14 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
           reject(new PhysicalToolUnavailableError(`physical flash failed to start: ${error.message}`));
         }));
         child.on("close", (code) => finish(() => {
+          if (outputLimitHit) {
+            const truth = physicalTruth("failed", false);
+            session.stage = "detected";
+            session.truth = truth;
+            if (session.device) session.device = { ...session.device, truth };
+            reject(new ProcessOutputLimitError(MAX_FLASH_EVIDENCE_BYTES));
+            return;
+          }
           if (timeoutRequested) {
             const truth = physicalTruth("failed", false);
             session.stage = "detected";
@@ -469,6 +489,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
     subscribeSerialSession(projectId: string, sessionId: string, listener: (event: SerialSessionEvent) => void): () => void {
       if (!activeSerial || activeSerial.session.projectId !== projectId || activeSerial.session.sessionId !== sessionId) return () => undefined;
       const sessionListeners = listeners.get(sessionId) ?? new Set<(event: SerialSessionEvent) => void>();
+      if (sessionListeners.size >= MAX_SERIAL_SUBSCRIBERS) throw new SerialSubscriberLimitError(MAX_SERIAL_SUBSCRIBERS);
       sessionListeners.add(listener);
       listeners.set(sessionId, sessionListeners);
       return () => {
@@ -478,6 +499,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
     },
     async writeSerial(sessionId: string, command: string): Promise<SerialResult> {
       if (!activeSerial || activeSerial.session.sessionId !== sessionId) throw new SerialSessionNotOpenError();
+      if (Buffer.byteLength(command, "utf8") > MAX_SERIAL_WRITE_BYTES) throw new SerialWriteTooLargeError(MAX_SERIAL_WRITE_BYTES);
       await new Promise<void>((resolve, reject) => {
         activeSerial!.transport.write(`${command.trim()}\n`, (error) => error ? reject(error) : resolve());
       });

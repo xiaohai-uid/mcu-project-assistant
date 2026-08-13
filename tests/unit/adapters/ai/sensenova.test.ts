@@ -88,6 +88,15 @@ describe("sensenova adapter (real AIProviderPort)", () => {
     ).rejects.toMatchObject({ name: "ProviderUnavailableError", code: "provider_unavailable", message: "AI provider is unavailable" });
   });
 
+  it("rejects an oversized structured response before JSON.parse", async () => {
+    const provider = createSenseNovaAiProvider({ apiKey: "k", baseUrl: "https://example/v1", model: "m" });
+    fetchMock.mockResolvedValueOnce(new Response("x".repeat(2 * 1024 * 1024 + 1), { status: 200 }));
+    await expect(
+      provider.generateStructured<unknown>({ prompt: "p", schema: "build-diagnosis", signal: new AbortController().signal }),
+    ).rejects.toMatchObject({ code: "provider_response_too_large", message: "AI provider response exceeds the supported size" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("maps rate limit, malformed stream, and network failures without raw body", async () => {
     const provider = createSenseNovaAiProvider({ apiKey: "k", baseUrl: "https://example/v1", model: "m" });
     fetchMock.mockResolvedValueOnce(new Response("RAW_PROVIDER_SECRET_MARKER", { status: 429 }));
