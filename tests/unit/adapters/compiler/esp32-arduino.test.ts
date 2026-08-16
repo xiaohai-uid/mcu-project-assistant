@@ -70,6 +70,21 @@ describe("controlled external compiler fixture (not Arduino CLI)", () => {
     expect(readFileSync(result.outputs[0]!.path, "utf8")).toBe("firmware-fixture");
   });
 
+  it("provides an Arduino CLI sketch entry point for the durable main.cpp layout", async () => {
+    const root = fixtureRoot();
+    const observation = join(root.root, "sketch-observation.json");
+    const script = `const fs=require('node:fs');const path=require('node:path');const args=process.argv.slice(1);if(args[0]==='compile'){const sketch=args[args.length-1];const entries=fs.readdirSync(sketch);fs.writeFileSync(${JSON.stringify(observation)},JSON.stringify({sketch,entries}));if(!entries.includes(path.basename(sketch)+'.ino')||!entries.includes('main.cpp'))process.exit(9);const out=args[args.indexOf('--output-dir')+1];fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'firmware.bin'),Buffer.from('firmware-fixture'));process.exit(0)}if(args[0]==='version'){console.log('controlled-fixture 1.0');process.exit(0)}process.exit(2);`;
+    const result = await createEsp32ArduinoCompiler({
+      arduinoCliPath: process.execPath,
+      executableArgsPrefix: ["-e", script],
+    }).build(request(root), () => {}, new AbortController().signal);
+    expect(result.exitCode).toBe(0);
+    expect(result.outputs).toHaveLength(1);
+    const observed = JSON.parse(readFileSync(observation, "utf8")) as { sketch: string; entries: string[] };
+    expect(observed.sketch).not.toBe(root.sourceDir);
+    expect(observed.entries).toEqual(expect.arrayContaining(["main.cpp", `${observed.sketch.split(/[\\\\/]/).at(-1)}.ino`]));
+  });
+
   it("uses the explicit sourceDir as child cwd even when the caller cwd is unrelated", async () => {
     const root = fixtureRoot();
     const unrelated = mkdtempSync(join(tmpdir(), "mcu-unrelated-cwd-"));

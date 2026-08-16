@@ -6,9 +6,9 @@ import { spawnSync } from "node:child_process";
 import type { BuildRequest, BuildResult, CompilerPort, ToolchainInfo } from "@/src/ports/compiler";
 import { BuildTimeoutError, ProcessOutputLimitError, ToolchainUnavailableError, UnsupportedBuildTargetError } from "@/src/ports/compiler";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
-import { basename, extname, join, resolve } from "node:path";
-import { assertExistingPathContained, assertNoExistingLinks } from "@/src/shared/filesystem-confinement";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, extname, join, resolve } from "node:path";
+import { assertExistingPathContained, assertNoExistingLinks, assertParentContainedForWrite } from "@/src/shared/filesystem-confinement";
 import { spawnOwnedChild, stopOwnedChild } from "@/src/infrastructure/owned-child";
 import { MAX_PROCESS_OUTPUT_BYTES } from "@/src/shared/resource-limits";
 import {
@@ -63,6 +63,54 @@ function outputEvidence(outputDir: string) {
       .filter((item) => item.sizeBytes > 0);
   } catch {
     return [];
+  }
+}
+
+function hasSketchEntryPoint(sourceDir: string): boolean {
+  const entryPoint = join(sourceDir, `${basename(sourceDir)}.ino`);
+  try {
+    return existsSync(entryPoint) && lstatSync(entryPoint).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function copySketchTree(sourceDir: string, targetDir: string): void {
+  for (const entry of readdirSync(sourceDir, { withFileTypes: true })) {
+    const source = join(sourceDir, entry.name);
+    const target = join(targetDir, entry.name);
+    const stat = lstatSync(source);
+    if (stat.isSymbolicLink()) throw new Error("Firmware source contains a symlink or junction");
+    if (stat.isDirectory()) {
+      mkdirSync(target, { recursive: true });
+      copySketchTree(source, target);
+    } else if (stat.isFile()) {
+      copyFileSync(source, target);
+    }
+  }
+}
+
+function prepareSketchSource(sourceDir: string): { sourceDir: string; cleanup: () => void } {
+  assertExistingPathContained(sourceDir, sourceDir);
+  if (hasSketchEntryPoint(sourceDir)) return { sourceDir, cleanup: () => undefined };
+
+  // Keep the staging directory beside the durable source tree. The output
+  // directory may itself be nested below sourceDir in controlled callers;
+  // staging inside sourceDir would make the copy recurse into its own target.
+  const stageParent = dirname(sourceDir);
+  assertExistingPathContained(stageParent, stageParent);
+  const stagedSourceDir = mkdtempSync(join(stageParent, ".arduino-sketch-"));
+  try {
+    assertParentContainedForWrite(stageParent, stagedSourceDir);
+    copySketchTree(sourceDir, stagedSourceDir);
+    writeFileSync(join(stagedSourceDir, `${basename(stagedSourceDir)}.ino`), "// Generated Arduino CLI sketch entry point.\n", "utf8");
+    return {
+      sourceDir: stagedSourceDir,
+      cleanup: () => rmSync(stagedSourceDir, { recursive: true, force: true }),
+    };
+  } catch (error) {
+    rmSync(stagedSourceDir, { recursive: true, force: true });
+    throw error;
   }
 }
 
@@ -165,6 +213,7 @@ export function createEsp32ArduinoCompiler(opts?: CompilerOptions): CompilerPort
           throw new UnsupportedBuildTargetError(`Resolved FQBN does not match pinned profile: ${String(requestedFqbn)}`);
         }
         const fqbn = profile.resolvedFqbn;
+        const prepared = prepareSketchSource(request.sourceDir);
         const argv = [
           ...prefix,
           "compile",
@@ -174,7 +223,7 @@ export function createEsp32ArduinoCompiler(opts?: CompilerOptions): CompilerPort
           request.outputDir,
           "--warnings",
           "all",
-          request.sourceDir,
+          prepared.sourceDir,
         ];
         let child;
         let settled = false;
@@ -185,11 +234,13 @@ export function createEsp32ArduinoCompiler(opts?: CompilerOptions): CompilerPort
           settled = true;
           if (timeout) clearTimeout(timeout);
           if (grace) clearTimeout(grace);
+          prepared.cleanup();
           fn();
         };
         try {
           child = spawnOwnedChild({ command: cli, args: argv, cwd: request.sourceDir });
         } catch (err) {
+          prepared.cleanup();
           reject(new ToolchainUnavailableError(`cannot spawn ${cli}: ${(err as Error).message}`));
           return;
         }

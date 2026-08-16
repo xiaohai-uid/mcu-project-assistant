@@ -9,6 +9,7 @@ export interface AppConfig {
   workspaceDir: string;
   deviceProvider: "companion" | "physical";
   arduinoCliPath: string;
+  arduinoCliConfigPath: string | null;
   buildTimeoutMs: number;
 }
 
@@ -41,6 +42,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot
   }
   const buildTimeoutMs = Number(rawBuildTimeout);
   const arduinoCliPath = env.MCU_ARDUINO_CLI_PATH?.trim() || "arduino-cli";
+  const rawArduinoCliConfigPath = env.MCU_ARDUINO_CLI_CONFIG_PATH?.trim();
+  if (rawArduinoCliConfigPath && !isAbsolute(rawArduinoCliConfigPath)) {
+    throw new Error("MCU_ARDUINO_CLI_CONFIG_PATH must be an absolute path");
+  }
 
   const storage = loadStorageConfig(env, root);
 
@@ -56,6 +61,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot
     workspaceDir: storage.workspaceDir,
     deviceProvider,
     arduinoCliPath,
+    arduinoCliConfigPath: rawArduinoCliConfigPath ? resolve(rawArduinoCliConfigPath) : null,
     buildTimeoutMs,
   };
 }

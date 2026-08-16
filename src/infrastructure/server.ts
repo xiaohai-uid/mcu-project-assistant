@@ -68,11 +68,18 @@ async function startServer(): Promise<void> {
     const persistence = createProjectStore(db);
     const events = createSseEvents();
     const ai = createAiProvider();
-    const compiler = createEsp32ArduinoCompiler({ arduinoCliPath: config.arduinoCliPath, timeoutMs: config.buildTimeoutMs });
+    const arduinoCliArgsPrefix = config.arduinoCliConfigPath
+      ? ["--config-file", config.arduinoCliConfigPath]
+      : [];
+    const compiler = createEsp32ArduinoCompiler({
+      arduinoCliPath: config.arduinoCliPath,
+      timeoutMs: config.buildTimeoutMs,
+      executableArgsPrefix: arduinoCliArgsPrefix,
+    });
     const tasks = createInProcessTasks({ persistence, events });
     stopTasks = tasks.stop;
     const device = config.deviceProvider === "physical"
-      ? createPhysicalArduinoDevice({ arduinoCliPath: config.arduinoCliPath, timeoutMs: 5 * 60 * 1000 })
+      ? createPhysicalArduinoDevice({ arduinoCliPath: config.arduinoCliPath, timeoutMs: 5 * 60 * 1000, executableArgsPrefix: arduinoCliArgsPrefix })
       : createCompanionLocalDevice();
     shutdownDevice = device.shutdown;
     const app = createApp({

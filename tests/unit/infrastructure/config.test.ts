@@ -22,6 +22,7 @@ describe("production runtime configuration", () => {
       workspaceDir: resolve("C:/mcu-config-test/workspace/test-config"),
       deviceProvider: "companion",
       arduinoCliPath: "arduino-cli",
+      arduinoCliConfigPath: null,
       buildTimeoutMs: 600000,
     });
   });
@@ -33,6 +34,12 @@ describe("production runtime configuration", () => {
   it("rejects relative production storage paths instead of binding them to the current cwd", () => {
     expect(() => loadConfig({ ...valid, MCU_DB_PATH: "./data/relative.db" })).toThrow(/absolute path/i);
     expect(() => loadConfig({ ...valid, MCU_WORKSPACE_DIR: "./workspace/relative" })).toThrow(/absolute path/i);
+  });
+
+  it("accepts an absolute Arduino CLI config path and rejects relative paths", () => {
+    const configPath = resolve("C:/mcu-config-test/toolchain/arduino-cli.yaml");
+    expect(loadConfig({ ...valid, MCU_ARDUINO_CLI_CONFIG_PATH: configPath }).arduinoCliConfigPath).toBe(configPath);
+    expect(() => loadConfig({ ...valid, MCU_ARDUINO_CLI_CONFIG_PATH: "toolchain/arduino-cli.yaml" })).toThrow(/absolute path/i);
   });
 
   it("keeps the checked-in storage examples absolute and accepted by production config", () => {
