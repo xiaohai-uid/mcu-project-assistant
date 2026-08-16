@@ -125,6 +125,14 @@ import {
   PhysicalAcceptanceProjectNotFoundError,
   recordPhysicalAcceptance,
 } from "@/src/application/capabilities/physical-acceptance";
+import {
+  addPriceObservation,
+  BomInputError,
+  BomProjectNotFoundError,
+  createBomItem,
+  exportProjectBom,
+  getProjectBom,
+} from "@/src/application/capabilities/bom";
 import { MAX_HTTP_BODY_BYTES, MAX_SERIAL_WRITE_BYTES, ResourceLimitError, assertUtf8Bytes } from "@/src/shared/resource-limits";
 import { SerialWriteTooLargeError } from "@/src/ports/device";
 import { browserTrustMiddleware } from "./browser-trust";
@@ -736,6 +744,76 @@ export function createApp(deps: AppDeps): HttpApp {
     res.json({ record: await latestPhysicalAcceptanceCapability({ projectId: project.id }, flashDeps) });
   };
 
+  const handleGetBom = async (req: Request, res: Response) => {
+    try {
+      res.json(await getProjectBom({ projectId: req.params.projectId as string }, readinessDeps));
+    } catch (err) {
+      if (err instanceof BomProjectNotFoundError) throw new ApiError(404, "not_found", err.message);
+      throw err;
+    }
+  };
+
+  const handleCreateBomItem = async (req: Request, res: Response) => {
+    try {
+      const body = req.body ?? {};
+      res.status(201).json(await createBomItem({
+        projectId: req.params.projectId as string,
+        componentId: typeof body.componentId === "string" ? body.componentId : "",
+        displayName: typeof body.displayName === "string" ? body.displayName : "",
+        sourceKind: "user-input",
+        identityStatus: body.identityStatus === "exact" ? "exact" : "unresolved",
+        manufacturer: typeof body.manufacturer === "string" ? body.manufacturer : null,
+        manufacturerPartNumber: typeof body.manufacturerPartNumber === "string" ? body.manufacturerPartNumber : null,
+        supplierSku: typeof body.supplierSku === "string" ? body.supplierSku : null,
+        quantity: Number(body.quantity),
+        unresolvedReason: typeof body.unresolvedReason === "string" ? body.unresolvedReason : null,
+      }, readinessDeps));
+    } catch (err) {
+      if (err instanceof BomProjectNotFoundError) throw new ApiError(404, "not_found", err.message);
+      if (err instanceof BomInputError) throw new ApiError(400, "invalid_capability", err.message);
+      throw err;
+    }
+  };
+
+  const handlePriceObservation = async (req: Request, res: Response) => {
+    try {
+      const body = req.body ?? {};
+      const numberOrNull = (value: unknown): number | null => value === null || value === undefined || value === "" ? null : Number.isFinite(Number(value)) ? Number(value) : null;
+      res.status(201).json(await addPriceObservation({
+        projectId: req.params.projectId as string,
+        bomItemId: req.params.itemId as string,
+        supplierSku: typeof body.supplierSku === "string" ? body.supplierSku : "",
+        manufacturerPartNumber: typeof body.manufacturerPartNumber === "string" ? body.manufacturerPartNumber : null,
+        quantityTier: Number(body.quantityTier) as 1 | 10 | 100,
+        unitPrice: numberOrNull(body.unitPrice),
+        lineTotal: numberOrNull(body.lineTotal),
+        shipping: numberOrNull(body.shipping),
+        tax: numberOrNull(body.tax),
+        fees: numberOrNull(body.fees),
+        stockStatus: body.stockStatus === "in-stock" || body.stockStatus === "out-of-stock" ? body.stockStatus : "unknown",
+        sourceUrl: typeof body.sourceUrl === "string" ? body.sourceUrl : "",
+        observedAt: typeof body.observedAt === "string" ? body.observedAt : undefined,
+      }, readinessDeps));
+    } catch (err) {
+      if (err instanceof BomProjectNotFoundError) throw new ApiError(404, "not_found", err.message);
+      if (err instanceof BomInputError) throw new ApiError(400, "invalid_capability", err.message);
+      throw err;
+    }
+  };
+
+  const handleBomExport = async (req: Request, res: Response) => {
+    try {
+      const format = req.query.format === "markdown" ? "markdown" : req.query.format === "csv" ? "csv" : "";
+      if (!format) throw new BomInputError("format must be csv or markdown");
+      const result = await exportProjectBom({ projectId: req.params.projectId as string, format }, readinessDeps);
+      res.json(result);
+    } catch (err) {
+      if (err instanceof BomProjectNotFoundError) throw new ApiError(404, "not_found", err.message);
+      if (err instanceof BomInputError) throw new ApiError(400, "invalid_capability", err.message);
+      throw err;
+    }
+  };
+
   const handleFlashToken = async (req: Request, res: Response) => {
     const deviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId : "";
     if (!deviceId) throw new ApiError(400, "invalid_capability", "deviceId required");
@@ -976,6 +1054,10 @@ export function createApp(deps: AppDeps): HttpApp {
   app.get("/api/v1/projects/:projectId/device-state", withErrorHandler(handleDeviceState));
   app.get("/api/v1/projects/:projectId/physical-acceptance", withErrorHandler(handleLatestPhysicalAcceptance));
   app.post("/api/v1/projects/:projectId/physical-acceptance", withErrorHandler(handlePhysicalAcceptance));
+  app.get("/api/v1/projects/:projectId/bom", withErrorHandler(handleGetBom));
+  app.get("/api/v1/projects/:projectId/bom/export", withErrorHandler(handleBomExport));
+  app.post("/api/v1/projects/:projectId/bom/items", withErrorHandler(handleCreateBomItem));
+  app.post("/api/v1/projects/:projectId/bom/items/:itemId/price-observations", withErrorHandler(handlePriceObservation));
   app.post("/api/v1/device/flash-token", withErrorHandler(handleFlashToken));
   app.post("/api/v1/device/flash", withErrorHandler(handleFlash));
   app.post("/api/v1/device/disconnect", withErrorHandler(handleDisconnect));

@@ -163,6 +163,55 @@ export interface PhysicalAcceptanceRecordDto {
   completedAt: string | null;
 }
 
+// ---------- BOM and procurement observations ----------
+
+export type BomSourceKind = "user-input" | "system-suggestion";
+export type BomIdentityStatus = "exact" | "unresolved";
+export type StockStatus = "in-stock" | "out-of-stock" | "unknown";
+
+export interface BomItemDto {
+  id: string;
+  projectId: string;
+  componentId: string;
+  displayName: string;
+  sourceKind: BomSourceKind;
+  identityStatus: BomIdentityStatus;
+  manufacturer: string | null;
+  manufacturerPartNumber: string | null;
+  supplierSku: string | null;
+  quantity: number;
+  unresolvedReason: string | null;
+  createdAt: string;
+}
+
+export interface PriceObservationDto {
+  id: string;
+  bomItemId: string;
+  supplier: "LCSC";
+  supplierSku: string;
+  manufacturerPartNumber: string | null;
+  quantityTier: 1 | 10 | 100;
+  currency: "CNY";
+  unitPrice: number | null;
+  lineTotal: number | null;
+  shipping: number | null;
+  tax: number | null;
+  fees: number | null;
+  stockStatus: StockStatus;
+  sourceUrl: string;
+  observedAt: string;
+}
+
+export interface BomItemWithObservationsDto extends BomItemDto {
+  priceObservations: PriceObservationDto[];
+}
+
+export interface ProjectBomDto {
+  projectId: string;
+  generatedAt: string;
+  items: BomItemWithObservationsDto[];
+}
+
 export interface SerialResultDto {
   /** null means the bytes were accepted by a physical transport but no response protocol exists. */
   response: string | null;

@@ -9,6 +9,7 @@ import { WiringGuidanceView } from "./components/WiringGuidanceView";
 import { FirmwareView } from "./components/FirmwareView";
 import { BuildView } from "./components/BuildView";
 import { ReadinessView } from "./components/ReadinessView";
+import { BomView } from "./components/BomView";
 import { CompanionView } from "./components/CompanionView";
 import { SettingsView } from "./components/SettingsView";
 import { StaleBanner, staleKindsFor } from "./components/ui";
@@ -87,6 +88,7 @@ function Workspace() {
         {sidebar === "Firmware" && <FirmwareView />}
         {sidebar === "Build" && <BuildView />}
         {sidebar === "Delivery" && <ReadinessView />}
+        {sidebar === "BOM" && <BomView />}
         {sidebar === "Companion" && <CompanionView />}
         {sidebar === "Settings" && <SettingsView />}
       </main>

@@ -8,7 +8,7 @@ import type { BuildRecord } from "@/src/domain/models/build-record";
 import type { Project } from "@/src/domain/models/project";
 import type { Proposal } from "@/src/domain/models/proposal";
 import type { TaskRecord } from "@/src/ports/task-execution";
-import type { ArtifactKind, ArtifactVersionStatus, PhysicalAcceptanceRecordDto, StaleMarkDto, ValidationRecordDto } from "@/src/shared-contracts/types";
+import type { ArtifactKind, ArtifactVersionStatus, BomItemDto, PhysicalAcceptanceRecordDto, PriceObservationDto, StaleMarkDto, ValidationRecordDto } from "@/src/shared-contracts/types";
 import type { IdempotencyClaim, IdempotencyRecord, IdempotencyRequest } from "@/src/shared/idempotency";
 
 export interface UnitOfWork {
@@ -53,6 +53,8 @@ export interface UnitOfWork {
   setPreference(key: string, value: string, updatedAt: string): void;
   // S9 physical acceptance (optional for legacy in-memory adapters)
   createPhysicalAcceptance?(record: PhysicalAcceptanceRecordDto): void;
+  createBomItem?(item: BomItemDto): void;
+  createPriceObservation?(observation: PriceObservationDto): void;
 }
 
 export interface PersistencePort {
@@ -87,4 +89,6 @@ export interface PersistencePort {
   // S9
   getPreference(key: string): Promise<string | null>;
   latestPhysicalAcceptance?(projectId: string): Promise<PhysicalAcceptanceRecordDto | null>;
+  listBomItems?(projectId: string): Promise<BomItemDto[]>;
+  listPriceObservations?(bomItemId: string): Promise<PriceObservationDto[]>;
 }

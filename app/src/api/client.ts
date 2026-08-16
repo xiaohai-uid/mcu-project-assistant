@@ -1,6 +1,6 @@
 // app/src/api/client.ts — Capability HTTP 客户端（S1：projects 面；随 Slice 扩展）
 // Progressive Swap：替换 Mock 引擎的 create/open/archive 路径（ISSUE-001 §5）
-import type { BuildOutputEvidenceDto, CommercialReadinessReportDto, DeviceInfoDto, FlashResultDto, PhysicalAcceptanceRecordDto, SerialResultDto, SerialSessionDto, TaskErrorDto } from "@/src/shared-contracts/types";
+import type { BomItemDto, BomItemWithObservationsDto, BuildOutputEvidenceDto, CommercialReadinessReportDto, DeviceInfoDto, FlashResultDto, PhysicalAcceptanceRecordDto, PriceObservationDto, SerialResultDto, SerialSessionDto, TaskErrorDto } from "@/src/shared-contracts/types";
 import type { ReferenceKitDefinition } from "@/src/domain/knowledge/platforms";
 
 export interface AppError {
@@ -250,6 +250,12 @@ export const api = {
   getBuilds: (versionId: string, signal?: AbortSignal) => request<BuildRecordDto[]>(`/api/v1/versions/${versionId}/builds`, { signal }),
   getBuild: (buildId: string) => request<BuildRecordDto>(`/api/v1/builds/${buildId}`),
   getReadinessReport: (projectId: string, signal?: AbortSignal) => request<CommercialReadinessReportDto>(`/api/v1/projects/${projectId}/readiness-report`, { signal }),
+  getBom: (projectId: string, signal?: AbortSignal) => request<{ projectId: string; generatedAt: string; items: BomItemWithObservationsDto[] }>(`/api/v1/projects/${projectId}/bom`, { signal }),
+  exportBom: (projectId: string, format: "csv" | "markdown") => request<{ format: "csv" | "markdown"; content: string }>(`/api/v1/projects/${projectId}/bom/export?format=${format}`),
+  createBomItem: (projectId: string, input: Omit<BomItemDto, "id" | "projectId" | "createdAt" | "sourceKind">) =>
+    request<BomItemDto>(`/api/v1/projects/${projectId}/bom/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }),
+  addPriceObservation: (projectId: string, itemId: string, input: Omit<PriceObservationDto, "id" | "bomItemId" | "supplier" | "currency" | "observedAt"> & { observedAt?: string }) =>
+    request<PriceObservationDto>(`/api/v1/projects/${projectId}/bom/items/${itemId}/price-observations`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }),
   checkToolchain: (signal?: AbortSignal) =>
     request<{ available: boolean; toolchain: string; version: string | null; reason?: string }>("/api/v1/toolchain", { signal }),
   // ---------- S8 Diagnosis ----------

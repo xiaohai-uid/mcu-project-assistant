@@ -17,6 +17,7 @@ export type SidebarTab =
   | "Firmware"
   | "Build"
   | "Delivery"
+  | "BOM"
   | "Companion"
   | "Settings";
 

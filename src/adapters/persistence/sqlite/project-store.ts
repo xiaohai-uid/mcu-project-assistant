@@ -4,7 +4,7 @@ import type { BuildRecord } from "@/src/domain/models/build-record";
 import type { Project } from "@/src/domain/models/project";
 import type { TaskRecord } from "@/src/ports/task-execution";
 import type { Proposal } from "@/src/domain/models/proposal";
-import type { ArtifactKind, ArtifactVersionStatus, PhysicalAcceptanceRecordDto, StaleMarkDto, TaskStatusDto, ValidationRecordDto } from "@/src/shared-contracts/types";
+import type { ArtifactKind, ArtifactVersionStatus, BomItemDto, PhysicalAcceptanceRecordDto, PriceObservationDto, StaleMarkDto, TaskStatusDto, ValidationRecordDto } from "@/src/shared-contracts/types";
 import type { PersistencePort, UnitOfWork } from "@/src/ports/persistence";
 import type { SqliteDb } from "./connection";
 import type { IdempotencyRecord, IdempotencyRequest } from "@/src/shared/idempotency";
@@ -139,6 +139,39 @@ interface PhysicalAcceptanceRow {
   reason: string | null;
   created_at: string;
   completed_at: string | null;
+}
+
+interface BomItemRow {
+  id: string;
+  project_id: string;
+  component_id: string;
+  display_name: string;
+  source_kind: string;
+  identity_status: string;
+  manufacturer: string | null;
+  manufacturer_part_number: string | null;
+  supplier_sku: string | null;
+  quantity: number;
+  unresolved_reason: string | null;
+  created_at: string;
+}
+
+interface PriceObservationRow {
+  id: string;
+  bom_item_id: string;
+  supplier: string;
+  supplier_sku: string;
+  manufacturer_part_number: string | null;
+  quantity_tier: number;
+  currency: string;
+  unit_price: number | null;
+  line_total: number | null;
+  shipping: number | null;
+  tax: number | null;
+  fees: number | null;
+  stock_status: string;
+  source_url: string;
+  observed_at: string;
 }
 
 interface ProposalRow {
@@ -285,6 +318,43 @@ function toPhysicalAcceptance(row: PhysicalAcceptanceRow): PhysicalAcceptanceRec
   };
 }
 
+function toBomItem(row: BomItemRow): BomItemDto {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    componentId: row.component_id,
+    displayName: row.display_name,
+    sourceKind: row.source_kind as BomItemDto["sourceKind"],
+    identityStatus: row.identity_status as BomItemDto["identityStatus"],
+    manufacturer: row.manufacturer,
+    manufacturerPartNumber: row.manufacturer_part_number,
+    supplierSku: row.supplier_sku,
+    quantity: row.quantity,
+    unresolvedReason: row.unresolved_reason,
+    createdAt: row.created_at,
+  };
+}
+
+function toPriceObservation(row: PriceObservationRow): PriceObservationDto {
+  return {
+    id: row.id,
+    bomItemId: row.bom_item_id,
+    supplier: row.supplier as PriceObservationDto["supplier"],
+    supplierSku: row.supplier_sku,
+    manufacturerPartNumber: row.manufacturer_part_number,
+    quantityTier: row.quantity_tier as PriceObservationDto["quantityTier"],
+    currency: row.currency as PriceObservationDto["currency"],
+    unitPrice: row.unit_price,
+    lineTotal: row.line_total,
+    shipping: row.shipping,
+    tax: row.tax,
+    fees: row.fees,
+    stockStatus: row.stock_status as PriceObservationDto["stockStatus"],
+    sourceUrl: row.source_url,
+    observedAt: row.observed_at,
+  };
+}
+
 export function createProjectStore(db: SqliteDb): PersistencePort {
   const insertIdempotency = db.prepare(
     `INSERT INTO idempotency_records (scope, key, request_hash, response_status, response_body_json, created_at)
@@ -419,6 +489,16 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
   const selectLatestPhysicalAcceptance = db.prepare(
     "SELECT * FROM physical_acceptance_records WHERE project_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
   );
+  const insertBomItem = db.prepare(
+    `INSERT INTO bom_items (id, project_id, component_id, display_name, source_kind, identity_status, manufacturer, manufacturer_part_number, supplier_sku, quantity, unresolved_reason, created_at)
+     VALUES (@id, @project_id, @component_id, @display_name, @source_kind, @identity_status, @manufacturer, @manufacturer_part_number, @supplier_sku, @quantity, @unresolved_reason, @created_at)`,
+  );
+  const selectBomItems = db.prepare("SELECT * FROM bom_items WHERE project_id = ? ORDER BY created_at ASC, rowid ASC");
+  const insertPriceObservation = db.prepare(
+    `INSERT INTO price_observations (id, bom_item_id, supplier, supplier_sku, manufacturer_part_number, quantity_tier, currency, unit_price, line_total, shipping, tax, fees, stock_status, source_url, observed_at)
+     VALUES (@id, @bom_item_id, @supplier, @supplier_sku, @manufacturer_part_number, @quantity_tier, @currency, @unit_price, @line_total, @shipping, @tax, @fees, @stock_status, @source_url, @observed_at)`,
+  );
+  const selectPriceObservations = db.prepare("SELECT * FROM price_observations WHERE bom_item_id = ? ORDER BY observed_at ASC, rowid ASC");
   const upsertPreference = db.prepare(
     "INSERT INTO preferences (key, value, updated_at) VALUES (@key, @value, @updated_at) ON CONFLICT(key) DO UPDATE SET value = @value, updated_at = @updated_at",
   );
@@ -652,6 +732,41 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
         completed_at: record.completedAt,
       });
     },
+    createBomItem(item: BomItemDto): void {
+      insertBomItem.run({
+        id: item.id,
+        project_id: item.projectId,
+        component_id: item.componentId,
+        display_name: item.displayName,
+        source_kind: item.sourceKind,
+        identity_status: item.identityStatus,
+        manufacturer: item.manufacturer,
+        manufacturer_part_number: item.manufacturerPartNumber,
+        supplier_sku: item.supplierSku,
+        quantity: item.quantity,
+        unresolved_reason: item.unresolvedReason,
+        created_at: item.createdAt,
+      });
+    },
+    createPriceObservation(observation: PriceObservationDto): void {
+      insertPriceObservation.run({
+        id: observation.id,
+        bom_item_id: observation.bomItemId,
+        supplier: observation.supplier,
+        supplier_sku: observation.supplierSku,
+        manufacturer_part_number: observation.manufacturerPartNumber,
+        quantity_tier: observation.quantityTier,
+        currency: observation.currency,
+        unit_price: observation.unitPrice,
+        line_total: observation.lineTotal,
+        shipping: observation.shipping,
+        tax: observation.tax,
+        fees: observation.fees,
+        stock_status: observation.stockStatus,
+        source_url: observation.sourceUrl,
+        observed_at: observation.observedAt,
+      });
+    },
     createValidationRecord(v: ValidationRecordDto): void {
       insertValidation.run({
         id: v.id,
@@ -799,5 +914,7 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
       const row = selectLatestPhysicalAcceptance.get(projectId) as PhysicalAcceptanceRow | undefined;
       return row ? toPhysicalAcceptance(row) : null;
     },
+    listBomItems: async (projectId: string) => (selectBomItems.all(projectId) as BomItemRow[]).map(toBomItem),
+    listPriceObservations: async (bomItemId: string) => (selectPriceObservations.all(bomItemId) as PriceObservationRow[]).map(toPriceObservation),
   };
 }

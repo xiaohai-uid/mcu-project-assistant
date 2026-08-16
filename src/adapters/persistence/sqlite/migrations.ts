@@ -235,6 +235,45 @@ CREATE TABLE physical_acceptance_records (
 CREATE INDEX idx_physical_acceptance_project ON physical_acceptance_records(project_id, created_at);
 `,
   },
+  {
+    version: 13,
+    name: "create_bom_and_price_observations",
+    sql: `
+CREATE TABLE bom_items (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  component_id TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('user-input','system-suggestion')),
+  identity_status TEXT NOT NULL CHECK (identity_status IN ('exact','unresolved')),
+  manufacturer TEXT NULL,
+  manufacturer_part_number TEXT NULL,
+  supplier_sku TEXT NULL,
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  unresolved_reason TEXT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_bom_items_project ON bom_items(project_id, created_at);
+CREATE TABLE price_observations (
+  id TEXT PRIMARY KEY,
+  bom_item_id TEXT NOT NULL REFERENCES bom_items(id),
+  supplier TEXT NOT NULL CHECK (supplier = 'LCSC'),
+  supplier_sku TEXT NOT NULL,
+  manufacturer_part_number TEXT NULL,
+  quantity_tier INTEGER NOT NULL CHECK (quantity_tier IN (1,10,100)),
+  currency TEXT NOT NULL CHECK (currency = 'CNY'),
+  unit_price REAL NULL,
+  line_total REAL NULL,
+  shipping REAL NULL,
+  tax REAL NULL,
+  fees REAL NULL,
+  stock_status TEXT NOT NULL CHECK (stock_status IN ('in-stock','out-of-stock','unknown')),
+  source_url TEXT NOT NULL,
+  observed_at TEXT NOT NULL
+);
+CREATE INDEX idx_price_observations_item ON price_observations(bom_item_id, observed_at);
+`,
+  },
 ];
 
 export function migrate(db: SqliteDb): void {
