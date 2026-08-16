@@ -149,7 +149,7 @@ describe("physical Arduino CLI adapter", () => {
     expect(result).toMatchObject({ exitCode: 0, buildId: "build-fixture", artifactVersionId: "version-fixture", firmwareSha256: "a".repeat(64), port: "COM9", fqbn: FQBN, adapter: "esp32-arduino-physical", toolchain: "arduino-cli" });
     expect(result.truth).toMatchObject({ executionReality: "physical", verification: "verified", physicalVerified: true });
     const argv = JSON.parse(readFileSync(f.marker, "utf8")) as string[];
-    expect(argv).toEqual(["upload", "--fqbn", FQBN, "--port", "COM9", "--input-dir", flashInput.outputDir]);
+    expect(argv).toEqual(["upload", "--fqbn", FQBN, "--port", "COM9", "--input-dir", flashInput.outputDir, "--verify"]);
   });
 
   it("returns failed truth for a nonzero uploader exit", async () => {

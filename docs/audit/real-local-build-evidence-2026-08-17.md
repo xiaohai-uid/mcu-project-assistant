@@ -44,6 +44,7 @@ The full commercial golden flow was also run through the application after the t
 ## Adapter and regression evidence — 2026-08-17
 
 - The physical Arduino adapter now parses Arduino CLI's nested `detected_ports[].port` object, including `address`, `protocol`, `properties.vid`, `properties.pid`, and `properties.serialNumber`.
+- The physical upload command now passes Arduino CLI's explicit `--verify` flag; Arduino CLI 1.5.1 documents that upload verification is opt-in, so a zero exit code is not treated as verification evidence unless this flag is present.
 - The adapter still fails closed unless exactly one supported `esp32:esp32:esp32s3` board is reported; this software fix does not claim that a board is connected.
 - Full regression after the adapter fix: `99` test files passed; `563` tests passed and `1` skipped. Typecheck, lint, production server build, production app build, and `git diff --check` also passed.
 - The final local board check still reported only `COM1` with no matching supported board. Physical acceptance therefore remains pending external hardware evidence.

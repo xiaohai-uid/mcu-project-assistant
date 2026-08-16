@@ -272,7 +272,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
           return;
         }
         session.stage = "flashing";
-        const argv = [...prefix, "upload", "--fqbn", ESP32_S3_FQBN, "--port", current.port, "--input-dir", input.outputDir];
+        const argv = [...prefix, "upload", "--fqbn", ESP32_S3_FQBN, "--port", current.port, "--input-dir", input.outputDir, "--verify"];
         let child: import("node:child_process").ChildProcess;
         let settled = false;
         let timeoutRequested = false;
