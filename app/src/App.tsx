@@ -18,18 +18,19 @@ import { t } from "./lib/i18n";
 function Workspace() {
   const { state, revalidateAll, decideRevalidateProposal } = useApp();
   const { lang, sidebar } = state;
+  const commercialPrototypeEnabled = import.meta.env.DEV && new URLSearchParams(window.location.search).get("prototype") === "commercial-readiness";
 
   const staleKinds = staleKindsFor(state.artifacts, ["pinmap", "wiring", "firmware", "build"]);
   const revalidating = state.revalidate.running;
   const kindLabel = (k: string) => t(lang, `kind${(k[0] ?? "").toUpperCase()}${k.slice(1)}` as never);
 
   return (
-    <div className="flex pt-11 flex-1">
-      <SideNavBar />
+    <div className={`flex ${commercialPrototypeEnabled ? "" : "pt-11"} flex-1`}>
+      {!commercialPrototypeEnabled && <SideNavBar />}
 
-      <main className="flex-1 ml-64 mr-copilot-width transition-all">
+      <main className={`flex-1 min-w-0 ${commercialPrototypeEnabled ? "" : "ml-64 mr-copilot-width transition-all"}`}>
         {/* 全局 Stale 提示（工作区任意视图） */}
-        {staleKinds.length > 0 && (
+        {!commercialPrototypeEnabled && staleKinds.length > 0 && (
           <div className="px-6 pt-4">
             <StaleBanner
               from={kindLabel("hardware")}
@@ -42,7 +43,7 @@ function Workspace() {
         )}
 
         {/* S5B：Revalidate 产生的提案卡（D1 不自动接受——等待用户决策） */}
-        {state.revalidate.proposals.length > 0 && (
+        {!commercialPrototypeEnabled && state.revalidate.proposals.length > 0 && (
           <div className="px-6 pt-4 flex flex-col gap-2">
             {state.revalidate.proposals.map((p) => (
               <div
@@ -88,7 +89,7 @@ function Workspace() {
         {sidebar === "Settings" && <SettingsView />}
       </main>
 
-      <ProjectCopilotPanel />
+      {!commercialPrototypeEnabled && <ProjectCopilotPanel />}
     </div>
   );
 }
@@ -97,6 +98,7 @@ function AppInner() {
   const { state, dispatch, setNav } = useApp();
   const { lang, theme, nav, labOpen } = state;
   const developmentToolsEnabled = import.meta.env.DEV;
+  const commercialPrototypeEnabled = developmentToolsEnabled && new URLSearchParams(window.location.search).get("prototype") === "commercial-readiness";
 
   // 主题应用（System / Light / Dark）
   useEffect(() => {
@@ -116,13 +118,19 @@ function AppInner() {
     localStorage.setItem("mcu_app_lang", lang);
   }, [lang]);
 
+  useEffect(() => {
+    if (!commercialPrototypeEnabled) return;
+    setNav("Draft");
+    dispatch({ type: "SIDEBAR", sidebar: "Hardware" });
+  }, [commercialPrototypeEnabled, dispatch, setNav]);
+
   return (
     <div className="min-h-screen bg-[var(--canvas-bg)] text-[var(--text-primary)] font-sans antialiased flex flex-col selection:bg-[#007aff]/30">
-      <TopNavBar />
+      {!commercialPrototypeEnabled && <TopNavBar />}
 
       {nav === "Home" ? <HomeDashboardView /> : <Workspace />}
 
-      {developmentToolsEnabled && (
+      {developmentToolsEnabled && !commercialPrototypeEnabled && (
         <>
           {/* State Lab 浮动入口（Mock 专用；开发构建才可达） */}
           <button
