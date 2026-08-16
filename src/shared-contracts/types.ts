@@ -309,6 +309,56 @@ export interface CommercialReadinessReportDto {
   gates: ReadinessGateDto[];
 }
 
+export interface DeliverySourceDto {
+  owner: string;
+  url: string;
+  title: string;
+  revision?: string;
+  accessedAt: string;
+  confidence: string;
+}
+
+export interface DeliveryBoardIdentityDto {
+  referenceKitId: string;
+  boardModel: string;
+  boardRevision: string;
+  moduleModel: string;
+  manufacturer: string | null;
+  source: DeliverySourceDto | null;
+}
+
+export interface DeliveryRiskDto {
+  id: string;
+  severity: "required" | "optional";
+  title: string;
+  detail: string;
+  nextAction: string | null;
+  evidence: ReadinessEvidenceDto[];
+}
+
+export interface DeliveryReportDto extends CommercialReadinessReportDto {
+  project: { name: string };
+  hardware: {
+    versionId: string | null;
+    observedAt: string | null;
+    identity: DeliveryBoardIdentityDto | null;
+  };
+  componentIdentities: BomItemWithObservationsDto[];
+  wiring: {
+    versionId: string | null;
+    validation: ValidationRecordDto | null;
+  };
+  build: BuildRecordDto | null;
+  physicalAcceptance: PhysicalAcceptanceRecordDto | null;
+  simulation: {
+    status: "not-run" | "ready" | "blocked";
+    reason: string | null;
+  };
+  bom: ProjectBomDto;
+  priceObservationTimestamps: Array<{ bomItemId: string; observedAt: string }>;
+  risks: DeliveryRiskDto[];
+}
+
 export type StaleLevel = "L1" | "L2" | "L3";
 
 export interface StaleMarkDto {

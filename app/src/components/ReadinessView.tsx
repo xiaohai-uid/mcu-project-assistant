@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import type { CommercialReadinessReportDto, ReadinessGateDto } from "@/src/shared-contracts/types";
+import type { DeliveryReportDto, ReadinessGateDto } from "@/src/shared-contracts/types";
 import { api as clientApi } from "../api/client";
 import { t } from "../lib/i18n";
 import { useApp } from "../state/AppContext";
@@ -31,7 +31,7 @@ function statusLabel(lang: "en" | "zh", status: ReadinessGateDto["status"]): str
 export const ReadinessView: React.FC = () => {
   const { state } = useApp();
   const { lang, project } = state;
-  const [report, setReport] = useState<CommercialReadinessReportDto | null>(null);
+  const [report, setReport] = useState<DeliveryReportDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [serialObservation, setSerialObservation] = useState("");
@@ -46,7 +46,7 @@ export const ReadinessView: React.FC = () => {
     setLoading(true);
     setError(false);
     try {
-      setReport(await clientApi.getReadinessReport(project.id, signal));
+      setReport(await clientApi.getDeliveryReport(project.id, signal));
     } catch {
       if (!signal?.aborted) setError(true);
     } finally {
@@ -126,6 +126,64 @@ export const ReadinessView: React.FC = () => {
                 <div className="font-mono text-[10px] uppercase">{t(lang, "deliveryNextAction")}</div>
                 <div className="mt-1 max-w-xs">{report.conclusion.nextAction ?? t(lang, "deliveryNoAction")}</div>
               </div>
+            </div>
+          </section>
+
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <article className="mac-card p-4">
+              <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">APPROVED HARDWARE</div>
+              <h2 className="text-sm font-semibold text-[var(--text-primary)] mt-1">{report.hardware.identity?.boardModel ?? "Identity not approved"}</h2>
+              <div className="text-xs text-[var(--text-secondary)] mt-2">
+                {report.hardware.identity ? `${report.hardware.identity.moduleModel} · ${report.hardware.identity.boardRevision}` : "The current hardware artifact has no complete Reference Kit identity."}
+              </div>
+              <div className="text-[10px] font-mono text-[var(--text-muted)] mt-3 break-all">{report.hardware.identity?.referenceKitId ?? "—"}</div>
+              {report.hardware.identity?.source && <a className="text-[11px] text-[#007aff] mt-2 inline-block break-all" href={report.hardware.identity.source.url} target="_blank" rel="noreferrer">{report.hardware.identity.source.title}</a>}
+            </article>
+            <article className="mac-card p-4">
+              <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">BUILD ARTIFACT</div>
+              <h2 className="text-sm font-semibold text-[var(--text-primary)] mt-1">{report.build?.id ?? "No build record"}</h2>
+              <div className="text-xs text-[var(--text-secondary)] mt-2">{report.build ? `${report.build.target} · ${report.build.toolchainCoreVersion ?? "core unknown"} · ${report.build.toolchainEvidence}` : "Run the pinned build to create delivery evidence."}</div>
+              <div className="text-[10px] font-mono text-[var(--text-muted)] mt-3 break-all">{report.build?.outputs.find((output) => output.kind === "bin")?.sha256 ?? "SHA-256 unavailable"}</div>
+            </article>
+          </section>
+
+          <section className="mac-card p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">COMPONENT IDENTITIES / WIRING</div>
+                <h2 className="text-sm font-semibold text-[var(--text-primary)] mt-1">Approved component records</h2>
+              </div>
+              <span className="text-[11px] text-[var(--text-secondary)]">{report.wiring.validation?.result ?? "not-run"}</span>
+            </div>
+            <div className="mt-3 divide-y divide-[var(--panel-border-subtle)]">
+              {report.componentIdentities.length === 0 ? <div className="text-xs text-[var(--text-muted)] py-2">No component identity records saved.</div> : report.componentIdentities.map((item) => (
+                <div key={item.id} className="py-2 flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                  <div><div className="text-xs text-[var(--text-primary)]">{item.displayName}</div><div className="text-[10px] font-mono text-[var(--text-muted)]">{item.componentId} · {item.identityStatus}</div></div>
+                  <div className="text-[10px] font-mono text-[var(--text-secondary)]">{item.manufacturerPartNumber ?? "part pending"} · {item.supplierSku ?? "SKU pending"}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <article className="mac-card p-4">
+              <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">BOM / PRICE OBSERVATIONS</div>
+              <h2 className="text-sm font-semibold text-[var(--text-primary)] mt-1">{report.bom.items.length} items · {report.priceObservationTimestamps.length} observations</h2>
+              <div className="mt-3 flex flex-col gap-2">
+                {report.bom.items.map((item) => <div key={item.id} className="text-[11px] text-[var(--text-secondary)]"><span className="text-[var(--text-primary)]">{item.displayName}</span> · {item.priceObservations.length ? item.priceObservations.map((observation) => observation.observedAt).join(", ") : "no dated observation"}</div>)}
+              </div>
+            </article>
+            <article className="mac-card p-4">
+              <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">OPTIONAL SIMULATION</div>
+              <h2 className="text-sm font-semibold text-[var(--text-primary)] mt-1">{report.simulation.status}</h2>
+              <p className="text-xs text-[var(--text-secondary)] mt-2">{report.simulation.reason ?? "Simulation evidence is available."} Local readiness does not depend on this optional gate.</p>
+            </article>
+          </section>
+
+          <section className="mac-card p-4">
+            <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">UNRESOLVED RISKS</div>
+            <div className="mt-3 flex flex-col gap-2">
+              {report.risks.length === 0 ? <div className="text-xs text-emerald-600 dark:text-emerald-400">No unresolved delivery risks.</div> : report.risks.map((risk) => <div key={risk.id} className="rounded-md bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] px-3 py-2"><div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold text-[var(--text-primary)]">{risk.title}</span><span className="text-[10px] font-mono text-[var(--text-muted)]">{risk.severity}</span></div><div className="text-[11px] text-[var(--text-secondary)] mt-1">{risk.detail}</div>{risk.nextAction && <div className="text-[11px] text-[var(--text-primary)] mt-1">{risk.nextAction}</div>}</div>)}
             </div>
           </section>
 

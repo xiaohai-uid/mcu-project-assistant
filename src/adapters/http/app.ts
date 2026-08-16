@@ -92,7 +92,7 @@ import {
   runBuild as runBuildCapability,
   VersionNotFoundError as BuildVersionNotFoundError,
 } from "@/src/application/capabilities/build";
-import { getCommercialReadinessReport, ReadinessProjectNotFoundError } from "@/src/application/capabilities/readiness";
+import { getCommercialReadinessReport, getDeliveryReport, ReadinessProjectNotFoundError } from "@/src/application/capabilities/readiness";
 import {
   BuildNotFailedError,
   BuildNotFoundError as DiagnosisBuildNotFoundError,
@@ -672,6 +672,15 @@ export function createApp(deps: AppDeps): HttpApp {
     }
   };
 
+  const handleDeliveryReport = async (req: Request, res: Response) => {
+    try {
+      res.json(await getDeliveryReport({ projectId: req.params.projectId as string }, readinessDeps));
+    } catch (err) {
+      if (err instanceof ReadinessProjectNotFoundError) throw new ApiError(404, "not_found", err.message);
+      throw err;
+    }
+  };
+
   const handleCancelBuild = async (req: Request, res: Response) => {
     try {
       const result = await cancelBuildCapability({ buildId: req.params.buildId as string }, buildDeps);
@@ -1046,6 +1055,7 @@ export function createApp(deps: AppDeps): HttpApp {
   app.post("/api/v1/projects/:projectId/builds", withErrorHandler(handleRunBuild));
   app.get("/api/v1/builds/:buildId", withErrorHandler(handleGetBuild));
   app.get("/api/v1/projects/:projectId/readiness-report", withErrorHandler(handleReadinessReport));
+  app.get("/api/v1/projects/:projectId/delivery-report", withErrorHandler(handleDeliveryReport));
   app.post("/api/v1/builds/:buildId/diagnose", withErrorHandler(handleDiagnoseBuild));
   app.post("/api/v1/builds/:buildId/cancel", withErrorHandler(handleCancelBuild));
   app.get("/api/v1/versions/:versionId/builds", withErrorHandler(handleListBuilds));

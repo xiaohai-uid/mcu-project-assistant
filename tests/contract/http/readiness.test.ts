@@ -13,7 +13,7 @@ import { createCompanionLocalDevice } from "@/src/adapters/device/companion-loca
 import { openDatabase, type SqliteDb } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
-import type { CommercialReadinessReportDto } from "@/src/shared-contracts/types";
+import type { CommercialReadinessReportDto, DeliveryReportDto } from "@/src/shared-contracts/types";
 
 let dir: string;
 let db: SqliteDb;
@@ -53,5 +53,35 @@ describe("commercial readiness report surface", () => {
     expect(body.gates.some((gate) => gate.status === "ready")).toBe(false);
     expect(body.conclusion.text).not.toMatch(/%/);
     expect(body.gates.find((gate) => gate.id === "paid-release-ready")?.status).toBe("blocked");
+  });
+
+  it("returns the A-style delivery report with explicit optional simulation and required evidence risks", async () => {
+    dir = mkdtempSync(join(tmpdir(), "mcu-delivery-http-"));
+    const workspaceDir = join(dir, "ws");
+    db = openDatabase(join(dir, "test.db"));
+    migrate(db);
+    const persistence = createProjectStore(db);
+    const events = createNoopEvents();
+    app = createApp({
+      persistence,
+      workspaceDir,
+      content: createWorkspaceFilesContent(workspaceDir),
+      events,
+      tasks: createInProcessTasks({ persistence, events }),
+      compiler: createMockCompiler(),
+      device: createCompanionLocalDevice(),
+      ai: createMockAiProvider({ slow: false }),
+      now: () => new Date("2026-08-17T00:00:00.000Z"),
+    });
+
+    const project = await request(app).post("/api/v1/projects").send({ name: "Delivery" });
+    const report = await request(app).get(`/api/v1/projects/${(project.body as { id: string }).id}/delivery-report`);
+    expect(report.status).toBe(200);
+    const body = report.body as DeliveryReportDto;
+    expect(body.project.name).toBe("Delivery");
+    expect(body.simulation).toEqual({ status: "not-run", reason: "Optional simulation has not been run." });
+    expect(body.gates.find((gate) => gate.id === "local-ready")?.status).not.toBe("ready");
+    expect(body.gates.find((gate) => gate.id === "paid-release-ready")?.status).toBe("blocked");
+    expect(body.risks.map((risk) => risk.id)).toContain("physical-acceptance");
   });
 });
