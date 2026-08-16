@@ -7,6 +7,7 @@ export interface ComponentDefinition {
   id: string;
   schemaVersion: string;
   displayName: string;
+  identity: ComponentIdentity;
   aliases: string[];
   categories: string[];
   capabilities: string[];
@@ -21,6 +22,38 @@ export interface ComponentDefinition {
   firmware: { libraries: string[]; includes: string[]; codegenAdapter: string; varName: string };
   purchasing: { searchTerms: string[] };
   safetyNotes: string[];
+}
+
+export type ComponentObjectLevel = "chip" | "module" | "board" | "component";
+export type ComponentIdentityStatus = "exact" | "family" | "unresolved";
+export type ComponentSourceStatus = "verified" | "candidate" | "pending";
+export type ComponentSourceConfidence =
+  | "official-direct"
+  | "official-index"
+  | "measured"
+  | "user-supplied"
+  | "inferred"
+  | "unsupported";
+
+export interface ComponentSource {
+  owner: string;
+  url: string;
+  title: string;
+  revision?: string;
+  accessedAt: string;
+  confidence: ComponentSourceConfidence;
+}
+
+export interface ComponentIdentity {
+  status: ComponentIdentityStatus;
+  sourceStatus: ComponentSourceStatus;
+  objectLevel: ComponentObjectLevel;
+  manufacturer?: string;
+  partNumber?: string;
+  variant?: string;
+  supplierSku?: string;
+  sources: ComponentSource[];
+  pendingReason?: string;
 }
 
 export interface ComponentRegistry {
@@ -39,6 +72,21 @@ const SOIL_MOISTURE: ComponentDefinition = {
   id: "sensor.soil_moisture",
   schemaVersion: "1",
   displayName: "土壤湿度传感器",
+  identity: {
+    status: "unresolved",
+    sourceStatus: "pending",
+    objectLevel: "module",
+    sources: [
+      {
+        owner: "ASAIR/Aosong",
+        url: "https://www.aosong.com/en/Products/info.aspx?itemid=2294&lcid=139",
+        title: "ASAIR AM2302 Temperature and Humidity Sensor Modules",
+        accessedAt: "2026-08-16",
+        confidence: "official-index",
+      },
+    ],
+    pendingReason: "官方产品页未提供可核验的具体模块料号和公开专用数据手册；电压、引脚和输出电平仍待精确模块资料。",
+  },
   aliases: ["Soil Moisture Sensor", "土壤水分传感器"],
   categories: ["sensor"],
   capabilities: ["soil_moisture_sensing"],
@@ -54,6 +102,21 @@ const RELAY: ComponentDefinition = {
   id: "actuator.relay",
   schemaVersion: "1",
   displayName: "继电器模块",
+  identity: {
+    status: "unresolved",
+    sourceStatus: "pending",
+    objectLevel: "module",
+    sources: [
+      {
+        owner: "Songle Relay",
+        url: "https://www.songlerelay.com/srd-t73-relay.html",
+        title: "SRD(T73) Relay product page (candidate bare relay family)",
+        accessedAt: "2026-08-16",
+        confidence: "official-index",
+      },
+    ],
+    pendingReason: "当前只有泛化继电器模块名称；裸继电器候选资料不能证明模块驱动器、输入门限、线圈电流或 3.3V 兼容性。",
+  },
   aliases: ["Relay Module", "5V继电器"],
   categories: ["actuator"],
   capabilities: ["high_power_switching"],
@@ -69,6 +132,21 @@ const OLED_096: ComponentDefinition = {
   id: "display.oled_096",
   schemaVersion: "1",
   displayName: "OLED 0.96寸",
+  identity: {
+    status: "family",
+    sourceStatus: "candidate",
+    objectLevel: "module",
+    sources: [
+      {
+        owner: "Solomon Systech",
+        url: "https://www.solomon-systech.com/product-category/oled-display",
+        title: "SSD1306 OLED controller product category (controller-level source)",
+        accessedAt: "2026-08-16",
+        confidence: "official-index",
+      },
+    ],
+    pendingReason: "SSD1306 控制器资料不能推出任一 0.96 寸模块的供电、电平、I2C 地址、上拉、电流或连接器。",
+  },
   aliases: ["OLED", "SSD1306", "0.96 inch OLED"],
   categories: ["display"],
   capabilities: ["graphical_display"],
@@ -86,6 +164,21 @@ const DHT22: ComponentDefinition = {
   id: "sensor.dht22",
   schemaVersion: "1",
   displayName: "DHT22",
+  identity: {
+    status: "unresolved",
+    sourceStatus: "pending",
+    objectLevel: "module",
+    sources: [
+      {
+        owner: "ASAIR/Aosong",
+        url: "https://www.aosong.com/en/Products/info.aspx?itemid=2294&lcid=139",
+        title: "ASAIR AM2302 Temperature and Humidity Sensor Modules",
+        accessedAt: "2026-08-16",
+        confidence: "official-index",
+      },
+    ],
+    pendingReason: "官方入口显示需索取数据手册，DHT22/AM2302 的具体模块身份和电气字段未核验。",
+  },
   aliases: ["DHT22温湿度传感器", "AM2302"],
   categories: ["sensor"],
   capabilities: ["temperature_sensing", "humidity_sensing"],
@@ -101,6 +194,13 @@ const LCD1602: ComponentDefinition = {
   id: "display.lcd1602",
   schemaVersion: "1",
   displayName: "LCD1602",
+  identity: {
+    status: "unresolved",
+    sourceStatus: "pending",
+    objectLevel: "module",
+    sources: [],
+    pendingReason: "LCD1602 仅为市场家族名称，未绑定制造商、模块料号、背板版本或官方接线资料。",
+  },
   aliases: ["LCD 1602", "16x2 LCD", "LCD1602 I2C"],
   categories: ["display"],
   capabilities: ["text_display"],
@@ -116,6 +216,30 @@ const BMP280: ComponentDefinition = {
   id: "sensor.bmp280",
   schemaVersion: "1",
   displayName: "BMP280",
+  identity: {
+    status: "exact",
+    sourceStatus: "verified",
+    objectLevel: "chip",
+    manufacturer: "Bosch Sensortec",
+    partNumber: "BMP280",
+    sources: [
+      {
+        owner: "Bosch Sensortec",
+        url: "https://www.bosch-sensortec.com/products/environmental-sensors/pressure-sensors/bmp280/",
+        title: "BMP280 product page",
+        accessedAt: "2026-08-16",
+        confidence: "official-direct",
+      },
+      {
+        owner: "Bosch Sensortec",
+        url: "https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmp280-ds001.pdf",
+        title: "BMP280 datasheet BST-BMP280-DS001",
+        revision: "Rev.1.26",
+        accessedAt: "2026-08-16",
+        confidence: "official-direct",
+      },
+    ],
+  },
   aliases: ["BMP280气压传感器"],
   categories: ["sensor"],
   capabilities: ["pressure_sensing", "temperature_sensing", "altitude_sensing"],
@@ -131,6 +255,13 @@ const PHOTORESISTOR: ComponentDefinition = {
   id: "sensor.photoresistor",
   schemaVersion: "1",
   displayName: "光敏电阻模块",
+  identity: {
+    status: "unresolved",
+    sourceStatus: "pending",
+    objectLevel: "module",
+    sources: [],
+    pendingReason: "光敏电阻模块没有制造商、精确料号或官方原理图，输出范围和电平转换未知。",
+  },
   aliases: ["Photoresistor", "LDR", "光敏传感器"],
   categories: ["sensor"],
   capabilities: ["light_sensing"],
@@ -146,6 +277,23 @@ const SG90: ComponentDefinition = {
   id: "actuator.sg90",
   schemaVersion: "1",
   displayName: "SG90 舵机",
+  identity: {
+    status: "exact",
+    sourceStatus: "verified",
+    objectLevel: "component",
+    manufacturer: "Tower Pro",
+    partNumber: "SG90",
+    sources: [
+      {
+        owner: "Tower Pro",
+        url: "https://towerpro.com.tw/product/sg90-7/",
+        title: "SG90 product page",
+        accessedAt: "2026-08-16",
+        confidence: "official-direct",
+      },
+    ],
+    pendingReason: "正式页面未给出可作为设计额定值的典型电流；250mA 旧目录值不得用于供电预算。",
+  },
   aliases: ["SG90", "Servo", "微型舵机"],
   categories: ["actuator"],
   capabilities: ["angular_control"],
@@ -161,6 +309,13 @@ const HC05: ComponentDefinition = {
   id: "comm.hc_05",
   schemaVersion: "1",
   displayName: "HC-05 蓝牙模块",
+  identity: {
+    status: "unresolved",
+    sourceStatus: "pending",
+    objectLevel: "module",
+    sources: [],
+    pendingReason: "HC-05 是市场家族名称，未绑定模块制造商、料号、板级供电和串口电平资料。",
+  },
   aliases: ["HC-05", "Bluetooth Module", "蓝牙串口模块"],
   categories: ["communication"],
   capabilities: ["bluetooth_communication"],

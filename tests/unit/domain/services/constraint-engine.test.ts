@@ -44,6 +44,7 @@ describe("TestPinBudget（V2 搬运）", () => {
     const result = engine.validate();
     expect(result.isFeasible).toBe(true);
     expect(result.pinAllocation).not.toBeNull();
+    expect(result.claimStatus).toBe("pending");
   });
 
   it("analog overflow", () => {
@@ -156,5 +157,37 @@ describe("Golden Journey：ESP32-S3 strapping 冲突（ISSUE-006 §1/§6 扩展�
     const io12 = strapping.find((d) => d.details.pin === "IO12");
     expect(io12).toBeDefined();
     expect(String(io12!.details.reason)).toMatch(/flash/i);
+  });
+});
+
+describe("02：组件身份未决诊断", () => {
+  it("未决模块产生带来源和原因的阻断性警告，但不阻断无关的引脚分配", () => {
+    const s3 = platformRegistry.get("ESP32-S3");
+    const engine = new ConstraintEngine(s3, [["soil_1", compRegistry.get("sensor.soil_moisture")]]);
+
+    const result = engine.validate();
+    const pending = result.warnings.find((d) => d.code === "COMPONENT_IDENTITY_PENDING");
+
+    expect(result.isFeasible).toBe(true);
+    expect(result.pinAllocation).not.toBeNull();
+    expect(pending).toMatchObject({
+      severity: "warning",
+      blocking: true,
+      details: {
+        instance_id: "soil_1",
+        component_id: "sensor.soil_moisture",
+        object_level: "module",
+      },
+    });
+    expect(pending?.message).toMatch(/pending|未决|料号/i);
+    expect(pending?.source?.owner).toBe("ASAIR/Aosong");
+    expect(pending?.details.pending_reason).toMatch(/料号|datasheet|module/i);
+  });
+
+  it("精确 BMP280 芯片不会产生身份未决警告", () => {
+    const uno = platformRegistry.get("arduino_uno");
+    const result = new ConstraintEngine(uno, [["pressure_1", compRegistry.get("sensor.bmp280")]]).validate();
+
+    expect(result.warnings.some((d) => d.code === "COMPONENT_IDENTITY_PENDING")).toBe(false);
   });
 });

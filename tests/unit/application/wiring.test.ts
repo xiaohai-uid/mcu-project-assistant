@@ -182,6 +182,26 @@ describe("generate_pin_map（application-contract 2.8；Golden Journey）", () =
     expect(io12?.severity).toBe("warning");
     expect(io12?.detail).toMatch(/flash/i);
 
+    const identityPending = result.issues.find((i) => i.code === "COMPONENT_IDENTITY_PENDING");
+    expect(result.claimStatus).toBe("pending");
+    const stored = JSON.parse(await d.content.load(result.version.contentRef)) as {
+      platformId: string;
+      hardwareIdentity: { id: string; boardModel: string; boardRevision: string };
+    };
+    expect(stored.platformId).toBe("ESP32-S3");
+    expect(stored.hardwareIdentity).toMatchObject({
+      id: "esp32-s3-devkitc-1-n8r8-v1.1",
+      boardModel: "ESP32-S3-DevKitC-1-N8R8",
+      boardRevision: "v1.1",
+    });
+    expect(result.issues.some((i) => i.code === "HARDWARE_IDENTITY_PENDING")).toBe(false);
+    expect(identityPending).toMatchObject({
+      severity: "warning",
+      blocksClaim: true,
+      pendingReason: expect.stringMatching(/料号|module|address|电平/i),
+      source: expect.objectContaining({ owner: expect.any(String), url: expect.any(String) }),
+    });
+
     // Pin Map artifact v1
     expect(result.version.versionNo).toBe(1);
     expect(result.artifact.currentVersionId).toBe(result.version.id);
@@ -218,7 +238,7 @@ describe("validate_wiring（application-contract 2.9；I-7）", () => {
     expect(after?.result).toBe("warn");
   });
 
-  it("干净引脚（IO12 换 IO21）→ pass", async () => {
+  it("干净引脚（IO12 换 IO21）仍保留未决器件身份 → warn", async () => {
     const d = deps();
     const project = await seedJourney(d);
     await generatePinMap({ projectId: project.id }, d);
@@ -240,6 +260,7 @@ describe("validate_wiring（application-contract 2.9；I-7）", () => {
       { persistence: d.persistence, content: d.content, events: d.events },
     );
     const record = await validateWiring({ versionId: v2.id }, d);
-    expect(record.result).toBe("pass");
+    expect(record.result).toBe("warn");
+    expect(record.diagnostics.some((diagnostic) => diagnostic.code === "COMPONENT_IDENTITY_PENDING")).toBe(true);
   });
 });

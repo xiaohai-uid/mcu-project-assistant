@@ -3,7 +3,7 @@
 // validate_wiring：ValidationRecord（kind=electrical_rules；pass/warn/fail；I-7 未运行≠通过）
 // 本票不实现 Stale 传播（S5B）。
 import { randomUUID } from "node:crypto";
-import { ConstraintEngine, type Diagnostic } from "@/src/domain/services/constraint-engine";
+import { ConstraintEngine, componentIdentityDiagnostic, type Diagnostic } from "@/src/domain/services/constraint-engine";
 import { createPlatformRegistry } from "@/src/domain/knowledge/platforms";
 import { createComponentRegistry, type ComponentDefinition } from "@/src/domain/knowledge/components";
 import { createArtifact as domainCreateArtifact } from "@/src/domain/models/artifact";
@@ -40,13 +40,26 @@ export interface PinMapEntry {
   component: string;
   pinId: string;
   type: string;
+  componentId?: string;
 }
 
 export interface PinIssue {
+  code: string;
   pinId: string;
   severity: "warning" | "error";
   title: string;
   detail: string;
+  blocksClaim?: boolean;
+  componentId?: string;
+  pendingReason?: string;
+  source?: {
+    owner: string;
+    url: string;
+    title: string;
+    revision?: string;
+    accessedAt: string;
+    confidence: string;
+  };
 }
 
 export interface GeneratePinMapResult {
@@ -54,6 +67,7 @@ export interface GeneratePinMapResult {
   version: ArtifactVersion;
   pinMap: PinMapEntry[];
   issues: PinIssue[];
+  claimStatus: "ready" | "pending";
 }
 
 const OWNER = "owner";
@@ -81,15 +95,62 @@ function typeOf(iface: string): PinMapEntry["type"] {
   return "Digital";
 }
 
+function issueTitle(code: string): string {
+  if (code === "COMPONENT_IDENTITY_PENDING") return "Component identity pending";
+  if (code === "HARDWARE_IDENTITY_PENDING") return "Reference Kit identity pending";
+  if (code.startsWith("VOLTAGE_")) return "Voltage constraint";
+  if (code.includes("PIN_")) return "Pin constraint";
+  if (code === "UART_CONFLICT") return "Bus conflict";
+  if (code === "STRAPPING_PIN_USAGE") return "Strapping pin conflict";
+  return "Wiring constraint";
+}
+
 function issuesFromDiagnostics(diags: Diagnostic[]): PinIssue[] {
   return diags
-    .filter((d) => d.code === "STRAPPING_PIN_USAGE")
     .map((d) => ({
-      pinId: String(d.details.pin ?? ""),
+      code: d.code,
+      pinId: String(d.details.pin ?? (Array.isArray(d.details.pins) ? d.details.pins.join("/") : "—")),
       severity: d.severity === "error" ? ("error" as const) : ("warning" as const),
-      title: "Strapping pin conflict",
+      title: issueTitle(d.code),
       detail: d.message,
+      blocksClaim: d.blocking === true,
+      ...(typeof d.details.component_id === "string" ? { componentId: d.details.component_id } : {}),
+      ...(typeof d.details.pending_reason === "string" ? { pendingReason: d.details.pending_reason } : {}),
+      ...(d.source ? { source: d.source } : {}),
     }));
+}
+
+function hardwareIdentityDiagnostic(
+  platform: ReturnType<ReturnType<typeof createPlatformRegistry>["get"]>,
+  hardwareIdentity: unknown,
+): Diagnostic | null {
+  const expected = platform.referenceKit;
+  if (!expected) {
+    return {
+      code: "HARDWARE_IDENTITY_PENDING",
+      severity: "warning",
+      blocking: true,
+      message: `${platform.displayName} has no exact Reference Kit identity attached; wiring claim is pending.`,
+      details: { platform_id: platform.id, reason: "No exact Reference Kit is registered for this platform." },
+    };
+  }
+  const actual = hardwareIdentity as { id?: unknown; boardModel?: unknown; boardRevision?: unknown } | undefined;
+  if (actual?.id === expected.id && actual.boardModel === expected.boardModel && actual.boardRevision === expected.boardRevision) {
+    return null;
+  }
+  return {
+    code: "HARDWARE_IDENTITY_PENDING",
+    severity: "warning",
+    blocking: true,
+    message: `Wiring requires exact Reference Kit ${expected.boardModel} ${expected.boardRevision}; the hardware snapshot is missing or mismatched.`,
+    details: {
+      platform_id: platform.id,
+      expected_reference_kit_id: expected.id,
+      actual_reference_kit_id: actual?.id,
+      reason: "The wiring input must carry the exact board snapshot selected in Hardware.",
+    },
+    source: expected.source,
+  };
 }
 
 /** 从硬件当前版本解析外设组件（requirements 能力 → components 目录） */
@@ -134,7 +195,7 @@ async function resolveComponents(
 export async function computePinMapContent(
   projectId: string,
   deps: Pick<WiringCapabilityDeps, "persistence" | "content">,
-): Promise<{ pinMap: PinMapEntry[]; issues: PinIssue[]; content: string } | null> {
+): Promise<{ pinMap: PinMapEntry[]; issues: PinIssue[]; claimStatus: "ready" | "pending"; content: string } | null> {
   // MCU（hardware current version）
   const hwArtifact = await deps.persistence.getArtifactByKind(projectId, "hardware");
   if (!hwArtifact?.currentVersionId) return null;
@@ -142,8 +203,11 @@ export async function computePinMapContent(
   if (!hwVersion) return null;
   const hwContent = await deps.content.load(hwVersion.contentRef).catch(() => "");
   let mcuId = "";
+  let hardwareIdentity: unknown;
   try {
-    mcuId = (JSON.parse(hwContent) as { selectedMcuId?: string }).selectedMcuId ?? "";
+    const parsed = JSON.parse(hwContent) as { selectedMcuId?: string; referenceKit?: unknown };
+    mcuId = parsed.selectedMcuId ?? "";
+    hardwareIdentity = parsed.referenceKit;
   } catch {
     mcuId = "";
   }
@@ -153,6 +217,9 @@ export async function computePinMapContent(
   const components = await resolveComponents(projectId, deps);
   const engine = new ConstraintEngine(platform, components);
   const result = engine.validate();
+  const allDiagnostics = [...result.diagnostics];
+  const boardDiagnostic = hardwareIdentityDiagnostic(platform, hardwareIdentity);
+  if (boardDiagnostic) allDiagnostics.push(boardDiagnostic);
   const allocation = result.pinAllocation;
 
   const pinMap: PinMapEntry[] = [];
@@ -162,6 +229,7 @@ export async function computePinMapContent(
       component: comp ? displayNameOf(comp) : a.instanceId,
       pinId: a.physicalPin,
       type: typeOf(a.interface),
+      ...(comp ? { componentId: comp.id } : {}),
     });
   }
   // I2C/SPI 共享总线参与者展开为引脚行（冻结 UI：OLED (SDA)→IO8、OLED (SCL)→IO9）
@@ -174,12 +242,19 @@ export async function computePinMapContent(
           component: `${base} (${role.toUpperCase()})`,
           pinId: pin,
           type: typeOf(bus.type),
+          ...(comp ? { componentId: comp.id } : {}),
         });
       }
     }
   }
-  const issues = issuesFromDiagnostics(result.diagnostics);
-  return { pinMap, issues, content: JSON.stringify({ pinMap, issues }) };
+  const issues = issuesFromDiagnostics(allDiagnostics);
+  const claimStatus = allDiagnostics.some((diagnostic) => diagnostic.blocking) ? "pending" : "ready";
+  return {
+    pinMap,
+    issues,
+    claimStatus,
+    content: JSON.stringify({ platformId: platform.id, hardwareIdentity: hardwareIdentity ?? null, claimStatus, pinMap, issues }),
+  };
 }
 
 export async function generatePinMap(
@@ -193,7 +268,7 @@ export async function generatePinMap(
 
   const computed = await computePinMapContent(input.projectId, deps);
   if (!computed) throw new NoHardwareSelectedError();
-  const { pinMap, issues, content } = computed;
+  const { pinMap, issues, claimStatus, content } = computed;
 
   // Pin Map artifact v1（有冲突=warning；内容=分配+诊断）
   const artifact = await deps.persistence.getArtifactByKind(input.projectId, "pinmap");
@@ -207,7 +282,7 @@ export async function generatePinMap(
     versionNo,
     contentRef,
     contentHash,
-    status: issues.some((i) => i.severity === "error") ? "draft" : "accepted",
+    status: issues.some((i) => i.severity === "error") || claimStatus === "pending" ? "draft" : "accepted",
     sourceKind: "proposal",
     sourceProposalId: null,
     createdBy: OWNER,
@@ -261,7 +336,7 @@ export async function generatePinMap(
     createdAt: version.createdAt,
   });
 
-  return { artifact: committedArtifact, version, pinMap, issues };
+  return { artifact: committedArtifact, version, pinMap, issues, claimStatus };
 }
 
 /** validate_wiring：对指定版本跑电气规则 → ValidationRecord（未运行≠通过，I-7） */
@@ -285,15 +360,47 @@ export async function validateWiring(
 
   const content = await deps.content.load(version.contentRef).catch(() => "");
   let pinMap: PinMapEntry[] = [];
+  let hardwareIdentity: unknown;
+  let platformId = "";
   try {
-    pinMap = (JSON.parse(content) as { pinMap?: PinMapEntry[] }).pinMap ?? [];
+    const parsed = JSON.parse(content) as { pinMap?: PinMapEntry[]; hardwareIdentity?: unknown; platformId?: string };
+    pinMap = parsed.pinMap ?? [];
+    hardwareIdentity = parsed.hardwareIdentity;
+    platformId = parsed.platformId ?? "";
   } catch {
     pinMap = [];
   }
 
-  // 电气规则：strapping 引脚占用 + 重复引脚
-  const rules = ["strapping_pin_usage", "duplicate_pin"];
+  // 电气规则：身份、Reference Kit、strapping 引脚占用 + 重复引脚
+  const rules = ["component_identity", "reference_kit_identity", "strapping_pin_usage", "duplicate_pin"];
   const diagnostics: ValidationRecordDto["diagnostics"] = [];
+
+  const platform = platformId ? createPlatformRegistry().getOrNone(platformId) : null;
+  if (platform) {
+    const boardDiagnostic = hardwareIdentityDiagnostic(platform, hardwareIdentity);
+    if (boardDiagnostic) diagnostics.push(boardDiagnostic);
+  } else {
+    diagnostics.push({
+      code: "HARDWARE_IDENTITY_PENDING",
+      severity: "warning",
+      message: "Pin map does not carry an exact platform and Reference Kit snapshot.",
+      details: { reason: "The wiring input must reference the selected hardware artifact." },
+    });
+  }
+
+  if (artifact) {
+    const components = await resolveComponents(artifact.projectId, deps);
+    const seenComponents = new Set<string>();
+    for (const [instanceId, comp] of components) {
+      const componentPins = pinMap
+        .filter((entry) => entry.componentId === comp.id || entry.component === displayNameOf(comp) || entry.component.startsWith(`${displayNameOf(comp)} (`))
+        .map((entry) => entry.pinId);
+      if (componentPins.length === 0 || seenComponents.has(comp.id)) continue;
+      seenComponents.add(comp.id);
+      const diagnostic = componentIdentityDiagnostic(instanceId, comp, [...new Set(componentPins)]);
+      if (diagnostic) diagnostics.push(diagnostic);
+    }
+  }
 
   const seen = new Set<string>();
   for (const entry of pinMap) {
@@ -320,7 +427,8 @@ export async function validateWiring(
         code: "STRAPPING_PIN_USAGE",
         severity: "warning",
         message: reason,
-        details: { pin: entry.pinId },
+        details: { pin: entry.pinId, reason },
+        ...(platform?.referenceKit?.source ? { source: platform.referenceKit.source } : {}),
       });
     }
   }

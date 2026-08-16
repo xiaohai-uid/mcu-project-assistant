@@ -156,10 +156,22 @@ export interface PinMapping {
 }
 
 export interface PinIssue {
+  code?: string;
   pinId: string;
   severity: "warning" | "error";
   title: string;
   detail: string;
+  blocksClaim?: boolean;
+  componentId?: string;
+  pendingReason?: string;
+  source?: {
+    owner: string;
+    url: string;
+    title: string;
+    revision?: string;
+    accessedAt: string;
+    confidence: string;
+  };
 }
 
 export type WiringStage =

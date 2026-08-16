@@ -95,7 +95,7 @@ async function seedJourney(): Promise<ProjectDto> {
 }
 
 describe("S5A Golden Journey — Pin Map + Wiring Validation end-to-end（真实 HTTP）", () => {
-  it("generate_pin_map → IO12 strapping 冲突 → validate warn → 手动改 IO21 → validate pass（ValidationRecord 历史）", async () => {
+  it("generate_pin_map → IO12 strapping 冲突 → validate warn → 手动改 IO21 → 保留身份待决（ValidationRecord 历史）", async () => {
     const project = await seedJourney();
 
     // 1. 生成引脚分配（IO4/IO12/IO8/IO9 + IO12 strapping 冲突卡）
@@ -125,9 +125,11 @@ describe("S5A Golden Journey — Pin Map + Wiring Validation end-to-end（真实
     // 3. 手动编辑：继电器 IO12 → IO21（S2 手动路径）→ pinmap v2
     const artifacts = (await (await fetch(`${base}/api/v1/projects/${project.id}/artifacts`)).json()) as ArtifactDto[];
     const pinmap = artifacts.find((a) => a.kind === "pinmap")!;
+    const versionDetail = (await (await fetch(`${base}/api/v1/versions/${g.version.id}`)).json()) as { content: string };
+    const existingContent = JSON.parse(versionDetail.content) as Record<string, unknown>;
     const newContent = JSON.stringify({
+      ...existingContent,
       pinMap: g.pinMap.map((p) => (p.component.includes("Pump") ? { ...p, pinId: "IO21" } : p)),
-      issues: [],
     });
     const edit = await fetch(`${base}/api/v1/artifacts/${pinmap.id}/versions`, {
       method: "POST",
@@ -138,11 +140,12 @@ describe("S5A Golden Journey — Pin Map + Wiring Validation end-to-end（真实
     const v2 = (await edit.json()) as ArtifactVersionDto;
     expect(v2.versionNo).toBe(2);
 
-    // 4. 再次校验 → pass（冲突消除）
+    // 4. 再次校验 → warn（strapping 消除，但未决器件身份仍阻断生产接线结论）
     const v2rec = await fetch(`${base}/api/v1/versions/${v2.id}/validations`, { method: "POST" });
     expect(v2rec.status).toBe(201);
     const rec2 = (await v2rec.json()) as ValidationRecordDto;
-    expect(rec2.result).toBe("pass");
+    expect(rec2.result).toBe("warn");
+    expect(rec2.diagnostics.some((d) => d.code === "COMPONENT_IDENTITY_PENDING")).toBe(true);
 
     // 5. 刷新等价：v1 校验历史仍 warn（记录按版本分离，I-7）
     const v1hist = (await (await fetch(`${base}/api/v1/versions/${g.version.id}/validations`)).json()) as ValidationRecordDto;

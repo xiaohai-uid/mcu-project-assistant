@@ -31,7 +31,8 @@ export const WiringGuidanceView: React.FC = () => {
   const pinmapStale = artifacts.pinmap.status === "stale";
   const wiringStale = artifacts.wiring.status === "stale";
   const hasIssues = w.issues.length > 0;
-  const relayResolved = !w.issues.some((i) => i.pinId === "IO12");
+  const hasBlockingIssues = w.issues.some((i) => i.blocksClaim === true);
+  const relayResolved = !w.issues.some((i) => i.code === "STRAPPING_PIN_USAGE" && i.pinId === "IO12");
 
   const onVerify = () => {
     setVerifying(true);
@@ -89,8 +90,8 @@ export const WiringGuidanceView: React.FC = () => {
           </button>
           <button
             onClick={onProceed}
-            disabled={w.stage === "generating" || pinmapStale}
-            title={pinmapStale ? t(lang, "staleBlocked") : undefined}
+            disabled={w.stage === "generating" || pinmapStale || hasBlockingIssues}
+            title={pinmapStale ? t(lang, "staleBlocked") : hasBlockingIssues ? "Exact component or Reference Kit identity is still pending" : undefined}
             className="px-4 py-1.5 mac-button-primary rounded-md text-xs font-medium flex items-center gap-1.5 shadow-sm disabled:opacity-50"
           >
             <span>{t(lang, "generateFirmware")}</span>
@@ -313,11 +314,30 @@ export const WiringGuidanceView: React.FC = () => {
                     <span>{t(lang, "pinIssueTitle")}</span>
                   </div>
                   {w.issues.map((issue) => (
-                    <p key={issue.pinId + issue.title} className="text-[11px] leading-relaxed">
-                      <strong>{issue.pinId}</strong> — {issue.title}: {issue.detail}
-                    </p>
+                    <div key={`${issue.code ?? issue.title}-${issue.pinId}-${issue.componentId ?? "general"}`} className="text-[11px] leading-relaxed border-t border-rose-500/10 pt-2 mt-2 first:border-t-0 first:pt-0 first:mt-0">
+                      <p>
+                        <strong>{issue.pinId}</strong> — {issue.title}: {issue.detail}
+                      </p>
+                      {issue.pendingReason && <p className="mt-1 text-[10px] text-rose-700/80 dark:text-rose-200/80">Reason: {issue.pendingReason}</p>}
+                      {issue.blocksClaim && <p className="mt-1 text-[10px] font-semibold">This wiring claim remains pending until the exact identity is attached.</p>}
+                      {issue.source ? (
+                        <a
+                          href={issue.source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 inline-flex items-center gap-1 text-[10px] underline decoration-dotted underline-offset-2"
+                        >
+                          <span className="material-symbols-outlined text-[12px]">open_in_new</span>
+                          Source: {issue.source.title}
+                        </a>
+                      ) : (
+                        <p className="mt-1 text-[10px] text-rose-700/70 dark:text-rose-200/70">Source: no exact source attached</p>
+                      )}
+                    </div>
                   ))}
-                  <p className="text-[10px] mt-1.5 text-[var(--text-secondary)]">{t(lang, "conflictFixedByProposal")}</p>
+                  <p className="text-[10px] mt-2 text-[var(--text-secondary)]">
+                    {hasBlockingIssues ? "Firmware generation is blocked until affected identities and sources are resolved." : t(lang, "conflictFixedByProposal")}
+                  </p>
                 </div>
               )}
 

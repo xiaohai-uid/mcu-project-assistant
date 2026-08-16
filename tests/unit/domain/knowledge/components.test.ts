@@ -91,3 +91,48 @@ describe("电气/接口事实（V2 catalog 保真）", () => {
     expect(oled.interfaces[0]?.signalCount).toBe(2);
   });
 });
+
+describe("ComponentIdentity（02：精确对象层级与来源状态）", () => {
+  it("BMP280 是有官方来源的芯片级精确身份", () => {
+    const bmp280 = registry.get("sensor.bmp280");
+
+    expect(bmp280.identity).toMatchObject({
+      status: "exact",
+      sourceStatus: "verified",
+      objectLevel: "chip",
+      manufacturer: "Bosch Sensortec",
+      partNumber: "BMP280",
+    });
+    expect(bmp280.identity.sources.find((source) => source.url.endsWith("bst-bmp280-ds001.pdf"))).toMatchObject({
+      owner: "Bosch Sensortec",
+      url: "https://www.bosch-sensortec.com/media/boschsensortec/downloads/datasheets/bst-bmp280-ds001.pdf",
+      confidence: "official-direct",
+    });
+    expect(bmp280.identity.pendingReason).toBeUndefined();
+  });
+
+  it("泛化土壤模块保持未决，不静默补齐制造商或料号", () => {
+    const soil = registry.get("sensor.soil_moisture");
+
+    expect(soil.identity).toMatchObject({
+      status: "unresolved",
+      sourceStatus: "pending",
+      objectLevel: "module",
+    });
+    expect(soil.identity.manufacturer).toBeUndefined();
+    expect(soil.identity.partNumber).toBeUndefined();
+    expect(soil.identity.pendingReason).toMatch(/料号|datasheet|module/i);
+    expect(soil.identity.sources[0]?.owner).toBe("ASAIR/Aosong");
+  });
+
+  it("SSD1306 控制器来源不升级为 0.96 寸模块身份", () => {
+    const oled = registry.get("display.oled_096");
+
+    expect(oled.identity.status).toBe("family");
+    expect(oled.identity.sourceStatus).toBe("candidate");
+    expect(oled.identity.objectLevel).toBe("module");
+    expect(oled.identity.partNumber).toBeUndefined();
+    expect(oled.identity.pendingReason).toMatch(/模块|module|address|电平/i);
+    expect(oled.identity.sources[0]?.owner).toBe("Solomon Systech");
+  });
+});

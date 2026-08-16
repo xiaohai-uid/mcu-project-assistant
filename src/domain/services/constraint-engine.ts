@@ -7,11 +7,22 @@ import type { PlatformDefinition } from "@/src/domain/knowledge/platforms";
 
 export type DiagnosticSeverity = "error" | "warning";
 
+export interface DiagnosticSource {
+  owner: string;
+  url: string;
+  title: string;
+  revision?: string;
+  accessedAt: string;
+  confidence: string;
+}
+
 export interface Diagnostic {
   code: string;
   severity: DiagnosticSeverity;
   message: string;
   details: Record<string, unknown>;
+  blocking?: boolean;
+  source?: DiagnosticSource;
 }
 
 export interface PinAssignment {
@@ -36,10 +47,46 @@ export interface PinAllocation {
 
 export interface ConstraintResult {
   isFeasible: boolean;
+  claimStatus: "ready" | "pending";
   diagnostics: Diagnostic[];
   pinAllocation: PinAllocation | null;
   get errors(): Diagnostic[];
   get warnings(): Diagnostic[];
+  get blockingWarnings(): Diagnostic[];
+}
+
+export function componentIdentityDiagnostic(
+  instanceId: string,
+  comp: ComponentDefinition,
+  pins: string[],
+): Diagnostic | null {
+  if (comp.identity.status === "exact") return null;
+
+  const reason = comp.identity.pendingReason ?? "没有足够的精确身份和官方模块资料。";
+  const source = comp.identity.sources[0];
+  return {
+    code: "COMPONENT_IDENTITY_PENDING",
+    severity: "warning",
+    blocking: true,
+    message:
+      `${comp.displayName} (${instanceId}) identity is ${comp.identity.status} at ` +
+      `${comp.identity.objectLevel} level; wiring claim is pending. ${reason}`,
+    details: {
+      instance_id: instanceId,
+      component_id: comp.id,
+      identity_status: comp.identity.status,
+      object_level: comp.identity.objectLevel,
+      manufacturer: comp.identity.manufacturer,
+      part_number: comp.identity.partNumber,
+      variant: comp.identity.variant,
+      supplier_sku: comp.identity.supplierSku,
+      pending_reason: reason,
+      pins,
+      pin: pins.join("/") || "unassigned",
+      source,
+    },
+    ...(source ? { source } : {}),
+  };
 }
 
 export class ConstraintEngine {
@@ -56,12 +103,15 @@ export class ConstraintEngine {
     this.checkPinBudget();
     this.checkBusConflicts();
     this.checkStrapping();
+    this.checkComponentIdentity();
 
     const isFeasible = !this.diagnostics.some((d) => d.severity === "error");
+    const claimStatus = this.diagnostics.some((d) => d.blocking) ? "pending" : "ready";
     const allocation = isFeasible ? this.allocatePins() : null;
 
     const result: ConstraintResult = {
       isFeasible,
+      claimStatus,
       diagnostics: this.diagnostics,
       pinAllocation: allocation,
       get errors() {
@@ -69,6 +119,9 @@ export class ConstraintEngine {
       },
       get warnings() {
         return this.diagnostics.filter((d) => d.severity === "warning");
+      },
+      get blockingWarnings() {
+        return this.diagnostics.filter((d) => d.severity === "warning" && d.blocking === true);
       },
     };
     return result;
@@ -90,7 +143,8 @@ export class ConstraintEngine {
             `${comp.displayName} (${instanceId}) max supply ${maxSupply}V ` +
             `is below platform logic ${platformVoltage}V` +
             (busOnly ? " (bus device: use 3V3 pin or level shifter)" : ""),
-          details: { instance_id: instanceId, component_id: comp.id },
+          details: { instance_id: instanceId, component_id: comp.id, source: comp.identity.sources[0] },
+          ...(comp.identity.sources[0] ? { source: comp.identity.sources[0] } : {}),
         });
       } else if (platformVoltage < minSupply) {
         // 显式声明 supported 的平台（如晶体管驱动的 5V 继电器接 3.3V MCU，外部供电）→ warning；
@@ -103,7 +157,8 @@ export class ConstraintEngine {
             `${comp.displayName} (${instanceId}) requires min ${minSupply}V ` +
             `but platform provides ${platformVoltage}V` +
             (declaredSupported ? " (declared supported; verify external power)" : ""),
-          details: { instance_id: instanceId, component_id: comp.id },
+          details: { instance_id: instanceId, component_id: comp.id, source: comp.identity.sources[0] },
+          ...(comp.identity.sources[0] ? { source: comp.identity.sources[0] } : {}),
         });
       }
     }
@@ -138,6 +193,7 @@ export class ConstraintEngine {
         severity: "error",
         message: `Need ${analogNeeded} analog pins but only ${availAnalog.length} available`,
         details: { needed: analogNeeded, available: availAnalog.length },
+        ...(this.platform.referenceKit?.source ? { source: this.platform.referenceKit.source } : {}),
       });
     }
     if (pwmNeeded > availPwm.length) {
@@ -146,6 +202,7 @@ export class ConstraintEngine {
         severity: "error",
         message: `Need ${pwmNeeded} PWM pins but only ${availPwm.length} available`,
         details: { needed: pwmNeeded, available: availPwm.length },
+        ...(this.platform.referenceKit?.source ? { source: this.platform.referenceKit.source } : {}),
       });
     }
     if (digitalNeeded > availDigital.length) {
@@ -154,6 +211,7 @@ export class ConstraintEngine {
         severity: "error",
         message: `Need ${digitalNeeded} digital pins but only ${availDigital.length} available`,
         details: { needed: digitalNeeded, available: availDigital.length },
+        ...(this.platform.referenceKit?.source ? { source: this.platform.referenceKit.source } : {}),
       });
     }
   }
@@ -171,6 +229,7 @@ export class ConstraintEngine {
         severity: "error",
         message: `Multiple UART devices (${uartUsers.join(", ")}) but platform has only one hardware UART`,
         details: { devices: uartUsers },
+        ...(this.platform.referenceKit?.source ? { source: this.platform.referenceKit.source } : {}),
       });
     }
   }
@@ -186,8 +245,35 @@ export class ConstraintEngine {
           severity: "warning",
           message: `${a.physicalPin} is an ${this.platform.id} strapping pin: ${strapping.reason}.`,
           details: { pin: a.physicalPin, instance_id: a.instanceId, reason: strapping.reason },
+          ...(this.platform.referenceKit?.source ? { source: this.platform.referenceKit.source } : {}),
         });
       }
+    }
+  }
+
+  /**
+   * A family/module label is enough to produce a provisional map, but not
+   * enough to make a production wiring claim. Keep that distinction explicit
+   * so unrelated pin-budget facts remain usable while the affected claim is
+   * visibly pending.
+   */
+  private checkComponentIdentity(): void {
+    const allocation = this.allocatePinsPreview();
+    for (const [instanceId, comp] of this.components) {
+      if (comp.identity.status === "exact") continue;
+
+      const pins = new Set<string>();
+      for (const assignment of allocation.assignments) {
+        if (assignment.instanceId === instanceId) pins.add(assignment.physicalPin);
+      }
+      for (const bus of allocation.sharedBuses) {
+        if (bus.participants.includes(instanceId)) {
+          Object.values(bus.pins).forEach((pin) => pins.add(pin));
+        }
+      }
+
+      const diagnostic = componentIdentityDiagnostic(instanceId, comp, [...pins]);
+      if (diagnostic) this.diagnostics.push(diagnostic);
     }
   }
 

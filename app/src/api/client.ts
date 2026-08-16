@@ -172,7 +172,18 @@ export const api = {
       artifact: ArtifactDto;
       version: ArtifactVersionDto;
       pinMap: Array<{ component: string; pinId: string; type: string }>;
-      issues: Array<{ pinId: string; severity: "warning" | "error"; title: string; detail: string }>;
+      issues: Array<{
+        code: string;
+        pinId: string;
+        severity: "warning" | "error";
+        title: string;
+        detail: string;
+        blocksClaim?: boolean;
+        componentId?: string;
+        pendingReason?: string;
+        source?: { owner: string; url: string; title: string; revision?: string; accessedAt: string; confidence: string };
+      }>;
+      claimStatus: "ready" | "pending";
     }>(`/api/v1/projects/${projectId}/commands`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -185,7 +196,13 @@ export const api = {
       kind: string;
       rules: string[];
       result: "pass" | "warn" | "fail";
-      diagnostics: Array<{ code: string; severity: string; message: string; details?: Record<string, unknown> }>;
+      diagnostics: Array<{
+        code: string;
+        severity: string;
+        message: string;
+        details?: Record<string, unknown>;
+        source?: { owner: string; url: string; title: string; revision?: string; accessedAt: string; confidence: string };
+      }>;
       startedAt: string;
       completedAt: string | null;
     }>(`/api/v1/versions/${versionId}/validations`, { method: "POST" }),

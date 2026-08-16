@@ -113,6 +113,38 @@ function contentObject(content: string | null): Record<string, unknown> {
   }
 }
 
+function parsePinIssue(value: unknown): PinIssue | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.pinId !== "string" || (record.severity !== "warning" && record.severity !== "error") || typeof record.title !== "string" || typeof record.detail !== "string") {
+    return null;
+  }
+  const source = record.source;
+  const sourceRecord = source && typeof source === "object" ? source as Record<string, unknown> : null;
+  return {
+    ...(typeof record.code === "string" ? { code: record.code } : {}),
+    pinId: record.pinId,
+    severity: record.severity,
+    title: record.title,
+    detail: record.detail,
+    ...(typeof record.blocksClaim === "boolean" ? { blocksClaim: record.blocksClaim } : {}),
+    ...(typeof record.componentId === "string" ? { componentId: record.componentId } : {}),
+    ...(typeof record.pendingReason === "string" ? { pendingReason: record.pendingReason } : {}),
+    ...(sourceRecord && typeof sourceRecord.owner === "string" && typeof sourceRecord.url === "string" && typeof sourceRecord.title === "string" && typeof sourceRecord.accessedAt === "string" && typeof sourceRecord.confidence === "string"
+      ? {
+          source: {
+            owner: sourceRecord.owner,
+            url: sourceRecord.url,
+            title: sourceRecord.title,
+            ...(typeof sourceRecord.revision === "string" ? { revision: sourceRecord.revision } : {}),
+            accessedAt: sourceRecord.accessedAt,
+            confidence: sourceRecord.confidence,
+          },
+        }
+      : {}),
+  };
+}
+
 function latestBuildStage(builds: ProjectHydrationSnapshot["artifacts"][number]["builds"]): AppState["build"]["stage"] {
   const build = builds.at(-1);
   if (!build) return "idle";
@@ -238,8 +270,8 @@ type Action =
   | { type: "MCU_CANDIDATES"; candidates: McuCandidateDto[]; peripherals: PeripheralDto[] }
   | { type: "WIRING_GENERATED"; pins: AppState["wiring"]["pinMappings"]; issues: AppState["wiring"]["issues"] }
   | { type: "WIRING_STAGE"; stage: AppState["wiring"]["stage"] }
-  | { type: "WIRING_VERIFIED" }
-  | { type: "PIN_EDITED"; component: string; pinId: string }
+  | { type: "WIRING_VERIFIED"; verified: boolean; issues: AppState["wiring"]["issues"] }
+  | { type: "PIN_EDITED"; component: string; oldPin: string; pinId: string }
   | { type: "PINMAP_VERSIONS"; versions: AppState["pinmapVersions"] }
   | { type: "FW_GENERATING" }
   | { type: "FW_RESET" }
@@ -305,6 +337,7 @@ function reducer(state: AppState, a: Action): AppState {
       let firmwareStage: AppState["firmware"]["stage"] = "idle";
       let selectedMcu = "";
       let pinMappings: PinMapping[] = [];
+      let wiringIssues: PinIssue[] = [];
       let pinmapVersions: AppState["pinmapVersions"] = [];
       let build: AppState["build"] = { ...state.build, buildId: null, stage: "idle", outputVerified: false, logs: [], diagnosis: null };
       for (const item of snapshot.artifacts) {
@@ -342,6 +375,8 @@ function reducer(state: AppState, a: Action): AppState {
               return { ...pin, type: item.type === "Analog" || item.type === "I2C" ? pin.type : "Digital", colorDot: pin.colorDot ?? "#007aff" };
             });
           }
+          const issues = parsed.issues;
+          if (Array.isArray(issues)) wiringIssues = issues.map(parsePinIssue).filter((issue): issue is PinIssue => issue !== null);
         }
       }
       const flashTask = latestTask(snapshot.tasks, "flash_device");
@@ -374,7 +409,7 @@ function reducer(state: AppState, a: Action): AppState {
           analysisTask,
         },
         selectedMcu,
-        wiring: { ...state.wiring, stage: pinMappings.length ? "review" : "idle", pinMappings, issues: [], verified: false },
+        wiring: { ...state.wiring, stage: pinMappings.length ? "review" : "idle", pinMappings, issues: wiringIssues, verified: false },
         pinmapVersions,
         firmware: { ...state.firmware, stage: firmwareStage, code: firmwareCode, proposal: null, version: firmwareVersion },
         build,
@@ -493,12 +528,14 @@ function reducer(state: AppState, a: Action): AppState {
     case "WIRING_GENERATED":
       return { ...state, wiring: { ...state.wiring, stage: "review", pinMappings: a.pins, issues: a.issues, verified: false } };
     case "WIRING_STAGE": return { ...state, wiring: { ...state.wiring, stage: a.stage } };
-    case "WIRING_VERIFIED": return { ...state, wiring: { ...state.wiring, verified: true } };
+    case "WIRING_VERIFIED": return { ...state, wiring: { ...state.wiring, verified: a.verified, issues: a.issues } };
     case "PIN_EDITED": {
       const pins = state.wiring.pinMappings.map((p) => (p.component === a.component ? { ...p, pinId: a.pinId } : p));
-      const issues = state.wiring.issues.filter(
-        (i) => !(i.pinId === "IO12" && (a.pinId === "IO21" || a.pinId === "IO5"))
-      );
+      const issues = state.wiring.issues.flatMap((i) => {
+        if (i.pinId !== a.oldPin) return [i];
+        if (i.code === "STRAPPING_PIN_USAGE") return [];
+        return [{ ...i, pinId: a.pinId }];
+      });
       return { ...state, wiring: { ...state.wiring, pinMappings: pins, issues } };
     }
     case "PINMAP_VERSIONS": return { ...state, pinmapVersions: a.versions };
@@ -1286,10 +1323,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
             colorDot: p.type === "I2C" ? "#a855f7" : p.type === "Analog" ? "#3b82f6" : "#ef4444",
           })),
           issues: result.issues.map((i) => ({
+            code: i.code,
             pinId: i.pinId,
             severity: i.severity,
             title: i.title,
             detail: i.detail,
+            ...(i.blocksClaim ? { blocksClaim: true } : {}),
+            ...(i.componentId ? { componentId: i.componentId } : {}),
+            ...(i.pendingReason ? { pendingReason: i.pendingReason } : {}),
+            ...(i.source ? { source: i.source } : {}),
           })),
         });
         dispatch({
@@ -1329,16 +1371,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const current = versions[versions.length - 1];
         if (!current) return;
         const record = await clientApi.validateWiring(current.id);
-        const issues = record.diagnostics
-          .filter((d) => d.code === "STRAPPING_PIN_USAGE")
-          .map((d) => ({ pinId: String(d.details?.pin ?? ""), severity: d.severity as PinIssue["severity"], title: "Strapping pin conflict", detail: d.message }));
-        dispatch({ type: "WIRING_VERIFIED" });
+        const issues = record.diagnostics.map((d) => ({
+          code: d.code,
+          pinId: String(d.details?.pin ?? (Array.isArray(d.details?.pins) ? d.details?.pins.join("/") : "—")),
+          severity: d.severity === "error" ? "error" as const : "warning" as const,
+          title: d.code === "COMPONENT_IDENTITY_PENDING" ? "Component identity pending" : d.code === "HARDWARE_IDENTITY_PENDING" ? "Reference Kit identity pending" : d.code === "STRAPPING_PIN_USAGE" ? "Strapping pin conflict" : "Wiring constraint",
+          detail: d.message,
+          ...(d.details?.component_id ? { componentId: String(d.details.component_id) } : {}),
+          ...(d.details?.pending_reason ? { pendingReason: String(d.details.pending_reason), blocksClaim: true } : {}),
+          ...(d.code === "HARDWARE_IDENTITY_PENDING" ? { blocksClaim: true } : {}),
+          ...(d.source ? { source: d.source } : {}),
+        }));
+        dispatch({ type: "WIRING_VERIFIED", verified: record.result === "pass", issues });
         dispatch({ type: "ARTIFACT", kind: "wiring", status: record.result === "pass" ? "validated" : "warning", version: (s.artifacts.wiring.version || 0) + 1 });
         dispatch({ type: "ARTIFACT", kind: "validation", status: "validated", version: (s.artifacts.validation.version || 0) + 1 });
         pushCopilot({
           sender: "copilot",
           text: issues.length
-            ? `Rules verification complete: ${issues.length} issue(s) found (IO12 strapping). Firmware generation will propose a fix.`
+            ? `Rules verification complete: ${issues.length} issue(s) found. Pending identity and electrical warnings remain visible.`
             : "Rules verification complete: all electrical rules passed.",
         });
       } catch (err) {
@@ -1373,7 +1423,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // Progressive Swap（ISSUE-002 §5）：内存版本 +1 → 真实 commit_manual_edit
       // 手动编辑免 Proposal（I-11）；内容 = 编辑后的 pinMappings（S5A 前引脚数据仍为 Mock 来源，
       // 但版本提交走真实 capability：SQLite 版本行 + Workspace 内容文件）
-      dispatch({ type: "PIN_EDITED", component, pinId });
+      const oldPin = s.wiring.pinMappings.find((p) => p.component === component)?.pinId ?? "";
+      dispatch({ type: "PIN_EDITED", component, oldPin, pinId });
       const nextMappings = s.wiring.pinMappings.map((p) =>
         p.component === component ? { ...p, pinId } : p
       );
@@ -1382,7 +1433,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!projectId) return;
         try {
           const artifact = await clientApi.ensureArtifact(projectId, "pinmap");
-          const version = await clientApi.commitVersion(artifact.id, JSON.stringify(nextMappings, null, 2));
+          const versions = await clientApi.listVersions(artifact.id);
+          const current = versions[versions.length - 1];
+          let nextContent: Record<string, unknown> = { pinMap: nextMappings, issues: s.wiring.issues };
+          if (current) {
+            const detail = await clientApi.getVersion(current.id);
+            const existing = contentObject(detail.content);
+            const existingIssues = Array.isArray(existing.issues)
+              ? existing.issues.map(parsePinIssue).filter((issue): issue is PinIssue => issue !== null)
+              : s.wiring.issues;
+            const nextIssues = existingIssues.flatMap((issue) => {
+              if (issue.pinId !== oldPin) return [issue];
+              if (issue.code === "STRAPPING_PIN_USAGE") return [];
+              return [{ ...issue, pinId }];
+            });
+            nextContent = { ...existing, pinMap: nextMappings, issues: nextIssues };
+          }
+          const version = await clientApi.commitVersion(artifact.id, JSON.stringify(nextContent, null, 2));
           dispatch({ type: "ARTIFACT", kind: "pinmap", status: "accepted", version: version.versionNo });
           pushSystem(`Manual pin edit committed: ${component} → ${pinId}. Pin Map v${version.versionNo}.`);
           // S5B：手动编辑仍触发依赖求值（D4）→ 拉取真实 marks
@@ -1393,7 +1460,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       })();
     },
-    [s.project?.id, s.wiring.pinMappings, refreshStaleMarks, refreshPinmapVersions, pushSystem]
+    [s.project?.id, s.wiring.pinMappings, s.wiring.issues, refreshStaleMarks, refreshPinmapVersions, pushSystem]
   );
 
   // ---------- Firmware（S6：真实 generate_firmware_proposal + resolve_proposal） ----------
