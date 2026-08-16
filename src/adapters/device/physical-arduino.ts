@@ -81,8 +81,10 @@ function parseCandidates(value: unknown): Candidate[] {
   for (const item of rows) {
     if (!item || typeof item !== "object") continue;
     const row = item as Record<string, unknown>;
-    const port = typeof row.port === "string" ? row.port : typeof row.address === "string" ? row.address : "";
-    const protocol = typeof row.protocol === "string" ? row.protocol : undefined;
+    const portObject = row.port && typeof row.port === "object" ? row.port as Record<string, unknown> : row;
+    const port = typeof portObject.address === "string" ? portObject.address : typeof row.address === "string" ? row.address : typeof row.port === "string" ? row.port : "";
+    const protocol = typeof portObject.protocol === "string" ? portObject.protocol : typeof row.protocol === "string" ? row.protocol : undefined;
+    const properties = portObject.properties && typeof portObject.properties === "object" ? portObject.properties as Record<string, unknown> : {};
     const boards = Array.isArray(row.matching_boards)
       ? row.matching_boards
       : Array.isArray(row.matchingBoards)
@@ -99,9 +101,9 @@ function parseCandidates(value: unknown): Candidate[] {
         port,
         protocol,
         fqbn,
-        vid: typeof info.vid === "string" ? info.vid : undefined,
-        pid: typeof info.pid === "string" ? info.pid : undefined,
-        serialNumber: typeof info.serial_number === "string" ? info.serial_number : typeof info.serialNumber === "string" ? info.serialNumber : undefined,
+        vid: typeof info.vid === "string" ? info.vid : typeof properties.vid === "string" ? properties.vid : undefined,
+        pid: typeof info.pid === "string" ? info.pid : typeof properties.pid === "string" ? properties.pid : undefined,
+        serialNumber: typeof info.serial_number === "string" ? info.serial_number : typeof info.serialNumber === "string" ? info.serialNumber : typeof properties.serial_number === "string" ? properties.serial_number : typeof properties.serialNumber === "string" ? properties.serialNumber : undefined,
         model: typeof info.name === "string" ? info.name : undefined,
       });
     }

@@ -40,3 +40,10 @@ The full commercial golden flow was also run through the application after the t
 - No ESP32-S3-DevKitC-1-N8R8 v1.1 board was connected during this run.
 - No USB detection, upload, upload verification, or serial startup observation is claimed.
 - `paid-release-ready` remains blocked until both `local-ready` and `physical-accepted` are independently evidenced.
+
+## Adapter and regression evidence — 2026-08-17
+
+- The physical Arduino adapter now parses Arduino CLI's nested `detected_ports[].port` object, including `address`, `protocol`, `properties.vid`, `properties.pid`, and `properties.serialNumber`.
+- The adapter still fails closed unless exactly one supported `esp32:esp32:esp32s3` board is reported; this software fix does not claim that a board is connected.
+- Full regression after the adapter fix: `99` test files passed; `563` tests passed and `1` skipped. Typecheck, lint, production server build, production app build, and `git diff --check` also passed.
+- The final local board check still reported only `COM1` with no matching supported board. Physical acceptance therefore remains pending external hardware evidence.
