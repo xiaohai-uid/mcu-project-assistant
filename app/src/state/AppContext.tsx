@@ -478,6 +478,7 @@ function reducer(state: AppState, a: Action): AppState {
           flash: c.flashSram,
           reason: c.reason,
           constraints: c.constraints,
+          referenceKit: c.referenceKit,
         })),
         peripherals: a.peripherals.map((p) => ({
           id: p.id,

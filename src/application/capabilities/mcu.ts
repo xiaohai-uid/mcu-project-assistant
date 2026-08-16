@@ -3,7 +3,7 @@
 // 冻结 UI 候选数据 = 知识事实源；对照已接受需求（requirements artifact v1 内容）产出约束警告。
 // select_mcu：Hardware artifact v1（首选）/ v2（更换）+ artifact.version.created；
 // 更换下游失效仅提示（Stale 标记在 S5B，本票不实现）。
-import { createPlatformRegistry, type PlatformDefinition } from "@/src/domain/knowledge/platforms";
+import { createPlatformRegistry, type PlatformDefinition, type ReferenceKitDefinition } from "@/src/domain/knowledge/platforms";
 import { createComponentRegistry } from "@/src/domain/knowledge/components";
 import { createArtifact as domainCreateArtifact } from "@/src/domain/models/artifact";
 import { createArtifactVersion, type Artifact, type ArtifactVersion } from "@/src/domain/models/artifact";
@@ -44,6 +44,7 @@ export interface McuCandidate {
   ioMatrix: string;
   reason: string;
   constraints: string[];
+  referenceKit?: ReferenceKitDefinition;
 }
 
 export interface PeripheralView {
@@ -77,6 +78,7 @@ function toCandidate(p: PlatformDefinition): McuCandidate {
     ioMatrix: p.ioMatrix ?? `${p.pins.digital.length} GPIOs`,
     reason: p.reason ?? "",
     constraints: [...(p.constraints ?? [])],
+    ...(p.referenceKit ? { referenceKit: p.referenceKit } : {}),
   };
 }
 
@@ -189,6 +191,7 @@ export async function selectMcu(
   const content = JSON.stringify({
     selectedMcuId: input.mcuId,
     displayName: platform.displayName,
+    ...(platform.referenceKit ? { referenceKit: platform.referenceKit } : {}),
     peripherals: peripherals.map((p) => p.id),
   });
 

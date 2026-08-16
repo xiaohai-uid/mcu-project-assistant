@@ -1,6 +1,7 @@
 // app/src/api/client.ts — Capability HTTP 客户端（S1：projects 面；随 Slice 扩展）
 // Progressive Swap：替换 Mock 引擎的 create/open/archive 路径（ISSUE-001 §5）
 import type { BuildOutputEvidenceDto, DeviceInfoDto, FlashResultDto, SerialResultDto, SerialSessionDto, TaskErrorDto } from "@/src/shared-contracts/types";
+import type { ReferenceKitDefinition } from "@/src/domain/knowledge/platforms";
 
 export interface AppError {
   code: string;
@@ -321,6 +322,7 @@ export interface McuCandidateDto {
   ioMatrix: string;
   reason: string;
   constraints: string[];
+  referenceKit?: ReferenceKitDefinition;
 }
 
 export interface PeripheralDto {

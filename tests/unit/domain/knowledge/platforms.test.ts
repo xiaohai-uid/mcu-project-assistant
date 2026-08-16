@@ -90,4 +90,23 @@ describe("ESP32-S3（Golden Journey 目标；strapping 数据完整性）", () =
     expect(rp2040.family).toBe("rp2040");
     expect(stm32.family).toBe("stm32f4");
   });
+
+  it("商业参考套件：精确到开发板、模组、版本和官方来源", () => {
+    const kit = s3.referenceKit;
+    expect(kit?.id).toBe("esp32-s3-devkitc-1-n8r8-v1.1");
+    expect(kit?.boardModel).toBe("ESP32-S3-DevKitC-1-N8R8");
+    expect(kit?.moduleModel).toBe("ESP32-S3-WROOM-1-N8R8");
+    expect(kit?.boardRevision).toBe("v1.1");
+    expect(kit?.objectLevel).toBe("board");
+    expect(kit?.source.confidence).toBe("official-direct");
+    expect(kit?.source.url).toMatch(/esp-dev-kits.*user_guide_v1\.1/);
+    expect(kit?.facts.find((fact) => fact.key === "flash")?.value).toBe("8 MB Quad-SPI");
+    expect(kit?.facts.find((fact) => fact.key === "psram")?.value).toBe("8 MB Octal-SPI");
+    expect(kit?.physicalAcceptance.status).toBe("pending");
+  });
+
+  it("无精确参考套件身份的平台不能被当成商业套件", () => {
+    expect(registry.get("arduino_uno").referenceKit).toBeUndefined();
+    expect(registry.get("ESP32-S3").referenceKit?.boardModel).not.toBe("ESP32-S3");
+  });
 });

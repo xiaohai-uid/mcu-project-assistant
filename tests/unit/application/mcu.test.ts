@@ -151,6 +151,16 @@ describe("recommend_mcu（application-contract 2.6；knowledge 求值）", () =>
     expect(result.candidates.map((c) => c.id)).toEqual(["ESP32-S3", "RP2040", "STM32F401RE"]);
   });
 
+  it("推荐结果带精确参考套件身份和来源，而不是只有 ESP32-S3 家族名", async () => {
+    const d = deps();
+    const { project } = await seedRequirements(d.persistence, d.content, { capabilities: [] });
+    const result = await recommendMcu({ projectId: project.id }, { persistence: d.persistence, content: d.content });
+    const s3 = result.candidates.find((candidate) => candidate.id === "ESP32-S3");
+    expect(s3?.referenceKit?.boardModel).toBe("ESP32-S3-DevKitC-1-N8R8");
+    expect(s3?.referenceKit?.source.confidence).toBe("official-direct");
+    expect(s3?.referenceKit?.physicalAcceptance.status).toBe("pending");
+  });
+
   it("约束警告：RP2040/STM32 无 Wi-Fi（对照无线需求）", async () => {
     const d = deps();
     const { project } = await seedRequirements(d.persistence, d.content, {
@@ -208,8 +218,13 @@ describe("select_mcu（application-contract 2.7）", () => {
     expect(version.status).toBe("accepted");
     expect(artifact.currentVersionId).toBe(version.id);
     const stored = await d.content.load(version.contentRef);
-    const parsed = JSON.parse(stored) as { selectedMcuId: string };
+    const parsed = JSON.parse(stored) as { selectedMcuId: string; referenceKit?: { id: string; boardModel: string; boardRevision: string } };
     expect(parsed.selectedMcuId).toBe("ESP32-S3");
+    expect(parsed.referenceKit).toMatchObject({
+      id: "esp32-s3-devkitc-1-n8r8-v1.1",
+      boardModel: "ESP32-S3-DevKitC-1-N8R8",
+      boardRevision: "v1.1",
+    });
     // 事件
     expect(d.events.published.some((e) => e.type === "artifact.version.created")).toBe(true);
   });

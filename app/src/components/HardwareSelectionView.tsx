@@ -120,6 +120,27 @@ export const HardwareSelectionView: React.FC = () => {
                   </div>
                 </div>
 
+                {mcu.referenceKit && (
+                  <div className="mb-2 p-3 rounded-md bg-[#007aff]/5 border border-[#007aff]/20">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#007aff] dark:text-[#0a84ff]">精确参考套件身份</span>
+                      <span className="text-[10px] font-mono text-amber-600 dark:text-amber-400">实体验收：待验证</span>
+                    </div>
+                    <div className="font-mono text-[11px] text-[var(--text-primary)]">{mcu.referenceKit.boardModel}</div>
+                    <div className="mt-1 text-[10px] text-[var(--text-secondary)]">
+                      模组 {mcu.referenceKit.moduleModel} · 板级版本 {mcu.referenceKit.boardRevision} · 对象层级 {mcu.referenceKit.objectLevel}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--text-secondary)]">
+                      {mcu.referenceKit.facts.map((fact) => (
+                        <span key={fact.key}><span className="text-[var(--text-muted)]">{fact.key}</span> {fact.value}{fact.unit ? ` ${fact.unit}` : ""}</span>
+                      ))}
+                    </div>
+                    <a className="mt-2 inline-block text-[10px] text-[#007aff] dark:text-[#0a84ff] hover:underline" href={mcu.referenceKit.source.url} target="_blank" rel="noreferrer">
+                      {mcu.referenceKit.source.title} ↗
+                    </a>
+                  </div>
+                )}
+
                 {/* 约束检查（对照需求） */}
                 {mcu.constraints && mcu.constraints.length > 0 && (
                   <div className="mb-1.5 flex flex-col gap-1">

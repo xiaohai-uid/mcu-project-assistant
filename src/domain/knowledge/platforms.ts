@@ -7,6 +7,42 @@ export interface PlatformBuses {
   [bus: string]: { pins: Record<string, string>; shared: boolean };
 }
 
+export type PlatformObjectLevel = "chip" | "module" | "board" | "component" | "tool";
+export type PlatformFactValueClass = "stated" | "recommended" | "typical" | "maximum" | "unknown";
+export type PlatformFactConfidence = "official-direct" | "official-index" | "measured" | "user-supplied" | "inferred" | "unsupported";
+
+export interface PlatformSource {
+  owner: string;
+  url: string;
+  title: string;
+  revision?: string;
+  accessedAt: string;
+  confidence: PlatformFactConfidence;
+}
+
+export interface PlatformFact {
+  key: string;
+  value: string;
+  unit?: string;
+  condition?: string;
+  valueClass: PlatformFactValueClass;
+  source: PlatformSource;
+}
+
+export interface ReferenceKitDefinition {
+  id: string;
+  boardModel: string;
+  moduleModel: string;
+  boardRevision: string;
+  objectLevel: "board";
+  source: PlatformSource;
+  facts: PlatformFact[];
+  physicalAcceptance: {
+    status: "pending" | "accepted";
+    reason: string;
+  };
+}
+
 export interface PlatformDefinition {
   id: string;
   schemaVersion: string;
@@ -38,6 +74,8 @@ export interface PlatformDefinition {
   flashSram?: string;
   ioMatrix?: string;
   reason?: string;
+  /** 精确到可购买开发板的商业首发身份；宽泛平台记录不得替代它。 */
+  referenceKit?: ReferenceKitDefinition;
 }
 
 export interface PlatformRegistry {
@@ -149,6 +187,77 @@ const ESP32_S3: PlatformDefinition = {
   flashSram: "8MB Flash / 512KB SRAM",
   ioMatrix: "45 Programmable GPIOs, USB-OTG, Vector Ext",
   reason: "Optimal match for analog soil monitoring and concurrent Wi-Fi telemetry.",
+  referenceKit: {
+    id: "esp32-s3-devkitc-1-n8r8-v1.1",
+    boardModel: "ESP32-S3-DevKitC-1-N8R8",
+    moduleModel: "ESP32-S3-WROOM-1-N8R8",
+    boardRevision: "v1.1",
+    objectLevel: "board",
+    source: {
+      owner: "Espressif",
+      url: "https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.1.html",
+      title: "ESP32-S3-DevKitC-1 User Guide v1.1",
+      revision: "v1.1",
+      accessedAt: "2026-08-16",
+      confidence: "official-direct",
+    },
+    facts: [
+      {
+        key: "flash",
+        value: "8 MB Quad-SPI",
+        valueClass: "stated",
+        source: {
+          owner: "Espressif",
+          url: "https://www.espressif.com/sites/default/files/documentation/esp32-s3-wroom-1_wroom-1u_datasheet_en.pdf",
+          title: "ESP32-S3-WROOM-1 Datasheet",
+          accessedAt: "2026-08-16",
+          confidence: "official-direct",
+        },
+      },
+      {
+        key: "psram",
+        value: "8 MB Octal-SPI",
+        valueClass: "stated",
+        source: {
+          owner: "Espressif",
+          url: "https://www.espressif.com/sites/default/files/documentation/esp32-s3-wroom-1_wroom-1u_datasheet_en.pdf",
+          title: "ESP32-S3-WROOM-1 Datasheet",
+          accessedAt: "2026-08-16",
+          confidence: "official-direct",
+        },
+      },
+      {
+        key: "usb",
+        value: "USB-to-UART + native USB OTG",
+        valueClass: "stated",
+        source: {
+          owner: "Espressif",
+          url: "https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/user_guide_v1.1.html",
+          title: "ESP32-S3-DevKitC-1 User Guide v1.1",
+          revision: "v1.1",
+          accessedAt: "2026-08-16",
+          confidence: "official-direct",
+        },
+      },
+      {
+        key: "logic-voltage",
+        value: "3.3",
+        unit: "V",
+        valueClass: "stated",
+        source: {
+          owner: "Espressif",
+          url: "https://www.espressif.com/sites/default/files/documentation/esp32-s3-wroom-1_wroom-1u_datasheet_en.pdf",
+          title: "ESP32-S3-WROOM-1 Datasheet",
+          accessedAt: "2026-08-16",
+          confidence: "official-direct",
+        },
+      },
+    ],
+    physicalAcceptance: {
+      status: "pending",
+      reason: "当前记录尚未包含这块实物的 USB 识别、上传和串口启动证据。",
+    },
+  },
 };
 
 const RP2040: PlatformDefinition = {
