@@ -1,6 +1,6 @@
 // app/src/api/client.ts — Capability HTTP 客户端（S1：projects 面；随 Slice 扩展）
 // Progressive Swap：替换 Mock 引擎的 create/open/archive 路径（ISSUE-001 §5）
-import type { BuildOutputEvidenceDto, DeviceInfoDto, FlashResultDto, SerialResultDto, SerialSessionDto, TaskErrorDto } from "@/src/shared-contracts/types";
+import type { BuildOutputEvidenceDto, CommercialReadinessReportDto, DeviceInfoDto, FlashResultDto, SerialResultDto, SerialSessionDto, TaskErrorDto } from "@/src/shared-contracts/types";
 import type { ReferenceKitDefinition } from "@/src/domain/knowledge/platforms";
 
 export interface AppError {
@@ -249,6 +249,7 @@ export const api = {
     request<{ buildId: string; status: string }>(`/api/v1/builds/${buildId}/cancel`, { method: "POST" }),
   getBuilds: (versionId: string, signal?: AbortSignal) => request<BuildRecordDto[]>(`/api/v1/versions/${versionId}/builds`, { signal }),
   getBuild: (buildId: string) => request<BuildRecordDto>(`/api/v1/builds/${buildId}`),
+  getReadinessReport: (projectId: string, signal?: AbortSignal) => request<CommercialReadinessReportDto>(`/api/v1/projects/${projectId}/readiness-report`, { signal }),
   checkToolchain: (signal?: AbortSignal) =>
     request<{ available: boolean; toolchain: string; version: string | null; reason?: string }>("/api/v1/toolchain", { signal }),
   // ---------- S8 Diagnosis ----------

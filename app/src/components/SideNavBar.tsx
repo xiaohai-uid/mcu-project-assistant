@@ -21,6 +21,7 @@ export const SideNavBar: React.FC = () => {
     { id: "Wiring", label: t(lang, "wiringTab"), icon: "schema" },
     { id: "Firmware", label: t(lang, "firmwareTab"), icon: "terminal" },
     { id: "Build", label: t(lang, "buildTab"), icon: "rocket_launch" },
+    { id: "Delivery", label: t(lang, "deliveryTab"), icon: "fact_check" },
   ];
 
   const footerTabs: { id: SidebarTab; label: string; icon: string }[] = [

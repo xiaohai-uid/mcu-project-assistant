@@ -16,6 +16,7 @@ export type SidebarTab =
   | "Wiring"
   | "Firmware"
   | "Build"
+  | "Delivery"
   | "Companion"
   | "Settings";
 

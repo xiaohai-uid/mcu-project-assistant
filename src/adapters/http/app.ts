@@ -92,6 +92,7 @@ import {
   runBuild as runBuildCapability,
   VersionNotFoundError as BuildVersionNotFoundError,
 } from "@/src/application/capabilities/build";
+import { getCommercialReadinessReport, ReadinessProjectNotFoundError } from "@/src/application/capabilities/readiness";
 import {
   BuildNotFailedError,
   BuildNotFoundError as DiagnosisBuildNotFoundError,
@@ -195,6 +196,7 @@ export function createApp(deps: AppDeps): HttpApp {
     workspaceDir: deps.workspaceDir,
     now,
   };
+  const readinessDeps = { persistence: deps.persistence, content: deps.content, now };
   const diagnosisDeps = { persistence: deps.persistence, content: deps.content, events: deps.events, ai: deps.ai, now };
   const flashTokens = createFlashTokenStore();
   const flashDeps = {
@@ -647,6 +649,15 @@ export function createApp(deps: AppDeps): HttpApp {
     res.json(record);
   };
 
+  const handleReadinessReport = async (req: Request, res: Response) => {
+    try {
+      res.json(await getCommercialReadinessReport({ projectId: req.params.projectId as string }, readinessDeps));
+    } catch (err) {
+      if (err instanceof ReadinessProjectNotFoundError) throw new ApiError(404, "not_found", err.message);
+      throw err;
+    }
+  };
+
   const handleCancelBuild = async (req: Request, res: Response) => {
     try {
       const result = await cancelBuildCapability({ buildId: req.params.buildId as string }, buildDeps);
@@ -929,6 +940,7 @@ export function createApp(deps: AppDeps): HttpApp {
   app.get("/api/v1/projects/:projectId/stale-marks", withErrorHandler(handleStaleMarks));
   app.post("/api/v1/projects/:projectId/builds", withErrorHandler(handleRunBuild));
   app.get("/api/v1/builds/:buildId", withErrorHandler(handleGetBuild));
+  app.get("/api/v1/projects/:projectId/readiness-report", withErrorHandler(handleReadinessReport));
   app.post("/api/v1/builds/:buildId/diagnose", withErrorHandler(handleDiagnoseBuild));
   app.post("/api/v1/builds/:buildId/cancel", withErrorHandler(handleCancelBuild));
   app.get("/api/v1/versions/:versionId/builds", withErrorHandler(handleListBuilds));

@@ -201,6 +201,38 @@ export interface BuildRecordDto {
   readinessReasons: string[];
 }
 
+// ---------- Commercial delivery readiness ----------
+
+export type ReadinessGateId = "local-ready" | "simulation-ready" | "physical-accepted" | "paid-release-ready";
+export type ReadinessGateStatus = "ready" | "pending" | "blocked" | "unavailable";
+
+export interface ReadinessEvidenceDto {
+  kind: string;
+  ref: string;
+  observedAt: string;
+  detail: string;
+}
+
+export interface ReadinessGateDto {
+  id: ReadinessGateId;
+  status: ReadinessGateStatus;
+  title: string;
+  reason: string | null;
+  nextAction: string | null;
+  evidence: ReadinessEvidenceDto[];
+}
+
+export interface CommercialReadinessReportDto {
+  projectId: string;
+  generatedAt: string;
+  conclusion: {
+    status: "ready" | "pending" | "blocked";
+    text: string;
+    nextAction: string | null;
+  };
+  gates: ReadinessGateDto[];
+}
+
 export type StaleLevel = "L1" | "L2" | "L3";
 
 export interface StaleMarkDto {
