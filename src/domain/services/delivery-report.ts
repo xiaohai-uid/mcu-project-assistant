@@ -1,7 +1,7 @@
 import { ESP32_S3_REFERENCE_KIT_ID } from "@/src/domain/services/build-profile";
 import { deriveCommercialReadiness } from "@/src/domain/services/commercial-readiness";
 import type { BuildRecord } from "@/src/domain/models/build-record";
-import type { BomItemWithObservationsDto, DeliveryBoardIdentityDto, DeliveryReportDto, DeliveryRiskDto, DeviceTruthDto, PhysicalAcceptanceRecordDto, ProjectBomDto, ReadinessEvidenceDto, ValidationRecordDto } from "@/src/shared-contracts/types";
+import type { DeliveryBoardIdentityDto, DeliveryReportDto, DeliveryRiskDto, DeviceTruthDto, PhysicalAcceptanceRecordDto, ProjectBomDto, ReadinessEvidenceDto, ValidationRecordDto } from "@/src/shared-contracts/types";
 
 export interface DeliveryReportInput {
   projectId: string;
