@@ -119,7 +119,7 @@ describe("S10 Commercial Golden Journey", () => {
     expect((acceptance.body as { status: string }).status).toBe("failed");
 
     const item = await request(app).post(`/api/v1/projects/${project.id}/bom/items`).send({
-      componentId: "sensor.soil_moisture.exact",
+      componentId: "sensor.soil_moisture",
       displayName: "Soil moisture module exact fixture",
       identityStatus: "exact",
       manufacturer: "Fixture Manufacturer",
@@ -146,6 +146,8 @@ describe("S10 Commercial Golden Journey", () => {
     const report = reportResponse.body as DeliveryReportDto;
     expect(report.hardware.identity?.referenceKitId).toBe("esp32-s3-devkitc-1-n8r8-v1.1");
     expect(report.wiring.validation?.result).toBe("warn");
+    expect(report.bom.items.some((bomItem) => bomItem.componentId === "sensor.soil_moisture" && bomItem.identityStatus === "exact")).toBe(true);
+    expect(report.bom.items.some((bomItem) => bomItem.componentId === "sensor.soil_moisture" && bomItem.identityStatus === "unresolved")).toBe(false);
     expect(report.build?.outputs.some((output) => output.kind === "bin" && output.sha256.length === 64)).toBe(true);
     expect(report.physicalAcceptance?.status).toBe("failed");
     expect(report.priceObservationTimestamps).toHaveLength(1);

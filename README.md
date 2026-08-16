@@ -58,6 +58,8 @@ Configuration: use `.env.example` as a reference for the environment passed to t
 
 For the first Reference Kit's generated OLED firmware, install the pinned Arduino libraries into the same CLI config directory before running a real build. Arduino CLI does not consume `platformio.ini` dependency declarations during compilation; the generated file remains the project-facing dependency record.
 
+When adding an exact user BOM item, use the canonical component ID shown by the generated BOM (for example `sensor.soil_moisture`, `actuator.relay`, or `display.oled_096`). The selection is carried into wiring diagnostics, while unresolved electrical facts remain blocking until their source-backed component record is verified.
+
 ```powershell
 arduino-cli --config-file C:\absolute\path\to\arduino-cli.yaml lib install `
   "Adafruit SSD1306@2.5.10" "Adafruit GFX Library@1.11.9" "Adafruit BusIO@1.17.4"

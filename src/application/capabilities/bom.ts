@@ -85,6 +85,17 @@ function itemFromReferenceKit(projectId: string, referenceKit: { id: string; boa
   };
 }
 
+function visibleItems(items: BomItemDto[]): BomItemDto[] {
+  const exactUserSelections = new Set(
+    items
+      .filter((item) => item.sourceKind === "user-input" && item.identityStatus === "exact")
+      .map((item) => item.componentId),
+  );
+  return items.filter(
+    (item) => !(item.sourceKind === "system-suggestion" && item.identityStatus === "unresolved" && exactUserSelections.has(item.componentId)),
+  );
+}
+
 async function ensureSuggestions(projectId: string, generatedAt: string, deps: BomCapabilityDeps): Promise<void> {
   if (!deps.persistence.withTransaction || !deps.persistence.listBomItems || !deps.persistence.withTransaction) return;
   const requirements = await currentContent(projectId, "requirements", deps);
@@ -112,7 +123,7 @@ export async function getProjectBom(input: { projectId: string }, deps: BomCapab
   if (!project) throw new BomProjectNotFoundError();
   const now = deps.now ?? (() => new Date());
   await ensureSuggestions(input.projectId, now().toISOString(), deps);
-  const items = deps.persistence.listBomItems ? await deps.persistence.listBomItems(input.projectId) : [];
+  const items = visibleItems(deps.persistence.listBomItems ? await deps.persistence.listBomItems(input.projectId) : []);
   const withObservations: BomItemWithObservationsDto[] = await Promise.all(items.map(async (item) => ({
     ...item,
     priceObservations: deps.persistence.listPriceObservations ? await deps.persistence.listPriceObservations(item.id) : [],

@@ -94,6 +94,12 @@ export const BomView: React.FC = () => {
   };
 
   const selected = items.find((item) => item.id === selectedItemId) ?? items[0] ?? null;
+  const componentOptions = Array.from(new Set([
+    ...items.filter((item) => !item.componentId.startsWith("board:")).map((item) => item.componentId),
+    "sensor.soil_moisture",
+    "actuator.relay",
+    "display.oled_096",
+  ]));
   const inputClass = "w-full px-2.5 py-1.5 rounded-md bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] text-[11px] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#007aff]";
 
   return (
@@ -138,13 +144,14 @@ export const BomView: React.FC = () => {
 
       <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <div className="mac-card p-4"><h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3">{t(lang, "bomAddItem")}</h2><div className="grid grid-cols-2 gap-2">
-          <input className={inputClass} placeholder={t(lang, "bomComponentId")} value={userItem.componentId} onChange={(e) => setUserItem({ ...userItem, componentId: e.target.value })} />
+          <input list="bom-component-options" className={inputClass} placeholder={t(lang, "bomComponentId")} value={userItem.componentId} onChange={(e) => setUserItem({ ...userItem, componentId: e.target.value })} />
+          <datalist id="bom-component-options">{componentOptions.map((componentId) => <option key={componentId} value={componentId} />)}</datalist>
           <input className={inputClass} placeholder={t(lang, "bomDisplayName")} value={userItem.displayName} onChange={(e) => setUserItem({ ...userItem, displayName: e.target.value })} />
           <input className={inputClass} placeholder={t(lang, "bomManufacturer")} value={userItem.manufacturer} onChange={(e) => setUserItem({ ...userItem, manufacturer: e.target.value })} />
           <input className={inputClass} placeholder={t(lang, "bomPartNumber")} value={userItem.manufacturerPartNumber} onChange={(e) => setUserItem({ ...userItem, manufacturerPartNumber: e.target.value })} />
           <input className={inputClass} placeholder={t(lang, "bomSupplierSku")} value={userItem.supplierSku} onChange={(e) => setUserItem({ ...userItem, supplierSku: e.target.value })} />
           <input className={inputClass} type="number" min="1" placeholder={t(lang, "bomQuantity")} value={userItem.quantity} onChange={(e) => setUserItem({ ...userItem, quantity: e.target.value })} />
-        </div><button onClick={() => void saveUserItem()} className="mt-3 px-3 py-1.5 mac-button-primary rounded-md text-xs">{t(lang, "bomSave")}</button></div>
+        </div><p className="mt-2 text-[10px] leading-4 text-[var(--text-muted)]">Use the canonical component ID shown above to bind an exact user BOM item to wiring. Exact purchase identity does not replace missing electrical-source facts.</p><button onClick={() => void saveUserItem()} className="mt-3 px-3 py-1.5 mac-button-primary rounded-md text-xs">{t(lang, "bomSave")}</button></div>
 
         <div className="mac-card p-4"><h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3">{t(lang, "bomAddObservation")}</h2><select className={inputClass} value={selectedItemId} onChange={(e) => setSelectedItemId(e.target.value)}><option value="">—</option>{items.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select><div className="grid grid-cols-2 gap-2 mt-2">
           <input className={inputClass} placeholder={t(lang, "bomSupplierSku")} value={observation.supplierSku} onChange={(e) => setObservation({ ...observation, supplierSku: e.target.value })} />

@@ -13,7 +13,7 @@ import { computeDownstreamMarks } from "@/src/application/capabilities/revalidat
 import type { ArtifactContentPort } from "@/src/ports/artifact-content";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
-import type { ValidationRecordDto } from "@/src/shared-contracts/types";
+import type { BomItemDto, ValidationRecordDto } from "@/src/shared-contracts/types";
 
 export class ProjectNotFoundError extends Error {
   constructor() {
@@ -105,6 +105,29 @@ function issueTitle(code: string): string {
   return "Wiring constraint";
 }
 
+/**
+ * A user BOM item can identify the exact purchase identity for a canonical
+ * component family. It does not invent the missing electrical facts in the
+ * knowledge catalog: the original family status remains blocking until those
+ * facts are source-verified.
+ */
+function applySelectedBomIdentity(comp: ComponentDefinition, selection: BomItemDto): ComponentDefinition {
+  const selectedIdentity = [selection.manufacturer, selection.manufacturerPartNumber, selection.supplierSku]
+    .filter((value): value is string => Boolean(value))
+    .join(" / ");
+  const catalogReason = comp.identity.pendingReason ?? "the component catalog has not source-verified its electrical facts";
+  return {
+    ...comp,
+    identity: {
+      ...comp.identity,
+      ...(selection.manufacturer ? { manufacturer: selection.manufacturer } : {}),
+      ...(selection.manufacturerPartNumber ? { partNumber: selection.manufacturerPartNumber } : {}),
+      ...(selection.supplierSku ? { supplierSku: selection.supplierSku } : {}),
+      pendingReason: `Exact BOM identity selected${selectedIdentity ? ` (${selectedIdentity})` : ""}; ${catalogReason}`,
+    },
+  };
+}
+
 function issuesFromDiagnostics(diags: Diagnostic[]): PinIssue[] {
   return diags
     .map((d) => ({
@@ -159,6 +182,7 @@ async function resolveComponents(
   deps: Pick<WiringCapabilityDeps, "persistence" | "content">,
 ): Promise<Array<[string, ComponentDefinition]>> {
   const components = createComponentRegistry();
+  const bomItems = deps.persistence.listBomItems ? await deps.persistence.listBomItems(projectId) : [];
   const reqArtifact = await deps.persistence.getArtifactByKind(projectId, "requirements");
   let capabilities: Array<{ id: string; title: string }> = [];
   if (reqArtifact?.currentVersionId) {
@@ -178,7 +202,10 @@ async function resolveComponents(
       if (rule.match.test(cap.title)) {
         for (const comp of components.findByCapability(rule.capability)) {
           if (!result.some(([, c]) => c.id === comp.id)) {
-            result.push([`${comp.id.replace(".", "_")}_1`, comp]);
+            const selection = bomItems.find(
+              (item) => item.sourceKind === "user-input" && item.identityStatus === "exact" && item.componentId === comp.id,
+            );
+            result.push([`${comp.id.replace(".", "_")}_1`, selection ? applySelectedBomIdentity(comp, selection) : comp]);
           }
         }
         break;

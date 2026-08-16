@@ -10,6 +10,7 @@ import { generatePinMap, validateWiring, latestValidation, NoHardwareSelectedErr
 import { createProject as createProjectCapability } from "@/src/application/capabilities/projects";
 import { createArtifact as domainCreateArtifact } from "@/src/domain/models/artifact";
 import { selectMcu } from "@/src/application/capabilities/mcu";
+import type { BomItemDto } from "@/src/shared-contracts/types";
 
 const NOW = "2026-08-11T12:00:00.000Z";
 const now = () => new Date(NOW);
@@ -18,10 +19,11 @@ interface FakeMem {
   projects: Map<string, Project>;
   artifacts: Map<string, Artifact>;
   versions: Map<string, ArtifactVersion>;
+  bomItems: Map<string, BomItemDto>;
 }
 
 function fakePersistence(): PersistencePort & { mem: FakeMem } {
-  const mem: FakeMem = { projects: new Map(), artifacts: new Map(), versions: new Map() };
+  const mem: FakeMem = { projects: new Map(), artifacts: new Map(), versions: new Map(), bomItems: new Map() };
   const port: PersistencePort = {
     withTransaction: async <T>(fn: (uow: UnitOfWork) => T): Promise<T> => {
       const uow: UnitOfWork = {
@@ -62,6 +64,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
           const key = `validation:${v.artifactVersionId}`;
           (mem as FakeMem & { validations: Map<string, unknown> }).validations.set(key, v);
         },
+        createBomItem: (item) => void mem.bomItems.set(item.id, item),
       };
       return fn(uow);
     },
@@ -85,6 +88,7 @@ function fakePersistence(): PersistencePort & { mem: FakeMem } {
     latestValidation: async (versionId) =>
       ((mem as FakeMem & { validations: Map<string, unknown> }).validations.get(`validation:${versionId}`) as
         import("@/src/shared-contracts/types").ValidationRecordDto | undefined) ?? null,
+    listBomItems: async (projectId) => [...mem.bomItems.values()].filter((item) => item.projectId === projectId),
   };
   (mem as FakeMem & { validations: Map<string, unknown> }).validations = new Map();
   return { ...port, mem };
@@ -213,6 +217,35 @@ describe("generate_pin_map（application-contract 2.8；Golden Journey）", () =
     const r1 = await generatePinMap({ projectId: project.id }, d);
     const r2 = await generatePinMap({ projectId: project.id }, d);
     expect(JSON.stringify(r1.pinMap)).toBe(JSON.stringify(r2.pinMap));
+  });
+
+  it("用户选择的精确 BOM 身份进入接线诊断，但未核验电气资料仍保持阻塞", async () => {
+    const d = deps();
+    const project = await seedJourney(d);
+    const exactSelection: BomItemDto = {
+      id: "bom-soil-exact",
+      projectId: project.id,
+      componentId: "sensor.soil_moisture",
+      displayName: "Capacitive Soil Sensor module",
+      sourceKind: "user-input",
+      identityStatus: "exact",
+      manufacturer: "Example Sensors",
+      manufacturerPartNumber: "CSS-3V3-001",
+      supplierSku: "C90001",
+      quantity: 1,
+      unresolvedReason: null,
+      createdAt: NOW,
+    };
+    await d.persistence.withTransaction((uow) => uow.createBomItem?.(exactSelection));
+
+    const result = await generatePinMap({ projectId: project.id }, d);
+    const diagnostic = result.issues.find((issue) => issue.code === "COMPONENT_IDENTITY_PENDING" && issue.componentId === "sensor.soil_moisture");
+    expect(diagnostic).toMatchObject({
+      blocksClaim: true,
+      pendingReason: expect.stringContaining("CSS-3V3-001"),
+    });
+    expect(diagnostic?.detail).toMatch(/Example Sensors|C90001|CSS-3V3-001/);
+    expect(result.claimStatus).toBe("pending");
   });
 });
 
