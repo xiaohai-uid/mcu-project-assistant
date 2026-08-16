@@ -176,6 +176,19 @@ export interface PersistedFlashTaskInput {
 
 export type PersistedFlashOutput = FlashResultDto;
 
+async function persistLastFlashEvidence(
+  projectId: string,
+  result: PersistedFlashOutput,
+  deps: Pick<FlashCapabilityDeps, "persistence" | "now">,
+): Promise<void> {
+  const now = deps.now ?? (() => new Date());
+  await deps.persistence.withTransaction((uow) => uow.setPreference(
+    `last_flash:${projectId}`,
+    JSON.stringify({ observedAt: now().toISOString(), ...result }),
+    now().toISOString(),
+  ));
+}
+
 export async function executeFlashTask(
   input: PersistedFlashTaskInput,
   ctx: import("@/src/ports/task-execution").TaskContext,
@@ -221,7 +234,9 @@ export async function executeFlashTask(
     );
     sessionId.value = result.sessionId;
     if (ctx.signal.aborted) {
-      await ctx.setOutput(JSON.stringify({ ...result, exitCode: 1, sessionId: "", buildId: input.buildId, artifactVersionId: input.artifactVersionId, firmwareSha256: evidence.sha256, errorCode: "FLASH_CANCELLED" } satisfies PersistedFlashOutput));
+      const persisted = { ...result, exitCode: 1, sessionId: "", buildId: input.buildId, artifactVersionId: input.artifactVersionId, firmwareSha256: evidence.sha256, errorCode: "FLASH_CANCELLED" } satisfies PersistedFlashOutput;
+      await ctx.setOutput(JSON.stringify(persisted));
+      await persistLastFlashEvidence(projectId, persisted, deps);
       return;
     }
     if (result.exitCode !== 0) throw new Error(result.errorCode ?? "FLASH_EXIT_NONZERO");
@@ -230,13 +245,15 @@ export async function executeFlashTask(
       mkdirSync(join(deps.workspaceDir, ".evidence"), { recursive: true });
       appendFileSync(evidencePath, lines.join("\n") + "\n", "utf8");
     }
-    await ctx.setOutput(JSON.stringify({ ...result, sessionId: sessionId.value, buildId: input.buildId, artifactVersionId: input.artifactVersionId, firmwareSha256: evidence.sha256 } satisfies PersistedFlashOutput));
+    const persisted = { ...result, sessionId: sessionId.value, buildId: input.buildId, artifactVersionId: input.artifactVersionId, firmwareSha256: evidence.sha256 } satisfies PersistedFlashOutput;
+    await ctx.setOutput(JSON.stringify(persisted));
+    await persistLastFlashEvidence(projectId, persisted, deps);
     if (ctx.signal.aborted) return;
     ctx.emit({ type: "device.flashed", projectId, deviceId: input.deviceId, sessionId: sessionId.value, truth: result.truth });
   } catch (err) {
     const truth: DeviceTruth = { ...deps.device.session().truth, verification: "failed", physicalVerified: false };
     const safe = toSafeError(err);
-    await ctx.setOutput(JSON.stringify({
+    const persisted = {
       exitCode: 1,
       sessionId: "",
       truth,
@@ -245,7 +262,9 @@ export async function executeFlashTask(
       artifactVersionId: input.artifactVersionId,
       firmwareSha256: evidence.sha256,
       errorCode: safe.code,
-    } satisfies PersistedFlashOutput));
+    } satisfies PersistedFlashOutput;
+    await ctx.setOutput(JSON.stringify(persisted));
+    await persistLastFlashEvidence(projectId, persisted, deps);
     if (ctx.signal.aborted) return;
     ctx.emit({
       type: "device.flash_failed",

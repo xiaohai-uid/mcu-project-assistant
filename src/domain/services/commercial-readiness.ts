@@ -1,6 +1,6 @@
 import type { BuildRecord } from "@/src/domain/models/build-record";
 import { ESP32_S3_REFERENCE_KIT_ID } from "@/src/domain/services/build-profile";
-import type { DeviceTruthDto, ValidationRecordDto, CommercialReadinessReportDto, ReadinessEvidenceDto, ReadinessGateDto } from "@/src/shared-contracts/types";
+import type { DeviceTruthDto, ValidationRecordDto, CommercialReadinessReportDto, PhysicalAcceptanceRecordDto, ReadinessEvidenceDto, ReadinessGateDto } from "@/src/shared-contracts/types";
 
 export interface CommercialReadinessInput {
   projectId: string;
@@ -10,6 +10,7 @@ export interface CommercialReadinessInput {
   build: BuildRecord | null;
   simulation: DeviceTruthDto | null;
   physical: DeviceTruthDto | null;
+  physicalAcceptance?: PhysicalAcceptanceRecordDto | null;
 }
 
 function evidence(kind: string, ref: string, observedAt: string, detail: string): ReadinessEvidenceDto {
@@ -32,18 +33,17 @@ function gate(
   return { id, status, title: titles[id], reason, nextAction, evidence: evidenceRefs };
 }
 
-function physicalGate(truth: DeviceTruthDto | null, generatedAt: string): ReadinessGateDto {
-  if (!truth) {
-    return gate("physical-accepted", "pending", "No physical upload, verification, or serial evidence has been recorded.", "Connect the exact board, upload the saved build, verify it, and record serial evidence.", []);
+function physicalGate(truth: DeviceTruthDto | null, acceptance: PhysicalAcceptanceRecordDto | null, generatedAt: string): ReadinessGateDto {
+  if (!acceptance) {
+    const truthEvidence = truth ? [evidence("device-truth", truth.adapter, generatedAt, `Observed execution reality: ${truth.executionReality}; verification: ${truth.verification}.`)] : [];
+    const status = truth?.executionReality === "physical" ? "pending" : truth ? "unavailable" : "pending";
+    return gate("physical-accepted", status, "No complete physical acceptance record has been saved.", "Connect the exact board, upload the saved build, verify it, and record serial evidence.", truthEvidence);
   }
-  const truthEvidence = [evidence("device-truth", truth.adapter, generatedAt, `Observed execution reality: ${truth.executionReality}; verification: ${truth.verification}.`)];
-  if (truth.executionReality !== "physical") {
-    return gate("physical-accepted", "unavailable", "The latest device evidence is not from a physical board.", "Run the acceptance flow with executionReality=physical.", truthEvidence);
-  }
-  if (truth.verification === "verified" && truth.physicalVerified) {
-    return gate("physical-accepted", "ready", null, null, truthEvidence);
-  }
-  return gate("physical-accepted", "blocked", "Physical execution was not verified as accepted.", "Resolve the physical upload or serial verification failure and repeat acceptance.", truthEvidence);
+  const acceptanceEvidence = [evidence("physical-acceptance", acceptance.id, acceptance.completedAt ?? acceptance.createdAt, `Board ${acceptance.boardModel} ${acceptance.boardRevision}; upload=${acceptance.uploadStatus}; verify=${acceptance.verificationStatus}; serial=${acceptance.serialStatus}.`)];
+  if (truth) acceptanceEvidence.push(evidence("device-truth", truth.adapter, generatedAt, `Observed execution reality: ${truth.executionReality}; verification: ${truth.verification}.`));
+  if (acceptance.status === "accepted") return gate("physical-accepted", "ready", null, null, acceptanceEvidence);
+  if (acceptance.status === "pending") return gate("physical-accepted", "pending", acceptance.reason ?? "Physical acceptance is incomplete.", "Complete the missing physical upload, verification, or serial observation.", acceptanceEvidence);
+  return gate("physical-accepted", "blocked", acceptance.reason ?? "Physical acceptance failed.", "Resolve the physical acceptance failure and create a new record.", acceptanceEvidence);
 }
 
 function simulationGate(truth: DeviceTruthDto | null, generatedAt: string): ReadinessGateDto {
@@ -91,7 +91,7 @@ function localGate(input: CommercialReadinessInput): ReadinessGateDto {
 export function deriveCommercialReadiness(input: CommercialReadinessInput): CommercialReadinessReportDto {
   const local = localGate(input);
   const simulation = simulationGate(input.simulation, input.generatedAt);
-  const physical = physicalGate(input.physical, input.generatedAt);
+  const physical = physicalGate(input.physical, input.physicalAcceptance ?? null, input.generatedAt);
   const paidReady = local.status === "ready" && physical.status === "ready";
   const paid = gate(
     "paid-release-ready",

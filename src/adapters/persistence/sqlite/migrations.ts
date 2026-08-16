@@ -205,6 +205,36 @@ ALTER TABLE build_records ADD COLUMN readiness_status TEXT NOT NULL DEFAULT 'blo
 ALTER TABLE build_records ADD COLUMN readiness_reasons TEXT NOT NULL DEFAULT '[]';
 `,
   },
+  {
+    version: 12,
+    name: "create_physical_acceptance_records",
+    sql: `
+CREATE TABLE physical_acceptance_records (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  build_id TEXT NOT NULL REFERENCES build_records(id),
+  artifact_version_id TEXT NOT NULL REFERENCES artifact_versions(id),
+  reference_kit_id TEXT NOT NULL,
+  board_model TEXT NOT NULL,
+  board_revision TEXT NOT NULL,
+  device_id TEXT NULL,
+  usb_port TEXT NULL,
+  usb_vid TEXT NULL,
+  usb_pid TEXT NULL,
+  usb_serial_number TEXT NULL,
+  firmware_sha256 TEXT NULL,
+  upload_status TEXT NOT NULL CHECK (upload_status IN ('pending','verified','observed','failed')),
+  verification_status TEXT NOT NULL CHECK (verification_status IN ('pending','verified','observed','failed')),
+  serial_status TEXT NOT NULL CHECK (serial_status IN ('pending','verified','observed','failed')),
+  serial_observation TEXT NULL,
+  status TEXT NOT NULL CHECK (status IN ('accepted','pending','failed')),
+  reason TEXT NULL,
+  created_at TEXT NOT NULL,
+  completed_at TEXT NULL
+);
+CREATE INDEX idx_physical_acceptance_project ON physical_acceptance_records(project_id, created_at);
+`,
+  },
 ];
 
 export function migrate(db: SqliteDb): void {

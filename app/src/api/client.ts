@@ -1,6 +1,6 @@
 // app/src/api/client.ts — Capability HTTP 客户端（S1：projects 面；随 Slice 扩展）
 // Progressive Swap：替换 Mock 引擎的 create/open/archive 路径（ISSUE-001 §5）
-import type { BuildOutputEvidenceDto, CommercialReadinessReportDto, DeviceInfoDto, FlashResultDto, SerialResultDto, SerialSessionDto, TaskErrorDto } from "@/src/shared-contracts/types";
+import type { BuildOutputEvidenceDto, CommercialReadinessReportDto, DeviceInfoDto, FlashResultDto, PhysicalAcceptanceRecordDto, SerialResultDto, SerialSessionDto, TaskErrorDto } from "@/src/shared-contracts/types";
 import type { ReferenceKitDefinition } from "@/src/domain/knowledge/platforms";
 
 export interface AppError {
@@ -267,6 +267,13 @@ export const api = {
   detectDevice: () => request<DeviceInfoDto>("/api/v1/device/detect", { method: "POST" }),
   getDeviceState: (projectId: string, signal?: AbortSignal) =>
     request<{ lastDevice: DeviceInfoDto | null }>(`/api/v1/projects/${projectId}/device-state`, { signal }),
+  getPhysicalAcceptance: (projectId: string, signal?: AbortSignal) => request<{ record: PhysicalAcceptanceRecordDto | null }>(`/api/v1/projects/${projectId}/physical-acceptance`, { signal }),
+  recordPhysicalAcceptance: (projectId: string, input: { buildId: string; artifactVersionId: string; serialObservation: string }) =>
+    request<PhysicalAcceptanceRecordDto>(`/api/v1/projects/${projectId}/physical-acceptance`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    }),
   issueFlashToken: (deviceId: string) =>
     request<{ token: string; expiresAt: string }>("/api/v1/device/flash-token", {
       method: "POST",

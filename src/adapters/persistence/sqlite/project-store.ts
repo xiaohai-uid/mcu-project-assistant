@@ -4,7 +4,7 @@ import type { BuildRecord } from "@/src/domain/models/build-record";
 import type { Project } from "@/src/domain/models/project";
 import type { TaskRecord } from "@/src/ports/task-execution";
 import type { Proposal } from "@/src/domain/models/proposal";
-import type { ArtifactKind, ArtifactVersionStatus, StaleMarkDto, TaskStatusDto, ValidationRecordDto } from "@/src/shared-contracts/types";
+import type { ArtifactKind, ArtifactVersionStatus, PhysicalAcceptanceRecordDto, StaleMarkDto, TaskStatusDto, ValidationRecordDto } from "@/src/shared-contracts/types";
 import type { PersistencePort, UnitOfWork } from "@/src/ports/persistence";
 import type { SqliteDb } from "./connection";
 import type { IdempotencyRecord, IdempotencyRequest } from "@/src/shared/idempotency";
@@ -115,6 +115,30 @@ interface BuildRow {
   outputs_json?: string | null;
   readiness_status?: string;
   readiness_reasons?: string;
+}
+
+interface PhysicalAcceptanceRow {
+  id: string;
+  project_id: string;
+  build_id: string;
+  artifact_version_id: string;
+  reference_kit_id: string;
+  board_model: string;
+  board_revision: string;
+  device_id: string | null;
+  usb_port: string | null;
+  usb_vid: string | null;
+  usb_pid: string | null;
+  usb_serial_number: string | null;
+  firmware_sha256: string | null;
+  upload_status: string;
+  verification_status: string;
+  serial_status: string;
+  serial_observation: string | null;
+  status: string;
+  reason: string | null;
+  created_at: string;
+  completed_at: string | null;
 }
 
 interface ProposalRow {
@@ -232,6 +256,32 @@ function toBuild(row: BuildRow): BuildRecord {
     outputs: row.outputs_json ? parsePersistedJson(row.outputs_json, "build", row.id, "outputs_json", isBuildOutputArray) as unknown as NonNullable<BuildRecord["outputs"]> : [],
     readinessStatus: (row.readiness_status ?? "blocked") as BuildRecord["readinessStatus"],
     readinessReasons: row.readiness_reasons ? parsePersistedJson(row.readiness_reasons, "build", row.id, "readiness_reasons", isStringArray) : [],
+  };
+}
+
+function toPhysicalAcceptance(row: PhysicalAcceptanceRow): PhysicalAcceptanceRecordDto {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    buildId: row.build_id,
+    artifactVersionId: row.artifact_version_id,
+    referenceKitId: row.reference_kit_id,
+    boardModel: row.board_model,
+    boardRevision: row.board_revision,
+    deviceId: row.device_id,
+    usbPort: row.usb_port,
+    usbVid: row.usb_vid,
+    usbPid: row.usb_pid,
+    usbSerialNumber: row.usb_serial_number,
+    firmwareSha256: row.firmware_sha256,
+    uploadStatus: row.upload_status as PhysicalAcceptanceRecordDto["uploadStatus"],
+    verificationStatus: row.verification_status as PhysicalAcceptanceRecordDto["verificationStatus"],
+    serialStatus: row.serial_status as PhysicalAcceptanceRecordDto["serialStatus"],
+    serialObservation: row.serial_observation,
+    status: row.status as PhysicalAcceptanceRecordDto["status"],
+    reason: row.reason,
+    createdAt: row.created_at,
+    completedAt: row.completed_at,
   };
 }
 
@@ -360,6 +410,14 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
   const selectBuild = db.prepare("SELECT * FROM build_records WHERE id = ?");
   const selectBuilds = db.prepare(
     "SELECT * FROM build_records WHERE artifact_version_id = ? ORDER BY started_at ASC, rowid ASC",
+  );
+  const insertPhysicalAcceptance = db.prepare(
+    `INSERT INTO physical_acceptance_records
+      (id, project_id, build_id, artifact_version_id, reference_kit_id, board_model, board_revision, device_id, usb_port, usb_vid, usb_pid, usb_serial_number, firmware_sha256, upload_status, verification_status, serial_status, serial_observation, status, reason, created_at, completed_at)
+     VALUES (@id, @project_id, @build_id, @artifact_version_id, @reference_kit_id, @board_model, @board_revision, @device_id, @usb_port, @usb_vid, @usb_pid, @usb_serial_number, @firmware_sha256, @upload_status, @verification_status, @serial_status, @serial_observation, @status, @reason, @created_at, @completed_at)`,
+  );
+  const selectLatestPhysicalAcceptance = db.prepare(
+    "SELECT * FROM physical_acceptance_records WHERE project_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1",
   );
   const upsertPreference = db.prepare(
     "INSERT INTO preferences (key, value, updated_at) VALUES (@key, @value, @updated_at) ON CONFLICT(key) DO UPDATE SET value = @value, updated_at = @updated_at",
@@ -569,6 +627,31 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     setPreference(key: string, value: string, updatedAt: string): void {
       upsertPreference.run({ key, value, updated_at: updatedAt });
     },
+    createPhysicalAcceptance(record: PhysicalAcceptanceRecordDto): void {
+      insertPhysicalAcceptance.run({
+        id: record.id,
+        project_id: record.projectId,
+        build_id: record.buildId,
+        artifact_version_id: record.artifactVersionId,
+        reference_kit_id: record.referenceKitId,
+        board_model: record.boardModel,
+        board_revision: record.boardRevision,
+        device_id: record.deviceId,
+        usb_port: record.usbPort,
+        usb_vid: record.usbVid,
+        usb_pid: record.usbPid,
+        usb_serial_number: record.usbSerialNumber,
+        firmware_sha256: record.firmwareSha256,
+        upload_status: record.uploadStatus,
+        verification_status: record.verificationStatus,
+        serial_status: record.serialStatus,
+        serial_observation: record.serialObservation,
+        status: record.status,
+        reason: record.reason,
+        created_at: record.createdAt,
+        completed_at: record.completedAt,
+      });
+    },
     createValidationRecord(v: ValidationRecordDto): void {
       insertValidation.run({
         id: v.id,
@@ -711,6 +794,10 @@ export function createProjectStore(db: SqliteDb): PersistencePort {
     getPreference: async (key: string) => {
       const row = selectPreference.get(key) as { value: string } | undefined;
       return row?.value ?? null;
+    },
+    latestPhysicalAcceptance: async (projectId: string) => {
+      const row = selectLatestPhysicalAcceptance.get(projectId) as PhysicalAcceptanceRow | undefined;
+      return row ? toPhysicalAcceptance(row) : null;
     },
   };
 }

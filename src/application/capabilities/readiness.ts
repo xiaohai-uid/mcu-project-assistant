@@ -66,6 +66,7 @@ export async function getCommercialReadinessReport(
   const builds = firmware.versionId ? await deps.persistence.listBuilds(firmware.versionId) : [];
   const latestBuild = [...builds].sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt)).at(-1) ?? null;
   const lastDevice = deviceTruth(await deps.persistence.getPreference("last_device"));
+  const physicalAcceptance = await deps.persistence.latestPhysicalAcceptance?.(input.projectId) ?? null;
 
   return deriveCommercialReadiness({
     projectId: input.projectId,
@@ -75,5 +76,6 @@ export async function getCommercialReadinessReport(
     build: latestBuild,
     simulation: lastDevice?.executionReality === "simulation" ? lastDevice : null,
     physical: lastDevice?.executionReality === "physical" || lastDevice?.executionReality === "companion" ? lastDevice : null,
+    physicalAcceptance,
   });
 }

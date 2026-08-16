@@ -8,7 +8,7 @@ import type { BuildRecord } from "@/src/domain/models/build-record";
 import type { Project } from "@/src/domain/models/project";
 import type { Proposal } from "@/src/domain/models/proposal";
 import type { TaskRecord } from "@/src/ports/task-execution";
-import type { ArtifactKind, ArtifactVersionStatus, StaleMarkDto, ValidationRecordDto } from "@/src/shared-contracts/types";
+import type { ArtifactKind, ArtifactVersionStatus, PhysicalAcceptanceRecordDto, StaleMarkDto, ValidationRecordDto } from "@/src/shared-contracts/types";
 import type { IdempotencyClaim, IdempotencyRecord, IdempotencyRequest } from "@/src/shared/idempotency";
 
 export interface UnitOfWork {
@@ -51,6 +51,8 @@ export interface UnitOfWork {
   updateBuildRecord(b: BuildRecord): void;
   // S9
   setPreference(key: string, value: string, updatedAt: string): void;
+  // S9 physical acceptance (optional for legacy in-memory adapters)
+  createPhysicalAcceptance?(record: PhysicalAcceptanceRecordDto): void;
 }
 
 export interface PersistencePort {
@@ -84,4 +86,5 @@ export interface PersistencePort {
   listBuilds(versionId: string): Promise<BuildRecord[]>;
   // S9
   getPreference(key: string): Promise<string | null>;
+  latestPhysicalAcceptance?(projectId: string): Promise<PhysicalAcceptanceRecordDto | null>;
 }

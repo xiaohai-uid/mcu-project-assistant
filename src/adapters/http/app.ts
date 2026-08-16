@@ -119,6 +119,12 @@ import {
   TokenReusedError,
 } from "@/src/application/capabilities/flash";
 import { createFlashTokenStore } from "@/src/application/capabilities/flash";
+import {
+  latestPhysicalAcceptance as latestPhysicalAcceptanceCapability,
+  PhysicalAcceptanceInputError,
+  PhysicalAcceptanceProjectNotFoundError,
+  recordPhysicalAcceptance,
+} from "@/src/application/capabilities/physical-acceptance";
 import { MAX_HTTP_BODY_BYTES, MAX_SERIAL_WRITE_BYTES, ResourceLimitError, assertUtf8Bytes } from "@/src/shared/resource-limits";
 import { SerialWriteTooLargeError } from "@/src/ports/device";
 import { browserTrustMiddleware } from "./browser-trust";
@@ -709,6 +715,27 @@ export function createApp(deps: AppDeps): HttpApp {
     }
   };
 
+  const handlePhysicalAcceptance = async (req: Request, res: Response) => {
+    const projectId = req.params.projectId as string;
+    const buildId = typeof req.body?.buildId === "string" ? req.body.buildId : "";
+    const artifactVersionId = typeof req.body?.artifactVersionId === "string" ? req.body.artifactVersionId : "";
+    const serialObservation = typeof req.body?.serialObservation === "string" ? req.body.serialObservation : undefined;
+    if (!buildId || !artifactVersionId) throw new ApiError(400, "invalid_capability", "buildId and artifactVersionId are required");
+    try {
+      res.status(201).json(await recordPhysicalAcceptance({ projectId, buildId, artifactVersionId, serialObservation }, readinessDeps));
+    } catch (err) {
+      if (err instanceof PhysicalAcceptanceProjectNotFoundError) throw new ApiError(404, "not_found", err.message);
+      if (err instanceof PhysicalAcceptanceInputError) throw new ApiError(400, "invalid_capability", err.message);
+      throw err;
+    }
+  };
+
+  const handleLatestPhysicalAcceptance = async (req: Request, res: Response) => {
+    const project = await getProjectCapability({ id: req.params.projectId as string }, capDeps);
+    if (!project) throw new ApiError(404, "not_found", "Project not found");
+    res.json({ record: await latestPhysicalAcceptanceCapability({ projectId: project.id }, flashDeps) });
+  };
+
   const handleFlashToken = async (req: Request, res: Response) => {
     const deviceId = typeof req.body?.deviceId === "string" ? req.body.deviceId : "";
     if (!deviceId) throw new ApiError(400, "invalid_capability", "deviceId required");
@@ -947,6 +974,8 @@ export function createApp(deps: AppDeps): HttpApp {
   app.get("/api/v1/toolchain", withErrorHandler(handleToolchain));
   app.post("/api/v1/device/detect", withErrorHandler(handleDetectDevice));
   app.get("/api/v1/projects/:projectId/device-state", withErrorHandler(handleDeviceState));
+  app.get("/api/v1/projects/:projectId/physical-acceptance", withErrorHandler(handleLatestPhysicalAcceptance));
+  app.post("/api/v1/projects/:projectId/physical-acceptance", withErrorHandler(handlePhysicalAcceptance));
   app.post("/api/v1/device/flash-token", withErrorHandler(handleFlashToken));
   app.post("/api/v1/device/flash", withErrorHandler(handleFlash));
   app.post("/api/v1/device/disconnect", withErrorHandler(handleDisconnect));

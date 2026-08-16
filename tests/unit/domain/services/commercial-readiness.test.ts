@@ -77,6 +77,13 @@ describe("deriveCommercialReadiness", () => {
       build: build(),
       simulation: { executionReality: "simulation", verification: "verified", physicalVerified: false, adapter: "simulator" },
       physical: { executionReality: "physical", verification: "verified", physicalVerified: true, adapter: "esp32-arduino-physical" },
+      physicalAcceptance: {
+        id: "acceptance-1", projectId: "project-1", buildId: "build-1", artifactVersionId: "firmware-v1",
+        referenceKitId: "esp32-s3-devkitc-1-n8r8-v1.1", boardModel: "ESP32-S3-DevKitC-1-N8R8", boardRevision: "v1.1",
+        deviceId: "physical-device", usbPort: "COM9", usbVid: "303a", usbPid: "1001", usbSerialNumber: "fixture",
+        firmwareSha256: "a".repeat(64), uploadStatus: "verified", verificationStatus: "verified", serialStatus: "observed",
+        serialObservation: "MCU_READY", status: "accepted", reason: null, createdAt: NOW, completedAt: NOW,
+      },
     });
 
     expect(report.gates.every((gate) => gate.status === "ready")).toBe(true);

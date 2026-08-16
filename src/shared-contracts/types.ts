@@ -136,6 +136,33 @@ export interface FlashResultDto {
   errorCode?: string;
 }
 
+export type PhysicalAcceptanceStatus = "accepted" | "pending" | "failed";
+export type PhysicalEvidenceStatus = "pending" | "verified" | "observed" | "failed";
+
+export interface PhysicalAcceptanceRecordDto {
+  id: string;
+  projectId: string;
+  buildId: string;
+  artifactVersionId: string;
+  referenceKitId: string;
+  boardModel: string;
+  boardRevision: string;
+  deviceId: string | null;
+  usbPort: string | null;
+  usbVid: string | null;
+  usbPid: string | null;
+  usbSerialNumber: string | null;
+  firmwareSha256: string | null;
+  uploadStatus: PhysicalEvidenceStatus;
+  verificationStatus: PhysicalEvidenceStatus;
+  serialStatus: PhysicalEvidenceStatus;
+  serialObservation: string | null;
+  status: PhysicalAcceptanceStatus;
+  reason: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
 export interface SerialResultDto {
   /** null means the bytes were accepted by a physical transport but no response protocol exists. */
   response: string | null;

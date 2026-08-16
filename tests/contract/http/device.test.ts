@@ -298,9 +298,18 @@ describe("S9 device surface", () => {
     expect(detect.status).toBe(200);
     const device = detect.body as { id: string; port: string; fqbn: string; truth: { executionReality: string; physicalVerified: boolean } };
     expect(device).toMatchObject({ port: "COM9", fqbn: "esp32:esp32:esp32s3", truth: { executionReality: "physical", physicalVerified: true } });
+    const beforeUpload = await request(app).post(`/api/v1/projects/${projectId}/physical-acceptance`).send({ buildId, artifactVersionId: versionId, serialObservation: "BOOT: MCU_READY" });
+    expect(beforeUpload.status).toBe(201);
+    expect(beforeUpload.body).toMatchObject({ status: "pending", uploadStatus: "pending", serialStatus: "observed" });
     const token = ((await request(app).post("/api/v1/device/flash-token").send({ deviceId: device.id })).body as { token: string }).token;
     const flash = await request(app).post("/api/v1/device/flash").send({ projectId, deviceId: device.id, confirmationToken: token, buildId, artifactVersionId: versionId, executionReality: "physical" });
     expect(flash.status).toBe(202);
     expect(flash.body).toMatchObject({ exitCode: 0, buildId, artifactVersionId: versionId, port: "COM9", fqbn: "esp32:esp32:esp32s3", adapter: "esp32-arduino-physical", toolchain: "arduino-cli", truth: { executionReality: "physical", verification: "verified", physicalVerified: true } });
+    const acceptance = await request(app).post(`/api/v1/projects/${projectId}/physical-acceptance`).send({ buildId, artifactVersionId: versionId, serialObservation: "BOOT: MCU_READY status=ok" });
+    expect(acceptance.status).toBe(201);
+    expect(acceptance.body).toMatchObject({ status: "accepted", uploadStatus: "verified", verificationStatus: "verified", serialStatus: "observed", usbPort: "COM9", firmwareSha256: expect.stringMatching(/^[a-f0-9]{64}$/) });
+    const stored = await request(app).get(`/api/v1/projects/${projectId}/physical-acceptance`);
+    expect(stored.status).toBe(200);
+    expect(stored.body.record.id).toBe(acceptance.body.id);
   });
 });

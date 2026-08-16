@@ -34,6 +34,9 @@ export const ReadinessView: React.FC = () => {
   const [report, setReport] = useState<CommercialReadinessReportDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  const [serialObservation, setSerialObservation] = useState("");
+  const [submittingAcceptance, setSubmittingAcceptance] = useState(false);
+  const [acceptanceMessage, setAcceptanceMessage] = useState<string | null>(null);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (!project?.id) {
@@ -50,6 +53,31 @@ export const ReadinessView: React.FC = () => {
       if (!signal?.aborted) setLoading(false);
     }
   }, [project?.id]);
+
+  const submitAcceptance = useCallback(async () => {
+    if (!project?.id || !state.build.buildId) return;
+    setSubmittingAcceptance(true);
+    setAcceptanceMessage(null);
+    try {
+      const firmware = await clientApi.ensureArtifact(project.id, "firmware");
+      const versionId = firmware.currentVersionId ?? (await clientApi.listVersions(firmware.id)).at(-1)?.id;
+      if (!versionId) {
+        setAcceptanceMessage(t(lang, "deliveryAcceptanceRequiresBuild"));
+        return;
+      }
+      await clientApi.recordPhysicalAcceptance(project.id, {
+        buildId: state.build.buildId,
+        artifactVersionId: versionId,
+        serialObservation,
+      });
+      setAcceptanceMessage(t(lang, "deliveryAcceptanceSaved"));
+      await refresh();
+    } catch {
+      setAcceptanceMessage(t(lang, "deliveryReportError"));
+    } finally {
+      setSubmittingAcceptance(false);
+    }
+  }, [lang, project?.id, refresh, serialObservation, state.build.buildId]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -99,6 +127,41 @@ export const ReadinessView: React.FC = () => {
                 <div className="mt-1 max-w-xs">{report.conclusion.nextAction ?? t(lang, "deliveryNoAction")}</div>
               </div>
             </div>
+          </section>
+
+          <section className="mac-card p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">PHYSICAL ACCEPTANCE / SERIAL</div>
+                <h2 className="text-sm font-semibold text-[var(--text-primary)] mt-1">{t(lang, "deliverySerialLabel")}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSerialObservation(state.companion.serialLines.join("\n"))}
+                disabled={state.companion.serialLines.length === 0}
+                className="px-3 py-1.5 mac-button-secondary rounded-md text-xs disabled:opacity-40"
+              >
+                {t(lang, "deliveryUseSerialLines")}
+              </button>
+            </div>
+            <textarea
+              value={serialObservation}
+              onChange={(event) => setSerialObservation(event.target.value)}
+              placeholder={t(lang, "deliverySerialPlaceholder")}
+              className="mt-3 w-full min-h-[90px] p-3 rounded-md bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] text-xs font-mono text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[#007aff]"
+            />
+            <div className="flex items-center justify-between gap-3 mt-3">
+              <div className="text-[11px] text-[var(--text-secondary)]">{state.build.buildId ? `build ${state.build.buildId}` : t(lang, "deliveryAcceptanceRequiresBuild")}</div>
+              <button
+                type="button"
+                onClick={() => void submitAcceptance()}
+                disabled={!state.build.buildId || submittingAcceptance}
+                className="px-4 py-1.5 mac-button-primary rounded-md text-xs disabled:opacity-40"
+              >
+                {submittingAcceptance ? "…" : t(lang, "deliverySubmitAcceptance")}
+              </button>
+            </div>
+            {acceptanceMessage && <div className="text-[11px] text-[var(--text-secondary)] mt-2">{acceptanceMessage}</div>}
           </section>
 
           <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
