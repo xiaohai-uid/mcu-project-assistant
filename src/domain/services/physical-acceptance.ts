@@ -1,4 +1,5 @@
 import type { DeviceInfoDto, DeviceTruthDto, PhysicalAcceptanceRecordDto } from "@/src/shared-contracts/types";
+import { ESP32_S3_ARDUINO_FQBN } from "@/src/domain/services/build-profile";
 
 export interface PhysicalAcceptanceEvaluationInput {
   expectedReferenceKitId: string;
@@ -16,6 +17,7 @@ export interface PhysicalAcceptanceEvaluationInput {
     buildId?: string;
     artifactVersionId?: string;
     firmwareSha256?: string;
+    fqbn?: string;
     truth: DeviceTruthDto;
     errorCode?: string;
   } | null;
@@ -40,6 +42,7 @@ export function evaluatePhysicalAcceptance(input: PhysicalAcceptanceEvaluationIn
     && input.flash.exitCode === 0
     && input.flash.buildId === input.buildId
     && input.flash.artifactVersionId === input.artifactVersionId
+    && input.flash.fqbn === ESP32_S3_ARDUINO_FQBN
     && input.flash.truth.executionReality === "physical"
     && input.flash.truth.verification === "verified"
     && input.flash.truth.physicalVerified);
@@ -48,6 +51,7 @@ export function evaluatePhysicalAcceptance(input: PhysicalAcceptanceEvaluationIn
   const verificationStatus: PhysicalAcceptanceRecordDto["verificationStatus"] = uploadStatus === "verified" ? "verified" : uploadStatus === "pending" ? "pending" : "failed";
   if (!input.flash) reasons.push("No completed physical upload evidence is available.");
   else if (uploadStatus !== "verified") reasons.push(input.flash.errorCode ? `Physical upload failed: ${input.flash.errorCode}.` : "Physical upload, truth, or firmware hash verification failed.");
+  if (input.flash && input.flash.fqbn !== ESP32_S3_ARDUINO_FQBN) reasons.push(`Physical upload evidence FQBN must be ${ESP32_S3_ARDUINO_FQBN}.`);
 
   const serialStatus: PhysicalAcceptanceRecordDto["serialStatus"] = !input.serialObservation
     ? "pending"
@@ -58,7 +62,7 @@ export function evaluatePhysicalAcceptance(input: PhysicalAcceptanceEvaluationIn
   else if (serialStatus === "failed") reasons.push("Serial observation does not contain an expected startup/status marker.");
 
   const identityReady = input.referenceKitId === input.expectedReferenceKitId
-    && Boolean(input.device?.id && input.device.port && input.device.truth.executionReality === "physical" && input.device.truth.physicalVerified);
+    && Boolean(input.device?.id && input.device.port && input.device.fqbn === ESP32_S3_ARDUINO_FQBN && input.device.truth.executionReality === "physical" && input.device.truth.physicalVerified);
   if (!identityReady) reasons.push("The latest detected USB device is not a verified physical device for this project.");
   const status: PhysicalAcceptanceRecordDto["status"] = reasons.length === 0 && uploadStatus === "verified" && verificationStatus === "verified" && serialStatus === "observed"
     ? "accepted"

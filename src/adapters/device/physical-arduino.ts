@@ -26,8 +26,7 @@ import { safeMessageForCode } from "@/src/shared-contracts/errors";
 import { spawnOwnedChild, stopOwnedChild } from "@/src/infrastructure/owned-child";
 import { MAX_FLASH_EVIDENCE_BYTES, MAX_SERIAL_HISTORY_LINES, MAX_SERIAL_SUBSCRIBERS, MAX_SERIAL_WRITE_BYTES, retainBoundedLine } from "@/src/shared/resource-limits";
 import { ProcessOutputLimitError } from "@/src/ports/compiler";
-
-const ESP32_S3_FQBN = "esp32:esp32:esp32s3";
+import { ESP32_S3_ARDUINO_FQBN } from "@/src/domain/services/build-profile";
 
 export class PhysicalToolUnavailableError extends Error {
   readonly code = "PHYSICAL_TOOL_UNAVAILABLE";
@@ -96,7 +95,7 @@ function parseCandidates(value: unknown): Candidate[] {
       if (!board || typeof board !== "object") continue;
       const info = board as Record<string, unknown>;
       const fqbn = typeof info.fqbn === "string" ? info.fqbn : "";
-      if (!port || fqbn !== ESP32_S3_FQBN) continue;
+      if (!port || fqbn !== ESP32_S3_ARDUINO_FQBN) continue;
       candidates.push({
         port,
         protocol,
@@ -272,7 +271,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
           return;
         }
         session.stage = "flashing";
-        const argv = [...prefix, "upload", "--fqbn", ESP32_S3_FQBN, "--port", current.port, "--input-dir", input.outputDir, "--verify"];
+        const argv = [...prefix, "upload", "--fqbn", ESP32_S3_ARDUINO_FQBN, "--port", current.port, "--input-dir", input.outputDir, "--verify"];
         let child: import("node:child_process").ChildProcess;
         let settled = false;
         let timeoutRequested = false;
@@ -385,7 +384,7 @@ export function createPhysicalArduinoDevice(opts: PhysicalArduinoOptions): Devic
             artifactVersionId: input.artifactVersionId,
             firmwareSha256: input.firmwareSha256,
             port: current.port,
-            fqbn: ESP32_S3_FQBN,
+            fqbn: ESP32_S3_ARDUINO_FQBN,
             adapter: "esp32-arduino-physical",
             toolchain: "arduino-cli",
             errorCode: successful ? undefined : signal.aborted ? "FLASH_CANCELLED" : "FLASH_EXIT_NONZERO",

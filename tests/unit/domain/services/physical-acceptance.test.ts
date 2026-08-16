@@ -23,7 +23,7 @@ describe("evaluatePhysicalAcceptance", () => {
       ...base,
       flash: {
         exitCode: 0, sessionId: "session-1", buildId: "build-1", artifactVersionId: "firmware-v1", firmwareSha256: "a".repeat(64),
-        truth: base.device.truth, observedAt: base.now,
+        truth: base.device.truth, fqbn: "esp32:esp32:esp32s3", observedAt: base.now,
       },
       serialObservation: "BOOT: MCU_READY status=ok",
     });
@@ -54,5 +54,19 @@ describe("evaluatePhysicalAcceptance", () => {
     });
     expect(result.status).toBe("failed");
     expect(result.reason).toMatch(/physical|hash|serial/i);
+  });
+
+  it("fails closed when physical evidence does not carry the fixed Arduino board FQBN", () => {
+    const result = evaluatePhysicalAcceptance({
+      ...base,
+      device: { ...base.device, fqbn: "esp32:esp32:esp32" },
+      flash: {
+        exitCode: 0, sessionId: "session-1", buildId: "build-1", artifactVersionId: "firmware-v1", firmwareSha256: "a".repeat(64),
+        truth: base.device.truth, fqbn: "esp32:esp32:esp32", observedAt: base.now,
+      },
+      serialObservation: "BOOT: MCU_READY status=ok",
+    });
+    expect(result.status).toBe("failed");
+    expect(result.reason).toMatch(/FQBN|board/i);
   });
 });

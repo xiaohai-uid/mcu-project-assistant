@@ -1,6 +1,7 @@
 export const ESP32_S3_REFERENCE_KIT_ID = "esp32-s3-devkitc-1-n8r8-v1.1";
 export const ESP32_S3_ARDUINO_CORE_PACKAGE = "esp32:esp32";
 export const ESP32_S3_ARDUINO_CORE_VERSION = "3.3.11";
+export const ESP32_S3_ARDUINO_FQBN = "esp32:esp32:esp32s3";
 
 export const ESP32_S3_ARDUINO_OPTIONS = {
   FlashMode: "qio",
@@ -12,7 +13,7 @@ export const ESP32_S3_ARDUINO_OPTIONS = {
 export interface ArduinoBuildProfile {
   target: "esp32-s3";
   referenceKitId: typeof ESP32_S3_REFERENCE_KIT_ID;
-  fqbn: "esp32:esp32:esp32s3";
+  fqbn: typeof ESP32_S3_ARDUINO_FQBN;
   resolvedFqbn: string;
   corePackage: typeof ESP32_S3_ARDUINO_CORE_PACKAGE;
   coreVersion: typeof ESP32_S3_ARDUINO_CORE_VERSION;
@@ -41,8 +42,8 @@ export function resolveArduinoBuildProfile(target: string, referenceKitId: strin
   return {
     target: "esp32-s3",
     referenceKitId: ESP32_S3_REFERENCE_KIT_ID,
-    fqbn: "esp32:esp32:esp32s3",
-    resolvedFqbn: `esp32:esp32:esp32s3:${resolvedOptions}`,
+    fqbn: ESP32_S3_ARDUINO_FQBN,
+    resolvedFqbn: `${ESP32_S3_ARDUINO_FQBN}:${resolvedOptions}`,
     corePackage: ESP32_S3_ARDUINO_CORE_PACKAGE,
     coreVersion: ESP32_S3_ARDUINO_CORE_VERSION,
     options,
