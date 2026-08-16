@@ -315,6 +315,8 @@ export interface BuildRecordDto {
   target: string;
   toolchain: string;
   toolchainVersion: string | null;
+  toolchainCoreVersion: string | null;
+  toolchainEvidence: "real" | "fixture" | "unknown";
   options: Record<string, unknown>;
   status: "running" | "succeeded" | "failed" | "cancelled";
   startedAt: string;
@@ -327,6 +329,8 @@ export interface BuildRecordDto {
   outputDir: string | null;
   command: string[];
   outputs: BuildOutputEvidenceDto[];
+  readinessStatus: "local-ready" | "blocked";
+  readinessReasons: string[];
 }
 
 export interface McuCandidateDto {

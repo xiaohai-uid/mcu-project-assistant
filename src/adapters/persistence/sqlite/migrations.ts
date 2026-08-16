@@ -195,6 +195,16 @@ CREATE TABLE idempotency_records (
 CREATE INDEX idx_idempotency_created ON idempotency_records(created_at);
 `,
   },
+  {
+    version: 11,
+    name: "add_build_toolchain_and_readiness_evidence",
+    sql: `
+ALTER TABLE build_records ADD COLUMN toolchain_core_version TEXT NULL;
+ALTER TABLE build_records ADD COLUMN toolchain_evidence TEXT NOT NULL DEFAULT 'unknown' CHECK (toolchain_evidence IN ('real','fixture','unknown'));
+ALTER TABLE build_records ADD COLUMN readiness_status TEXT NOT NULL DEFAULT 'blocked' CHECK (readiness_status IN ('local-ready','blocked'));
+ALTER TABLE build_records ADD COLUMN readiness_reasons TEXT NOT NULL DEFAULT '[]';
+`,
+  },
 ];
 
 export function migrate(db: SqliteDb): void {

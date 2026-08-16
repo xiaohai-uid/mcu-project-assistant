@@ -9,6 +9,7 @@ import { assertNotArchived } from "@/src/domain/models/project";
 import { createBuildRecord, finalizeBuildRecord, type BuildRecord } from "@/src/domain/models/build-record";
 import type { CompilerPort } from "@/src/ports/compiler";
 import { BuildTimeoutError, ToolchainUnavailableError, UnsupportedBuildTargetError } from "@/src/ports/compiler";
+import type { ArtifactContentPort } from "@/src/ports/artifact-content";
 import type { EventPort } from "@/src/ports/events";
 import type { PersistencePort } from "@/src/ports/persistence";
 import type { TaskExecutionPort } from "@/src/ports/task-execution";
@@ -24,6 +25,8 @@ import { MAX_BUILD_LOG_BYTES, ResourceLimitError, createResourceSemaphore } from
 import type { IdempotencyRequest } from "@/src/shared/idempotency";
 import { IdempotencyConflictError } from "@/src/shared/idempotency";
 import { isRecord, parseIdempotencyResponse } from "@/src/shared/persistence-integrity";
+import { ESP32_S3_REFERENCE_KIT_ID, resolveArduinoBuildProfile } from "@/src/domain/services/build-profile";
+import { deriveLocalReady } from "@/src/domain/services/build-readiness";
 
 function isBuildSubmissionResponse(value: unknown): value is { buildId: string; taskId?: string } {
   return isRecord(value) && typeof value.buildId === "string" && (value.taskId === undefined || typeof value.taskId === "string");
@@ -62,6 +65,7 @@ export interface BuildCapabilityDeps {
   tasks: TaskExecutionPort;
   events: EventPort;
   compiler: CompilerPort;
+  content?: ArtifactContentPort;
   workspaceDir: string;
   now?: () => Date;
 }
@@ -127,6 +131,46 @@ function appendLog(workspaceDir: string, buildId: string, line: string, currentB
   currentBytes.value += bytes;
 }
 
+async function referenceKitIdForProject(
+  projectId: string,
+  deps: Pick<BuildCapabilityDeps, "persistence" | "content">,
+): Promise<string | null> {
+  if (!deps.content) return ESP32_S3_REFERENCE_KIT_ID;
+  const hardware = await deps.persistence.getArtifactByKind(projectId, "hardware");
+  if (!hardware?.currentVersionId) return null;
+  const version = await deps.persistence.getVersion(hardware.currentVersionId);
+  if (!version) return null;
+  const content = await deps.content.load(version.contentRef).catch(() => "");
+  try {
+    const parsed = JSON.parse(content) as { referenceKit?: { id?: unknown } };
+    return typeof parsed.referenceKit?.id === "string" ? parsed.referenceKit.id : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readinessForBuild(
+  projectId: string,
+  record: BuildRecord,
+  status: BuildStatusDto,
+  exitCode: number | null,
+  outputs: BuildRecord["outputs"],
+  persistence: PersistencePort,
+  result?: Awaited<ReturnType<CompilerPort["build"]>>,
+) {
+  const pinmap = await persistence.getArtifactByKind(projectId, "pinmap");
+  const validation = pinmap?.currentVersionId ? await persistence.latestValidation(pinmap.currentVersionId) : null;
+  return deriveLocalReady({
+    buildStatus: status,
+    exitCode,
+    outputs,
+    toolchainEvidence: result?.evidence ?? record.toolchainEvidence,
+    cliVersion: record.toolchainVersion,
+    coreVersion: result?.toolchainCoreVersion ?? record.toolchainCoreVersion,
+    wiringValidation: validation?.result ?? null,
+  });
+}
+
 const buildResources = createResourceSemaphore(2);
 
 function diagnostic(code: string, message: string, details?: Record<string, unknown>) {
@@ -165,9 +209,12 @@ export async function executeBuildTask(
     if (record.outputDir && resolve(record.outputDir) !== paths.outputDir) throw new BuildInputError("Build output binding changed");
   } catch (err) {
     const safe = toSafeError(err);
+    const readiness = await readinessForBuild(input.projectId, currentRecord, "failed", 1, [], deps.persistence);
     const finalized = finalizeBuildRecord(currentRecord, {
       status: "failed", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: 1,
       diagnostics: diagnostic("BUILD_SOURCE_INVALID", safe.message),
+      readinessStatus: readiness.status,
+      readinessReasons: readiness.reasons,
     });
     await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
     ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, taskId: ctx.taskId, code: safe.code, message: safe.message, timestamp: now().toISOString(), exitCode: 1 });
@@ -178,9 +225,12 @@ export async function executeBuildTask(
   if (!lease) {
     const capacityError = new ResourceLimitError("resource_capacity_exceeded");
     const safe = toSafeError(capacityError);
+    const readiness = await readinessForBuild(input.projectId, currentRecord, "failed", 1, [], deps.persistence);
     const finalized = finalizeBuildRecord(currentRecord, {
       status: "failed", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: 1,
       diagnostics: diagnostic(safe.code, safe.message),
+      readinessStatus: readiness.status,
+      readinessReasons: readiness.reasons,
     });
     await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
     ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, taskId: ctx.taskId, code: safe.code, message: safe.message, timestamp: now().toISOString(), exitCode: 1 });
@@ -210,9 +260,14 @@ export async function executeBuildTask(
         ctx.signal,
       );
       if (ctx.signal.aborted) {
+        const readiness = await readinessForBuild(input.projectId, currentRecord, "cancelled", result.exitCode, [], deps.persistence, result);
         const finalized = finalizeBuildRecord(currentRecord, {
           status: "cancelled", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: result.exitCode,
           sourceDir: paths.sourceDir, outputDir: paths.outputDir, command: result.command, outputs: [],
+          toolchainCoreVersion: result.toolchainCoreVersion ?? currentRecord.toolchainCoreVersion,
+          toolchainEvidence: result.evidence ?? currentRecord.toolchainEvidence,
+          readinessStatus: readiness.status,
+          readinessReasons: readiness.reasons,
         });
         await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
         ctx.emit({ type: "build.cancelled", projectId: input.projectId, buildId: input.buildId });
@@ -223,6 +278,7 @@ export async function executeBuildTask(
       const failureCode = result.exitCode !== 0 ? "BUILD_EXIT_NONZERO" : "BUILD_OUTPUT_MISSING";
       const failureMessage = result.exitCode !== 0 ? "Firmware build failed" : "Firmware build produced no verified output";
       const failureSafe = toSafeError({ diagnosticCode: failureCode, message: failureMessage });
+      const readiness = await readinessForBuild(input.projectId, currentRecord, status, result.exitCode, result.outputs, deps.persistence, result);
       const finalized = finalizeBuildRecord(currentRecord, {
         status,
         completedAt: now().toISOString(),
@@ -233,6 +289,10 @@ export async function executeBuildTask(
         command: result.command,
         outputs: result.outputs,
         diagnostics: status === "failed" ? diagnostic(failureCode, failureSafe.message) : [],
+        toolchainCoreVersion: result.toolchainCoreVersion ?? currentRecord.toolchainCoreVersion,
+        toolchainEvidence: result.evidence ?? currentRecord.toolchainEvidence,
+        readinessStatus: readiness.status,
+        readinessReasons: readiness.reasons,
       });
       await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
       if (status === "succeeded") {
@@ -243,9 +303,14 @@ export async function executeBuildTask(
       throw new BuildExecutionError(failureCode, failureMessage, result.exitCode);
     } catch (err) {
       if (ctx.signal.aborted) {
+        const readiness = await readinessForBuild(input.projectId, currentRecord, "cancelled", result?.exitCode ?? 1, [], deps.persistence, result ?? undefined);
         const finalized = finalizeBuildRecord(currentRecord, {
           status: "cancelled", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: result?.exitCode ?? 1,
           sourceDir: paths.sourceDir, outputDir: paths.outputDir, command: result?.command ?? [], outputs: [],
+          toolchainCoreVersion: result?.toolchainCoreVersion ?? currentRecord.toolchainCoreVersion,
+          toolchainEvidence: result?.evidence ?? currentRecord.toolchainEvidence,
+          readinessStatus: readiness.status,
+          readinessReasons: readiness.reasons,
         });
         await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
         ctx.emit({ type: "build.cancelled", projectId: input.projectId, buildId: input.buildId });
@@ -257,10 +322,15 @@ export async function executeBuildTask(
           : err instanceof UnsupportedBuildTargetError ? "BUILD_TARGET_UNSUPPORTED" : "BUILD_EXECUTION_FAILED";
       const safe = toSafeError({ ...(typeof err === "object" && err !== null ? err : {}), diagnosticCode: code });
       if (!(err instanceof BuildExecutionError)) {
+        const readiness = await readinessForBuild(input.projectId, currentRecord, "failed", result?.exitCode ?? 1, result?.outputs ?? [], deps.persistence, result ?? undefined);
         const finalized = finalizeBuildRecord(currentRecord, {
           status: "failed", completedAt: now().toISOString(), stdoutRef: buildLogRef(input.buildId), exitCode: result?.exitCode ?? 1,
           sourceDir: paths.sourceDir, outputDir: paths.outputDir, command: result?.command ?? [], outputs: result?.outputs ?? [],
           diagnostics: diagnostic(code, safe.message),
+          toolchainCoreVersion: result?.toolchainCoreVersion ?? currentRecord.toolchainCoreVersion,
+          toolchainEvidence: result?.evidence ?? currentRecord.toolchainEvidence,
+          readinessStatus: readiness.status,
+          readinessReasons: readiness.reasons,
         });
         await deps.persistence.withTransaction((uow) => uow.updateBuildRecord(finalized));
         ctx.emit({ type: "build.failed", projectId: input.projectId, buildId: input.buildId, taskId: ctx.taskId, code: safe.code, message: safe.message, timestamp: now().toISOString(), exitCode: result?.exitCode ?? 1 });
@@ -297,13 +367,29 @@ export async function runBuild(
 
   const { assertNotBlocking } = await import("@/src/application/capabilities/revalidate");
   await assertNotBlocking({ projectId: input.projectId, action: "run_build" }, deps);
+  const referenceKitId = await referenceKitIdForProject(input.projectId, deps);
+  if (deps.content && referenceKitId !== ESP32_S3_REFERENCE_KIT_ID) {
+    throw new BuildInputError(`Exact Reference Kit identity required before build: ${ESP32_S3_REFERENCE_KIT_ID}`);
+  }
+  const profile = resolveArduinoBuildProfile(target, referenceKitId ?? ESP32_S3_REFERENCE_KIT_ID);
+  const requestedOptions = input.options ?? {};
+  if (Object.keys(requestedOptions).length > 0 && JSON.stringify(requestedOptions) !== JSON.stringify(profile.options)) {
+    throw new BuildInputError("Pinned Arduino build options cannot be overridden");
+  }
   const toolchain = await deps.compiler.discoverToolchain();
   if (!toolchain.available) throw new ToolchainUnavailableError(toolchain.reason ?? "Toolchain unavailable");
 
   const buildId = randomUUID();
   const taskId = randomUUID();
   const paths = resolveBuildPaths(deps.workspaceDir, version.contentRef, buildId);
-  const options = input.options ?? {};
+  const options = {
+    referenceKitId: profile.referenceKitId,
+    fqbn: profile.fqbn,
+    resolvedFqbn: profile.resolvedFqbn,
+    corePackage: profile.corePackage,
+    coreVersion: profile.coreVersion,
+    fqbnOptions: { ...profile.options },
+  };
   const record = createBuildRecord({
     id: buildId,
     artifactVersionId: input.versionId,
@@ -311,6 +397,8 @@ export async function runBuild(
     target,
     toolchain: "esp32-arduino",
     toolchainVersion: toolchain.version,
+    toolchainCoreVersion: toolchain.coreVersion ?? null,
+    toolchainEvidence: toolchain.evidence ?? "unknown",
     options,
     startedAt: now().toISOString(),
     sourceDir: paths.sourceDir,

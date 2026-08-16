@@ -45,12 +45,23 @@ function request(root: ReturnType<typeof fixtureRoot>) {
 }
 
 describe("controlled external compiler fixture (not Arduino CLI)", () => {
+  it("discovers the Arduino CLI version separately from the pinned ESP32 core", async () => {
+    const script = `const args=process.argv.slice(1);if(args[0]==='version'){console.log('arduino-cli 1.5.0');process.exit(0)}if(args[0]==='core'&&args[1]==='list'){console.log(JSON.stringify({platforms:[{id:'esp32:esp32',installed_version:'3.3.11'}]}));process.exit(0)}process.exit(2);`;
+    const compiler = createEsp32ArduinoCompiler({ arduinoCliPath: process.execPath, executableArgsPrefix: ["-e", script] });
+    await expect(compiler.discoverToolchain()).resolves.toMatchObject({
+      available: true,
+      version: "arduino-cli 1.5.0",
+      corePackage: "esp32:esp32",
+      coreVersion: "3.3.11",
+    });
+  });
+
   it("spawns a real child and records exact FQBN/source/output/size/hash evidence", async () => {
     const root = fixtureRoot();
     const compiler = createFixture("success");
     const result = await compiler.build(request(root), () => {}, new AbortController().signal);
     expect(result.exitCode).toBe(0);
-    expect(result.command).toContain("esp32:esp32:esp32s3");
+    expect(result.command).toContain("esp32:esp32:esp32s3:FlashMode=qio,FlashSize=8M,PSRAM=opi,PartitionScheme=default_8MB");
     expect(result.sourceDir).toBe(root.sourceDir);
     expect(result.outputDir).toBe(root.outputDir);
     expect(result.outputs).toHaveLength(1);

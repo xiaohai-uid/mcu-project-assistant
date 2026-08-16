@@ -26,6 +26,13 @@ export const BuildView: React.FC = () => {
   const serialConnected = runtime.serialStage === "connected" && runtime.serialSession !== null;
   const toolchainOk = runtime.toolchainAvailable === true;
   const building = build.stage === "building";
+  const reasonLabels = Object.fromEntries(
+    t(lang, "buildReasonLabels").split(";").map((entry) => {
+      const [code, ...label] = entry.split(":");
+      return [code, label.join(":")];
+    }),
+  ) as Record<string, string>;
+  const readinessLabel = build.readinessStatus === "local-ready" ? t(lang, "buildLocalReady") : t(lang, "buildBlocked");
 
   const logColor = (kind: string) =>
     kind === "err"
@@ -119,6 +126,54 @@ export const BuildView: React.FC = () => {
       {!firmwareOk && artifacts.firmware.version > 0 && (
         <InfoBanner icon="history_toggle_off" title={t(lang, "staleBlocked")} desc={t(lang, "staleBannerDesc").replace("{from}", "Wiring")} lang={lang} tone="amber" />
       )}
+
+      {/* 保存后的构建证据：本地就绪与物理验收明确分层 */}
+      <section className="mac-card p-4" aria-label={t(lang, "buildEvidenceTitle")}>
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-secondary)]">{t(lang, "buildEvidenceTitle")}</div>
+            <div className="text-sm font-semibold text-[var(--text-primary)] mt-1">
+              {build.readinessStatus ? readinessLabel : t(lang, "buildEvidencePending")}
+            </div>
+          </div>
+          {build.readinessStatus && (
+            <span className={`px-2 py-1 rounded text-[10px] font-mono font-semibold ${build.readinessStatus === "local-ready" ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-500" : "bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400"}`}>
+              {readinessLabel}
+            </span>
+          )}
+        </div>
+        {build.readinessStatus && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] mb-3">
+            <div className="rounded-md bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] px-3 py-2">
+              <div className="text-[var(--text-muted)]">{t(lang, "buildBoardProfile")}</div>
+              <div className="font-mono text-[var(--text-primary)] mt-0.5 break-all">{build.resolvedFqbn ?? "—"}</div>
+            </div>
+            <div className="rounded-md bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] px-3 py-2">
+              <div className="text-[var(--text-muted)]">{t(lang, "buildEvidenceSource")}</div>
+              <div className="font-mono text-[var(--text-primary)] mt-0.5">{build.toolchainEvidence}</div>
+            </div>
+            <div className="rounded-md bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] px-3 py-2">
+              <div className="text-[var(--text-muted)]">{t(lang, "buildCliVersion")}</div>
+              <div className="font-mono text-[var(--text-primary)] mt-0.5">{build.toolchainVersion ?? "—"}</div>
+            </div>
+            <div className="rounded-md bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] px-3 py-2">
+              <div className="text-[var(--text-muted)]">{t(lang, "buildCoreVersion")}</div>
+              <div className="font-mono text-[var(--text-primary)] mt-0.5">{build.toolchainCoreVersion ?? "—"}</div>
+            </div>
+            <div className="sm:col-span-2 rounded-md bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] px-3 py-2">
+              <div className="text-[var(--text-muted)]">{t(lang, "buildArtifactSha")}</div>
+              <div className="font-mono text-[var(--text-primary)] mt-0.5 break-all">{build.artifactSha256 ?? "—"}</div>
+            </div>
+          </div>
+        )}
+        {build.readinessStatus === "blocked" && build.readinessReasons.length > 0 && (
+          <div className="rounded-md bg-amber-500/5 border border-amber-500/20 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+            <div className="font-semibold mb-1">{t(lang, "buildReadinessReason")}</div>
+            {build.readinessReasons.map((reason) => <div key={reason}>• {reasonLabels[reason] ?? reason}</div>)}
+          </div>
+        )}
+        <p className="text-[10px] text-[var(--text-muted)] mt-3">{t(lang, "buildEvidencePhysicalNote")}</p>
+      </section>
 
       {/* Build 日志 */}
       <div className="mac-card overflow-hidden">

@@ -5,7 +5,11 @@
 export interface ToolchainInfo {
   available: boolean;
   toolchain: "esp32-arduino";
+  /** Arduino CLI version; kept separate from the installed Arduino core. */
   version: string | null;
+  corePackage?: string | null;
+  coreVersion?: string | null;
+  evidence?: "real" | "fixture";
   reason?: string; // 不可用原因（UI 横幅展示）
 }
 
@@ -28,6 +32,8 @@ export interface BuildResult {
   exitCode: number;
   toolchain: "esp32-arduino";
   toolchainVersion?: string;
+  toolchainCoreVersion?: string;
+  evidence?: "real" | "fixture";
   command: string[];
   sourceDir: string;
   outputDir: string;

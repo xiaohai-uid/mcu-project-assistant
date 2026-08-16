@@ -360,6 +360,13 @@ export interface AppState {
     buildId: string | null;
     stage: BuildStage;
     outputVerified: boolean;
+    readinessStatus: "local-ready" | "blocked" | null;
+    readinessReasons: string[];
+    toolchainVersion: string | null;
+    toolchainCoreVersion: string | null;
+    toolchainEvidence: "real" | "fixture" | "unknown";
+    resolvedFqbn: string | null;
+    artifactSha256: string | null;
     logs: BuildLogLine[];
     diagnosis: BuildDiagnosis | null;
     nextFails: boolean;  // Lab：下次编译失败

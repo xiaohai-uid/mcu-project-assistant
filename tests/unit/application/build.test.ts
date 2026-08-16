@@ -20,6 +20,7 @@ import { ToolchainUnavailableError } from "@/src/ports/compiler";
 import type { CompilerPort } from "@/src/ports/compiler";
 import { BuildExecutionError, BuildInputError, executeBuildTask, resolveBuildPaths, runBuild, getBuildRecord, listBuilds, cancelBuild } from "@/src/application/capabilities/build";
 import { selectMcu } from "@/src/application/capabilities/mcu";
+import { generatePinMap } from "@/src/application/capabilities/wiring";
 import { createProject as createProjectCapability } from "@/src/application/capabilities/projects";
 import { createArtifact as domainCreateArtifact } from "@/src/domain/models/artifact";
 
@@ -201,6 +202,46 @@ describe("run_build（contract 2.12；D2 Build 不产生版本）", () => {
     expect(history.length).toBe(1);
     // D2：Build 不产生 Firmware 版本
     expect(d.persistence.mem.versions.size).toBe(fwVersionsBefore);
+  });
+
+  it("真实工具链 + 当前 Pin Map 通过校验 + 完整二进制哈希 → local-ready", async () => {
+    const fixture = createMockCompiler();
+    const compiler: CompilerPort = {
+      discoverToolchain: async () => ({
+        available: true,
+        toolchain: "esp32-arduino",
+        version: "arduino-cli 1.5.0",
+        corePackage: "esp32:esp32",
+        coreVersion: "3.3.11",
+        evidence: "real",
+      }),
+      build: async (request, onOutput, signal) => {
+        const result = await fixture.build(request, onOutput, signal);
+        return { ...result, evidence: "real", toolchainCoreVersion: "3.3.11" };
+      },
+    };
+    const d = deps(compiler);
+    const { project, versionId } = await seedJourney(d);
+    await generatePinMap({ projectId: project.id }, { persistence: d.persistence, content: d.content, events: d.events, now });
+    d.persistence.latestValidation = async () => ({
+      id: "validation-pinmap-v1",
+      artifactVersionId: "pinmap-v1",
+      kind: "pinmap",
+      rules: ["exact_reference_kit", "no_pin_conflicts"],
+      result: "pass",
+      diagnostics: [],
+      startedAt: NOW,
+      completedAt: NOW,
+    });
+
+    const { buildId } = await runBuild({ projectId: project.id, versionId }, d.buildDeps);
+    await waitFor(async () => (await getBuildRecord({ buildId }, d.buildDeps))?.status === "succeeded");
+    const done = (await getBuildRecord({ buildId }, d.buildDeps))!;
+    expect(done.readinessStatus).toBe("local-ready");
+    expect(done.readinessReasons).toEqual([]);
+    expect(done.toolchainEvidence).toBe("real");
+    expect(done.toolchainCoreVersion).toBe("3.3.11");
+    expect(done.options.resolvedFqbn).toBe("esp32:esp32:esp32s3:FlashMode=qio,FlashSize=8M,PSRAM=opi,PartitionScheme=default_8MB");
   });
 
   it("编译失败 → BuildRecord failed + exitCode（I-6 失败也落记录）", async () => {

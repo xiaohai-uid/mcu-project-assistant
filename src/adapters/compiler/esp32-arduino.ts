@@ -11,15 +11,20 @@ import { basename, extname, join, resolve } from "node:path";
 import { assertExistingPathContained, assertNoExistingLinks } from "@/src/shared/filesystem-confinement";
 import { spawnOwnedChild, stopOwnedChild } from "@/src/infrastructure/owned-child";
 import { MAX_PROCESS_OUTPUT_BYTES } from "@/src/shared/resource-limits";
-
-const FQBN: Record<string, string> = {
-  "esp32-s3": "esp32:esp32:esp32s3",
-};
+import {
+  ESP32_S3_ARDUINO_CORE_PACKAGE,
+  ESP32_S3_ARDUINO_CORE_VERSION,
+  ESP32_S3_REFERENCE_KIT_ID,
+  resolveArduinoBuildProfile,
+  toolchainPinningDiagnostics,
+} from "@/src/domain/services/build-profile";
 
 export function fqbnFor(target: string): string {
-  const fqbn = FQBN[target];
-  if (!fqbn) throw new UnsupportedBuildTargetError(target);
-  return fqbn;
+  try {
+    return resolveArduinoBuildProfile(target, ESP32_S3_REFERENCE_KIT_ID).resolvedFqbn;
+  } catch {
+    throw new UnsupportedBuildTargetError(target);
+  }
 }
 
 interface CompilerOptions {
@@ -65,6 +70,24 @@ function stopChild(child: import("node:child_process").ChildProcess, force = fal
   stopOwnedChild(child, force);
 }
 
+function parseInstalledCore(stdout: string): { corePackage: string; coreVersion: string } | null {
+  try {
+    const parsed = JSON.parse(stdout) as { platforms?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>;
+    const platforms = Array.isArray(parsed) ? parsed : parsed.platforms;
+    if (!platforms) return null;
+    const match = platforms.find((platform) => {
+      const id = typeof platform.id === "string" ? platform.id : typeof platform.package === "string" ? platform.package : "";
+      return id === ESP32_S3_ARDUINO_CORE_PACKAGE;
+    });
+    if (!match) return null;
+    const coreVersion = [match.installed_version, match.installedVersion, match.version]
+      .find((value): value is string => typeof value === "string") ?? null;
+    return coreVersion ? { corePackage: ESP32_S3_ARDUINO_CORE_PACKAGE, coreVersion } : null;
+  } catch {
+    return null;
+  }
+}
+
 export function createEsp32ArduinoCompiler(opts?: CompilerOptions): CompilerPort {
   const cli = opts?.arduinoCliPath ?? "arduino-cli";
   const prefix = opts?.executableArgsPrefix ?? [];
@@ -76,18 +99,42 @@ export function createEsp32ArduinoCompiler(opts?: CompilerOptions): CompilerPort
       try {
         const res = spawnSync(cli, [...prefix, "version"], { encoding: "utf8", timeout: 10_000, shell: false, windowsHide: true });
         if (res.error && (res.error as NodeJS.ErrnoException).code === "ENOENT") {
-          return { available: false, toolchain: "esp32-arduino", version: null, reason: "arduino-cli not found on PATH" };
+          return { available: false, toolchain: "esp32-arduino", version: null, evidence: "real", reason: "arduino-cli not found on PATH" };
         }
         if (res.status === 0 && res.stdout) {
           const version = res.stdout.trim().split("\n")[0] ?? null;
-          return { available: true, toolchain: "esp32-arduino", version };
+          const core = spawnSync(cli, [...prefix, "core", "list", "--format", "json"], { encoding: "utf8", timeout: 10_000, shell: false, windowsHide: true });
+          const installed = core.status === 0 && core.stdout ? parseInstalledCore(core.stdout) : null;
+          if (!installed) {
+            return {
+              available: false,
+              toolchain: "esp32-arduino",
+              version,
+              corePackage: null,
+              coreVersion: null,
+              evidence: "real",
+              reason: `Arduino core ${ESP32_S3_ARDUINO_CORE_PACKAGE}@${ESP32_S3_ARDUINO_CORE_VERSION} is not installed or could not be read`,
+            };
+          }
+          const probe = { available: true, version, corePackage: installed.corePackage, coreVersion: installed.coreVersion };
+          const pinning = toolchainPinningDiagnostics(probe);
+          return {
+            ...probe,
+            toolchain: "esp32-arduino",
+            evidence: "real",
+            available: pinning.length === 0,
+            ...(pinning.length ? { reason: pinning.map((item) => item.message).join("; ") } : {}),
+          };
         }
-        return { available: false, toolchain: "esp32-arduino", version: null, reason: `arduino-cli exited ${res.status ?? "unknown"}` };
+        return { available: false, toolchain: "esp32-arduino", version: null, corePackage: null, coreVersion: null, evidence: "real", reason: `arduino-cli exited ${res.status ?? "unknown"}` };
       } catch (err) {
         return {
           available: false,
           toolchain: "esp32-arduino",
           version: null,
+          corePackage: null,
+          coreVersion: null,
+          evidence: "real",
           reason: `toolchain discovery failed: ${(err as Error).message}`,
         };
       }
@@ -99,6 +146,7 @@ export function createEsp32ArduinoCompiler(opts?: CompilerOptions): CompilerPort
           resolve({
             exitCode: 1,
             toolchain: "esp32-arduino",
+            evidence: "real",
             command: [cli, ...prefix, "compile"],
             sourceDir: request.sourceDir,
             outputDir: request.outputDir,
@@ -106,7 +154,17 @@ export function createEsp32ArduinoCompiler(opts?: CompilerOptions): CompilerPort
           });
           return;
         }
-        const fqbn = fqbnFor(request.target);
+        let profile: ReturnType<typeof resolveArduinoBuildProfile>;
+        try {
+          profile = resolveArduinoBuildProfile(request.target, ESP32_S3_REFERENCE_KIT_ID);
+        } catch {
+          throw new UnsupportedBuildTargetError(request.target);
+        }
+        const requestedFqbn = request.options.resolvedFqbn;
+        if (requestedFqbn !== undefined && requestedFqbn !== profile.resolvedFqbn) {
+          throw new UnsupportedBuildTargetError(`Resolved FQBN does not match pinned profile: ${String(requestedFqbn)}`);
+        }
+        const fqbn = profile.resolvedFqbn;
         const argv = [
           ...prefix,
           "compile",
@@ -185,6 +243,7 @@ export function createEsp32ArduinoCompiler(opts?: CompilerOptions): CompilerPort
           finish(() => resolve({
             exitCode: signal.aborted ? 1 : code ?? 1,
             toolchain: "esp32-arduino",
+            toolchainCoreVersion: ESP32_S3_ARDUINO_CORE_VERSION,
             command,
             sourceDir: request.sourceDir,
             outputDir: request.outputDir,

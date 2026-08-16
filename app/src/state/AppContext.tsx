@@ -198,6 +198,13 @@ function initialState(): AppState {
       buildId: null,
       stage: "idle",
       outputVerified: false,
+      readinessStatus: null,
+      readinessReasons: [],
+      toolchainVersion: null,
+      toolchainCoreVersion: null,
+      toolchainEvidence: "unknown",
+      resolvedFqbn: null,
+      artifactSha256: null,
       logs: [],
       diagnosis: null,
       nextFails: false,
@@ -282,6 +289,7 @@ type Action =
   | { type: "BUILD_STAGE"; stage: AppState["build"]["stage"] }
   | { type: "BUILD_ID"; buildId: string | null }
   | { type: "BUILD_EVIDENCE"; verified: boolean }
+  | { type: "BUILD_RECORD"; record: { buildId: string; readinessStatus: "local-ready" | "blocked"; readinessReasons: string[]; toolchainVersion: string | null; toolchainCoreVersion: string | null; toolchainEvidence: "real" | "fixture" | "unknown"; resolvedFqbn: string | null; artifactSha256: string | null } }
   | { type: "BUILD_LOG"; line: BuildLogLine }
   | { type: "BUILD_LOGS"; logs: BuildLogLine[] }
   | { type: "BUILD_NEXT_FAIL"; v: boolean }
@@ -339,7 +347,7 @@ function reducer(state: AppState, a: Action): AppState {
       let pinMappings: PinMapping[] = [];
       let wiringIssues: PinIssue[] = [];
       let pinmapVersions: AppState["pinmapVersions"] = [];
-      let build: AppState["build"] = { ...state.build, buildId: null, stage: "idle", outputVerified: false, logs: [], diagnosis: null };
+      let build: AppState["build"] = { ...state.build, buildId: null, stage: "idle", outputVerified: false, readinessStatus: null, readinessReasons: [], toolchainVersion: null, toolchainCoreVersion: null, toolchainEvidence: "unknown", resolvedFqbn: null, artifactSha256: null, logs: [], diagnosis: null };
       for (const item of snapshot.artifacts) {
         const kind = item.artifact.kind as ArtifactKind;
         if (!(kind in hydratedArtifacts)) continue;
@@ -356,6 +364,13 @@ function reducer(state: AppState, a: Action): AppState {
             buildId: latest?.id ?? null,
             stage: latestBuildStage(item.builds),
             outputVerified: latest ? hasVerifiedFirmwareOutput(latest) : false,
+            readinessStatus: latest?.readinessStatus ?? null,
+            readinessReasons: latest?.readinessReasons ?? [],
+            toolchainVersion: latest?.toolchainVersion ?? null,
+            toolchainCoreVersion: latest?.toolchainCoreVersion ?? null,
+            toolchainEvidence: latest?.toolchainEvidence ?? "unknown",
+            resolvedFqbn: typeof latest?.options.resolvedFqbn === "string" ? latest.options.resolvedFqbn : null,
+            artifactSha256: latest?.outputs.find((output) => output.kind === "bin" && /^[a-f0-9]{64}$/i.test(output.sha256))?.sha256 ?? null,
           };
         }
         if (kind === "hardware") {
@@ -564,8 +579,9 @@ function reducer(state: AppState, a: Action): AppState {
       return { ...state, firmware: { ...state.firmware, stage: "rejected" } };
     case "FW_CODE": return { ...state, firmware: { ...state.firmware, code: a.code, version: a.version } };
     case "BUILD_STAGE": return { ...state, build: { ...state.build, stage: a.stage, ...(a.stage !== "succeeded" ? { outputVerified: false } : {}) } };
-    case "BUILD_ID": return { ...state, build: { ...state.build, buildId: a.buildId, outputVerified: false } };
+    case "BUILD_ID": return { ...state, build: { ...state.build, buildId: a.buildId, outputVerified: false, ...(a.buildId === null ? { readinessStatus: null, readinessReasons: [], toolchainVersion: null, toolchainCoreVersion: null, toolchainEvidence: "unknown" as const, resolvedFqbn: null, artifactSha256: null } : {}) } };
     case "BUILD_EVIDENCE": return { ...state, build: { ...state.build, outputVerified: a.verified } };
+    case "BUILD_RECORD": return { ...state, build: { ...state.build, buildId: a.record.buildId, readinessStatus: a.record.readinessStatus, readinessReasons: a.record.readinessReasons, toolchainVersion: a.record.toolchainVersion, toolchainCoreVersion: a.record.toolchainCoreVersion, toolchainEvidence: a.record.toolchainEvidence, resolvedFqbn: a.record.resolvedFqbn, artifactSha256: a.record.artifactSha256 } };
     case "BUILD_LOG": return { ...state, build: { ...state.build, logs: [...state.build.logs, a.line] } };
     case "BUILD_LOGS": return { ...state, build: { ...state.build, logs: a.logs } };
     case "BUILD_NEXT_FAIL": return { ...state, build: { ...state.build, nextFails: a.v } };
@@ -872,10 +888,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
             }
             case "build.succeeded": {
               dispatch({ type: "BUILD_STAGE", stage: "succeeded" });
-              if (eventBuildId) void clientApi.getBuild(eventBuildId).then((build) => dispatch({
-                type: "BUILD_EVIDENCE",
-                verified: hasVerifiedFirmwareOutput(build),
-              })).catch(() => dispatch({ type: "BUILD_EVIDENCE", verified: false }));
+              if (eventBuildId) void clientApi.getBuild(eventBuildId).then((build) => {
+                dispatch({ type: "BUILD_EVIDENCE", verified: hasVerifiedFirmwareOutput(build) });
+                dispatch({
+                  type: "BUILD_RECORD",
+                  record: {
+                    buildId: build.id,
+                    readinessStatus: build.readinessStatus,
+                    readinessReasons: build.readinessReasons,
+                    toolchainVersion: build.toolchainVersion,
+                    toolchainCoreVersion: build.toolchainCoreVersion,
+                    toolchainEvidence: build.toolchainEvidence,
+                    resolvedFqbn: typeof build.options.resolvedFqbn === "string" ? build.options.resolvedFqbn : null,
+                    artifactSha256: build.outputs.find((output) => output.kind === "bin" && /^[a-f0-9]{64}$/i.test(output.sha256))?.sha256 ?? null,
+                  },
+                });
+              }).catch(() => dispatch({ type: "BUILD_EVIDENCE", verified: false }));
               dispatch({
                 type: "ARTIFACT",
                 kind: "build",

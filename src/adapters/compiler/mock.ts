@@ -36,8 +36,8 @@ export function createMockCompilerHandle(script?: MockBuildScript): MockCompiler
   let unavailable = false;
   const compiler: CompilerPort = {
     async discoverToolchain(): Promise<ToolchainInfo> {
-      if (unavailable) return { available: false, toolchain: "esp32-arduino", version: null, reason: "arduino-cli not found on PATH (mock)" };
-      return { available: true, toolchain: "esp32-arduino", version: "1.0.4 (mock)" };
+      if (unavailable) return { available: false, toolchain: "esp32-arduino", version: null, evidence: "fixture", reason: "arduino-cli not found on PATH (mock)" };
+      return { available: true, toolchain: "esp32-arduino", version: "1.0.4 (mock)", corePackage: "esp32:esp32", coreVersion: "3.3.11", evidence: "fixture" };
     },
     async build(request: BuildRequest, onOutput: (line: string) => void, signal: AbortSignal): Promise<BuildResult> {
       // 结构化参数契约：target/toolchain/options 对象（非原始命令串）
@@ -46,11 +46,11 @@ export function createMockCompilerHandle(script?: MockBuildScript): MockCompiler
       }
       if (unavailable) throw new ToolchainUnavailableError("arduino-cli not found on PATH (mock)");
       for (const line of s.lines) {
-        if (signal.aborted) return { exitCode: 1, toolchain: "esp32-arduino", command: [], sourceDir: request.sourceDir, outputDir: request.outputDir, outputs: [] };
+        if (signal.aborted) return { exitCode: 1, toolchain: "esp32-arduino", evidence: "fixture", command: [], sourceDir: request.sourceDir, outputDir: request.outputDir, outputs: [] };
         onOutput(line);
         await new Promise((r) => setTimeout(r, s.lineDelayMs ?? 5));
       }
-      if (signal.aborted) return { exitCode: 1, toolchain: "esp32-arduino", command: [], sourceDir: request.sourceDir, outputDir: request.outputDir, outputs: [] };
+      if (signal.aborted) return { exitCode: 1, toolchain: "esp32-arduino", evidence: "fixture", command: [], sourceDir: request.sourceDir, outputDir: request.outputDir, outputs: [] };
       const exitCode = s.exitCode ?? 0;
       if (exitCode === 0) {
         mkdirSync(request.outputDir, { recursive: true });
@@ -60,13 +60,14 @@ export function createMockCompilerHandle(script?: MockBuildScript): MockCompiler
         return {
           exitCode,
           toolchain: "esp32-arduino",
+          evidence: "fixture",
           command: ["mock-compiler", "compile", "--fqbn", "esp32:esp32:esp32s3", "--output-dir", request.outputDir, request.sourceDir],
           sourceDir: request.sourceDir,
           outputDir: request.outputDir,
           outputs: [{ path, kind: "bin", sizeBytes: stat.size, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") }],
         };
       }
-      return { exitCode, toolchain: "esp32-arduino", command: [], sourceDir: request.sourceDir, outputDir: request.outputDir, outputs: [] };
+      return { exitCode, toolchain: "esp32-arduino", evidence: "fixture", command: [], sourceDir: request.sourceDir, outputDir: request.outputDir, outputs: [] };
     },
   };
   return {
@@ -87,7 +88,7 @@ export function createMockCompiler(script?: MockBuildScript): CompilerPort {
 export function createUnavailableMockCompiler(): CompilerPort {
   return {
     async discoverToolchain(): Promise<ToolchainInfo> {
-      return { available: false, toolchain: "esp32-arduino", version: null, reason: "arduino-cli not found on PATH (mock)" };
+      return { available: false, toolchain: "esp32-arduino", version: null, evidence: "fixture", reason: "arduino-cli not found on PATH (mock)" };
     },
     async build(): Promise<BuildResult> {
       throw new ToolchainUnavailableError("arduino-cli not found on PATH (mock)");

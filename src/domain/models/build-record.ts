@@ -19,6 +19,8 @@ export function createBuildRecord(input: {
   target: string;
   toolchain: string;
   toolchainVersion: string | null;
+  toolchainCoreVersion?: string | null;
+  toolchainEvidence?: BuildRecordDto["toolchainEvidence"];
   options: Record<string, unknown>;
   startedAt: string;
   sourceDir?: string | null;
@@ -31,6 +33,8 @@ export function createBuildRecord(input: {
     target: input.target,
     toolchain: input.toolchain,
     toolchainVersion: input.toolchainVersion,
+    toolchainCoreVersion: input.toolchainCoreVersion ?? null,
+    toolchainEvidence: input.toolchainEvidence ?? "unknown",
     options: input.options,
     status: "running",
     startedAt: input.startedAt,
@@ -43,6 +47,8 @@ export function createBuildRecord(input: {
     outputDir: input.outputDir ?? null,
     command: [],
     outputs: [],
+    readinessStatus: "blocked",
+    readinessReasons: ["build_pending"],
   };
 }
 
@@ -59,6 +65,10 @@ export function finalizeBuildRecord(
     outputDir?: string | null;
     command?: string[];
     outputs?: BuildOutputEvidenceDto[];
+    toolchainCoreVersion?: string | null;
+    toolchainEvidence?: BuildRecordDto["toolchainEvidence"];
+    readinessStatus?: BuildRecordDto["readinessStatus"];
+    readinessReasons?: string[];
   },
 ): BuildRecord {
   if (record.status !== "running") return record; // 幂等：终态不再转
@@ -73,5 +83,9 @@ export function finalizeBuildRecord(
     outputDir: input.outputDir ?? record.outputDir,
     command: input.command ?? record.command,
     outputs: input.outputs ?? record.outputs,
+    toolchainCoreVersion: input.toolchainCoreVersion ?? record.toolchainCoreVersion,
+    toolchainEvidence: input.toolchainEvidence ?? record.toolchainEvidence,
+    readinessStatus: input.readinessStatus ?? record.readinessStatus,
+    readinessReasons: input.readinessReasons ?? record.readinessReasons,
   };
 }

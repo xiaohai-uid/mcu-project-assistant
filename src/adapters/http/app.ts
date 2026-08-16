@@ -191,6 +191,7 @@ export function createApp(deps: AppDeps): HttpApp {
     tasks: deps.tasks,
     events: deps.events,
     compiler: deps.compiler,
+    content: deps.content,
     workspaceDir: deps.workspaceDir,
     now,
   };
