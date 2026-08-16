@@ -126,6 +126,9 @@ async function createProject(name = "Idempotency"): Promise<string> {
 }
 
 async function seedFirmware(projectId: string): Promise<{ artifactId: string; versionId: string }> {
+  await request(app)
+    .post(`/api/v1/projects/${projectId}/commands`)
+    .send({ capability: "select_mcu", payload: { mcuId: "ESP32-S3" } });
   const artifact = await request(app).post(`/api/v1/projects/${projectId}/artifacts`).send({ kind: "firmware" });
   await request(app).post(`/api/v1/artifacts/${artifact.body.id}/versions`).send({
     content: JSON.stringify({ "src/main.cpp": "void setup(){}", "platformio.ini": "[env:esp32s3]" }),

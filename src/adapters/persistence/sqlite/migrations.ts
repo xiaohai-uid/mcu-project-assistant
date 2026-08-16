@@ -302,7 +302,14 @@ export function migrate(db: SqliteDb): void {
         new Date().toISOString(),
       );
     });
-    run();
+    try {
+      run();
+    } catch (error) {
+      if (error instanceof Error && /no such table|no such column/i.test(error.message)) {
+        throw new IncompleteDatabaseSchemaError();
+      }
+      throw error;
+    }
   }
   assertQuickCheck(db);
   assertCriticalSchema(db);

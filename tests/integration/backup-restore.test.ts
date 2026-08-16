@@ -246,7 +246,7 @@ describe("local backup and restore contract", () => {
     const restored = openDatabase(restoredDb);
     const restoredPersistence = createProjectStore(restored);
     const tokens = createFlashTokenStore(60_000);
-    const token = tokens.issue("device", new Date("2026-08-14T00:00:03.000Z"));
+    const token = tokens.issue("device", new Date());
     let flashInvocationCount = 0;
     await expect(flashDevice(
       { projectId: fixture.projectId, deviceId: "device", confirmationToken: token.token, buildId: "legacy-build", artifactVersionId: fixture.versionId },

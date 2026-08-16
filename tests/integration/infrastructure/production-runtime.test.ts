@@ -229,6 +229,12 @@ describe("built production runtime boundary", () => {
     const first = await startProduction(dbPath, workspaceDir, testRoot, { MCU_ARDUINO_CLI_PATH: join(dir, "missing-arduino-cli") });
     try {
       const project = await createProject(first.base);
+      const hardwareResponse = await fetch(`${first.base}/api/v1/projects/${project.id}/commands`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ capability: "select_mcu", payload: { mcuId: "ESP32-S3" } }),
+      });
+      expect(hardwareResponse.status).toBe(200);
       const artifactResponse = await fetch(`${first.base}/api/v1/projects/${project.id}/artifacts`, {
         method: "POST",
         headers: { "content-type": "application/json" },
