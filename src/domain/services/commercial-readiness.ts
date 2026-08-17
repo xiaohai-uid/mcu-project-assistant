@@ -1,5 +1,6 @@
 import type { BuildRecord } from "@/src/domain/models/build-record";
 import { ESP32_S3_REFERENCE_KIT_ID } from "@/src/domain/services/build-profile";
+import { deriveLocalReady } from "@/src/domain/services/build-readiness";
 import type { DeviceTruthDto, ValidationRecordDto, CommercialReadinessReportDto, PhysicalAcceptanceRecordDto, ReadinessEvidenceDto, ReadinessGateDto } from "@/src/shared-contracts/types";
 
 export interface CommercialReadinessInput {
@@ -82,10 +83,21 @@ function localGate(input: CommercialReadinessInput): ReadinessGateDto {
   if (validation?.result !== "pass") {
     return gate("local-ready", "blocked", validation ? `Pin Map validation is ${validation.result}.` : "The current Pin Map has not passed validation.", "Validate the current Pin Map before relying on the build result.", evidenceRefs);
   }
-  if (input.build.readinessStatus === "local-ready") {
+  const buildReadiness = deriveLocalReady({
+    target: input.build.target,
+    options: input.build.options,
+    buildStatus: input.build.status,
+    exitCode: input.build.exitCode,
+    outputs: input.build.outputs,
+    toolchainEvidence: input.build.toolchainEvidence,
+    cliVersion: input.build.toolchainVersion,
+    coreVersion: input.build.toolchainCoreVersion,
+    wiringValidation: validation?.result ?? null,
+  });
+  if (buildReadiness.status === "local-ready") {
     return gate("local-ready", "ready", null, null, evidenceRefs);
   }
-  return gate("local-ready", "blocked", input.build.readinessReasons.length ? input.build.readinessReasons.join(", ") : "The saved build is not local-ready.", "Resolve the saved build blockers and run the build again.", evidenceRefs);
+  return gate("local-ready", "blocked", buildReadiness.reasons.length ? buildReadiness.reasons.join(", ") : "The saved build is not local-ready.", "Resolve the saved build blockers and run the build again.", evidenceRefs);
 }
 
 export function deriveCommercialReadiness(input: CommercialReadinessInput): CommercialReadinessReportDto {

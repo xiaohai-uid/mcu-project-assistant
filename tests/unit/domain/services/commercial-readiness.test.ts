@@ -14,7 +14,14 @@ function build(overrides: Partial<BuildRecord> = {}): BuildRecord {
     toolchainVersion: "arduino-cli 1.5.0",
     toolchainCoreVersion: "3.3.11",
     toolchainEvidence: "real",
-    options: { resolvedFqbn: "esp32:esp32:esp32s3:FlashMode=qio,FlashSize=8M,PSRAM=opi,PartitionScheme=default_8MB" },
+    options: {
+      referenceKitId: "esp32-s3-devkitc-1-n8r8-v1.1",
+      fqbn: "esp32:esp32:esp32s3",
+      resolvedFqbn: "esp32:esp32:esp32s3:FlashMode=qio,FlashSize=8M,PSRAM=opi,PartitionScheme=default_8MB",
+      corePackage: "esp32:esp32",
+      coreVersion: "3.3.11",
+      fqbnOptions: { FlashMode: "qio", FlashSize: "8M", PSRAM: "opi", PartitionScheme: "default_8MB" },
+    },
     status: "succeeded",
     startedAt: NOW,
     completedAt: NOW,
@@ -66,6 +73,26 @@ describe("deriveCommercialReadiness", () => {
     expect(report.gates.find((gate) => gate.id === "local-ready")?.status).toBe("blocked");
     expect(report.gates.find((gate) => gate.id === "paid-release-ready")?.status).toBe("blocked");
     expect(report.conclusion.status).toBe("blocked");
+  });
+
+  it("re-evaluates saved build evidence instead of trusting a stale local-ready flag", () => {
+    const report = deriveCommercialReadiness({
+      projectId: "project-1",
+      generatedAt: NOW,
+      hardware: { referenceKitId: "esp32-s3-devkitc-1-n8r8-v1.1", versionId: "hardware-v1", observedAt: NOW },
+      wiring: { versionId: "pinmap-v1", validation: { id: "validation-1", artifactVersionId: "pinmap-v1", kind: "pinmap", rules: [], result: "pass", diagnostics: [], startedAt: NOW, completedAt: NOW } },
+      build: build({
+        options: { ...build().options, resolvedFqbn: "esp32:esp32:esp32s3:FlashMode=qio,FlashSize=8M,PSRAM=qspi,PartitionScheme=default_8MB", fqbnOptions: { FlashMode: "qio", FlashSize: "8M", PSRAM: "qspi", PartitionScheme: "default_8MB" } },
+        readinessStatus: "local-ready",
+        readinessReasons: [],
+      }),
+      simulation: null,
+      physical: null,
+    });
+
+    const local = report.gates.find((gate) => gate.id === "local-ready");
+    expect(local?.status).toBe("blocked");
+    expect(local?.reason).toMatch(/pinned_build_profile_mismatch/);
   });
 
   it("only passes paid release when physical truth is explicitly verified", () => {

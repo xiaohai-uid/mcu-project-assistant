@@ -161,6 +161,8 @@ async function readinessForBuild(
   const pinmap = await persistence.getArtifactByKind(projectId, "pinmap");
   const validation = pinmap?.currentVersionId ? await persistence.latestValidation(pinmap.currentVersionId) : null;
   return deriveLocalReady({
+    target: record.target,
+    options: record.options,
     buildStatus: status,
     exitCode,
     outputs,
