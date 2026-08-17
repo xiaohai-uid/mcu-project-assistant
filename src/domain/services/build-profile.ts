@@ -1,4 +1,6 @@
 export const ESP32_S3_REFERENCE_KIT_ID = "esp32-s3-devkitc-1-n8r8-v1.1";
+export const ESP32_S3_REFERENCE_KIT_BOARD_MODEL = "ESP32-S3-DevKitC-1-N8R8";
+export const ESP32_S3_REFERENCE_KIT_BOARD_REVISION = "v1.1";
 export const ESP32_S3_ARDUINO_CORE_PACKAGE = "esp32:esp32";
 export const ESP32_S3_ARDUINO_CORE_VERSION = "3.3.11";
 export const ESP32_S3_ARDUINO_FQBN = "esp32:esp32:esp32s3";

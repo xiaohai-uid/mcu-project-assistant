@@ -1,5 +1,9 @@
 import type { BuildRecord } from "@/src/domain/models/build-record";
-import { ESP32_S3_REFERENCE_KIT_ID } from "@/src/domain/services/build-profile";
+import {
+  ESP32_S3_REFERENCE_KIT_BOARD_MODEL,
+  ESP32_S3_REFERENCE_KIT_BOARD_REVISION,
+  ESP32_S3_REFERENCE_KIT_ID,
+} from "@/src/domain/services/build-profile";
 import { deriveLocalReady } from "@/src/domain/services/build-readiness";
 import type { DeviceTruthDto, ValidationRecordDto, CommercialReadinessReportDto, PhysicalAcceptanceRecordDto, ReadinessEvidenceDto, ReadinessGateDto } from "@/src/shared-contracts/types";
 
@@ -34,7 +38,24 @@ function gate(
   return { id, status, title: titles[id], reason, nextAction, evidence: evidenceRefs };
 }
 
-function physicalGate(truth: DeviceTruthDto | null, acceptance: PhysicalAcceptanceRecordDto | null, generatedAt: string): ReadinessGateDto {
+function acceptedPhysicalEvidenceMismatch(acceptance: PhysicalAcceptanceRecordDto, build: BuildRecord | null): string | null {
+  const binary = build?.outputs.find((output) => output.kind === "bin" && output.sizeBytes > 0 && /^[a-f0-9]{64}$/i.test(output.sha256));
+  if (!build || acceptance.buildId !== build.id || acceptance.artifactVersionId !== build.artifactVersionId) {
+    return "Saved physical acceptance evidence does not match the current build.";
+  }
+  if (acceptance.referenceKitId !== ESP32_S3_REFERENCE_KIT_ID || acceptance.boardModel !== ESP32_S3_REFERENCE_KIT_BOARD_MODEL || acceptance.boardRevision !== ESP32_S3_REFERENCE_KIT_BOARD_REVISION) {
+    return "Saved physical acceptance evidence does not match the fixed Reference Kit identity.";
+  }
+  if (!binary || acceptance.firmwareSha256 !== binary.sha256) {
+    return "Saved physical acceptance firmware hash does not match the current build artifact.";
+  }
+  if (!acceptance.deviceId || !acceptance.usbPort || acceptance.uploadStatus !== "verified" || acceptance.verificationStatus !== "verified" || acceptance.serialStatus !== "observed" || !acceptance.serialObservation || !/MCU_READY|BOOT|READY|STATUS|HELLO/i.test(acceptance.serialObservation)) {
+    return "Saved physical acceptance evidence is incomplete for the current build.";
+  }
+  return null;
+}
+
+function physicalGate(truth: DeviceTruthDto | null, acceptance: PhysicalAcceptanceRecordDto | null, generatedAt: string, build: BuildRecord | null): ReadinessGateDto {
   if (!acceptance) {
     const truthEvidence = truth ? [evidence("device-truth", truth.adapter, generatedAt, `Observed execution reality: ${truth.executionReality}; verification: ${truth.verification}.`)] : [];
     const status = truth?.executionReality === "physical" ? "pending" : truth ? "unavailable" : "pending";
@@ -42,7 +63,11 @@ function physicalGate(truth: DeviceTruthDto | null, acceptance: PhysicalAcceptan
   }
   const acceptanceEvidence = [evidence("physical-acceptance", acceptance.id, acceptance.completedAt ?? acceptance.createdAt, `Board ${acceptance.boardModel} ${acceptance.boardRevision}; upload=${acceptance.uploadStatus}; verify=${acceptance.verificationStatus}; serial=${acceptance.serialStatus}.`)];
   if (truth) acceptanceEvidence.push(evidence("device-truth", truth.adapter, generatedAt, `Observed execution reality: ${truth.executionReality}; verification: ${truth.verification}.`));
-  if (acceptance.status === "accepted") return gate("physical-accepted", "ready", null, null, acceptanceEvidence);
+  if (acceptance.status === "accepted") {
+    const mismatch = acceptedPhysicalEvidenceMismatch(acceptance, build);
+    if (mismatch) return gate("physical-accepted", "blocked", mismatch, "Run physical acceptance again for the current pinned build and exact Reference Kit.", acceptanceEvidence);
+    return gate("physical-accepted", "ready", null, null, acceptanceEvidence);
+  }
   if (acceptance.status === "pending") return gate("physical-accepted", "pending", acceptance.reason ?? "Physical acceptance is incomplete.", "Complete the missing physical upload, verification, or serial observation.", acceptanceEvidence);
   return gate("physical-accepted", "blocked", acceptance.reason ?? "Physical acceptance failed.", "Resolve the physical acceptance failure and create a new record.", acceptanceEvidence);
 }
@@ -103,7 +128,7 @@ function localGate(input: CommercialReadinessInput): ReadinessGateDto {
 export function deriveCommercialReadiness(input: CommercialReadinessInput): CommercialReadinessReportDto {
   const local = localGate(input);
   const simulation = simulationGate(input.simulation, input.generatedAt);
-  const physical = physicalGate(input.physical, input.physicalAcceptance ?? null, input.generatedAt);
+  const physical = physicalGate(input.physical, input.physicalAcceptance ?? null, input.generatedAt, input.build);
   const paidReady = local.status === "ready" && physical.status === "ready";
   const paid = gate(
     "paid-release-ready",

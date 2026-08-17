@@ -46,15 +46,15 @@ function simulationStatus(truth: DeviceTruthDto | null): DeliveryReportDto["simu
 
 function risks(input: DeliveryReportInput, readiness: DeliveryReportDto): DeliveryRiskDto[] {
   const result: DeliveryRiskDto[] = [];
-  if (!input.physicalAcceptance || input.physicalAcceptance.status !== "accepted") {
-    const gate = readiness.gates.find((item) => item.id === "physical-accepted");
+  const physicalGate = readiness.gates.find((item) => item.id === "physical-accepted");
+  if (physicalGate?.status !== "ready") {
     result.push(risk(
       "physical-acceptance",
       "required",
       "Physical acceptance is not complete",
       input.physicalAcceptance?.reason ?? "No accepted physical upload, verification, and serial record is saved.",
-      gate?.nextAction ?? "Connect the exact board, upload the saved build, verify it, and record serial evidence.",
-      gate?.evidence ?? [],
+      physicalGate?.nextAction ?? "Connect the exact board, upload the saved build, verify it, and record serial evidence.",
+      physicalGate?.evidence ?? [],
     ));
   }
   if (!input.hardware.identity || input.hardware.identity.referenceKitId !== ESP32_S3_REFERENCE_KIT_ID) {

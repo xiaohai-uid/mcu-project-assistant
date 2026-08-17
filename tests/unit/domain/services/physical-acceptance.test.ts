@@ -83,4 +83,20 @@ describe("evaluatePhysicalAcceptance", () => {
     expect(result.status).toBe("failed");
     expect(result.reason).toMatch(/model|Reference Kit/i);
   });
+
+  it("fails closed when the persisted board snapshot is not the fixed model and revision", () => {
+    const result = evaluatePhysicalAcceptance({
+      ...base,
+      boardModel: "ESP32-S3-DevKitC-1-N8R8-clone",
+      boardRevision: "v1.0",
+      device: { ...base.device, model: "ESP32-S3-DevKitC-1-N8R8-clone" },
+      flash: {
+        exitCode: 0, sessionId: "session-1", buildId: "build-1", artifactVersionId: "firmware-v1", firmwareSha256: "a".repeat(64),
+        truth: base.device.truth, fqbn: "esp32:esp32:esp32s3", observedAt: base.now,
+      },
+      serialObservation: "BOOT: MCU_READY status=ok",
+    });
+    expect(result.status).toBe("failed");
+    expect(result.reason).toMatch(/Reference Kit|model|revision/i);
+  });
 });

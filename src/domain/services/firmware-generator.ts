@@ -47,6 +47,7 @@ Adafruit_SSD1306 display(128, 64, &Wire, -1);
 
 void setup() {
     Serial.begin(115200);
+    Serial.println("MCU_READY");
 
     // Initialize I2C with customized pins
     Wire.begin(OLED_SDA_PIN, OLED_SCL_PIN);

@@ -22,6 +22,7 @@ describe("firmware-generator（确定性模板 + 引脚注入）", () => {
     expect(g.files["src/main.cpp"]).toContain("#define OLED_SDA_PIN     8");
     expect(g.files["src/main.cpp"]).toContain("#define OLED_SCL_PIN     9");
     expect(g.files["src/main.cpp"]).toContain("void loop()");
+    expect(g.files["src/main.cpp"]).toContain('Serial.println("MCU_READY");');
     expect(g.files["platformio.ini"]).toContain("[env:esp32s3]");
     expect(g.files["platformio.ini"]).toContain("Adafruit SSD1306");
     expect(g.relayPin).toBe("IO12");

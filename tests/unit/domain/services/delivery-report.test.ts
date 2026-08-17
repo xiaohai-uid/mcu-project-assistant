@@ -161,4 +161,14 @@ describe("deriveDeliveryReport", () => {
     expect(report.risks.map((risk) => risk.id)).toEqual(["physical-acceptance", "bom-unresolved:bom-1"]);
     expect(report.risks[0]?.severity).toBe("required");
   });
+
+  it("reports stale accepted physical evidence as a required risk", () => {
+    const report = deriveDeliveryReport({
+      ...baseInput,
+      build: { ...baseInput.build, id: "build-2", artifactVersionId: "firmware-v2" },
+    });
+
+    expect(report.gates.find((gate) => gate.id === "physical-accepted")?.status).toBe("blocked");
+    expect(report.risks.some((risk) => risk.id === "physical-acceptance" && risk.severity === "required")).toBe(true);
+  });
 });

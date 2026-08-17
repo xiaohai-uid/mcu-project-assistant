@@ -116,4 +116,28 @@ describe("deriveCommercialReadiness", () => {
     expect(report.gates.every((gate) => gate.status === "ready")).toBe(true);
     expect(report.conclusion.status).toBe("ready");
   });
+
+  it("does not reuse accepted physical evidence for a different current build", () => {
+    const report = deriveCommercialReadiness({
+      projectId: "project-1",
+      generatedAt: NOW,
+      hardware: { referenceKitId: "esp32-s3-devkitc-1-n8r8-v1.1", versionId: "hardware-v1", observedAt: NOW },
+      wiring: { versionId: "pinmap-v1", validation: { id: "validation-1", artifactVersionId: "pinmap-v1", kind: "pinmap", rules: [], result: "pass", diagnostics: [], startedAt: NOW, completedAt: NOW } },
+      build: build({ id: "build-2", artifactVersionId: "firmware-v2" }),
+      simulation: null,
+      physical: { executionReality: "physical", verification: "verified", physicalVerified: true, adapter: "esp32-arduino-physical" },
+      physicalAcceptance: {
+        id: "acceptance-1", projectId: "project-1", buildId: "build-1", artifactVersionId: "firmware-v1",
+        referenceKitId: "esp32-s3-devkitc-1-n8r8-v1.1", boardModel: "ESP32-S3-DevKitC-1-N8R8", boardRevision: "v1.1",
+        deviceId: "physical-device", usbPort: "COM9", usbVid: "303a", usbPid: "1001", usbSerialNumber: "fixture",
+        firmwareSha256: "a".repeat(64), uploadStatus: "verified", verificationStatus: "verified", serialStatus: "observed",
+        serialObservation: "MCU_READY", status: "accepted", reason: null, createdAt: NOW, completedAt: NOW,
+      },
+    });
+
+    const physical = report.gates.find((gate) => gate.id === "physical-accepted");
+    expect(physical?.status).toBe("blocked");
+    expect(physical?.reason).toMatch(/current build|different build|evidence/i);
+    expect(report.conclusion.status).toBe("blocked");
+  });
 });

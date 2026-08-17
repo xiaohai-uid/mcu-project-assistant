@@ -1,5 +1,9 @@
 import type { DeviceInfoDto, DeviceTruthDto, PhysicalAcceptanceRecordDto } from "@/src/shared-contracts/types";
-import { ESP32_S3_ARDUINO_FQBN } from "@/src/domain/services/build-profile";
+import {
+  ESP32_S3_ARDUINO_FQBN,
+  ESP32_S3_REFERENCE_KIT_BOARD_MODEL,
+  ESP32_S3_REFERENCE_KIT_BOARD_REVISION,
+} from "@/src/domain/services/build-profile";
 
 export interface PhysicalAcceptanceEvaluationInput {
   expectedReferenceKitId: string;
@@ -36,6 +40,8 @@ export interface PhysicalAcceptanceEvaluation {
 export function evaluatePhysicalAcceptance(input: PhysicalAcceptanceEvaluationInput): PhysicalAcceptanceEvaluation {
   const reasons: string[] = [];
   if (input.referenceKitId !== input.expectedReferenceKitId) reasons.push(`Exact Reference Kit ${input.expectedReferenceKitId} is required.`);
+  if (input.boardModel !== ESP32_S3_REFERENCE_KIT_BOARD_MODEL) reasons.push(`Reference Kit board model must be ${ESP32_S3_REFERENCE_KIT_BOARD_MODEL}.`);
+  if (input.boardRevision !== ESP32_S3_REFERENCE_KIT_BOARD_REVISION) reasons.push(`Reference Kit board revision must be ${ESP32_S3_REFERENCE_KIT_BOARD_REVISION}.`);
   if (!input.buildFirmwareSha256) reasons.push("No verified firmware binary hash is available for this build.");
 
   const physicalTruth = Boolean(input.flash
@@ -65,7 +71,9 @@ export function evaluatePhysicalAcceptance(input: PhysicalAcceptanceEvaluationIn
     reasons.push(`Detected board model must match the exact Reference Kit board ${input.boardModel}.`);
   }
   const identityReady = input.referenceKitId === input.expectedReferenceKitId
-    && Boolean(input.device?.id && input.device.port && input.device.model === input.boardModel && input.device.fqbn === ESP32_S3_ARDUINO_FQBN && input.device.truth.executionReality === "physical" && input.device.truth.physicalVerified);
+    && input.boardModel === ESP32_S3_REFERENCE_KIT_BOARD_MODEL
+    && input.boardRevision === ESP32_S3_REFERENCE_KIT_BOARD_REVISION
+    && Boolean(input.device?.id && input.device.port && input.device.model === ESP32_S3_REFERENCE_KIT_BOARD_MODEL && input.device.fqbn === ESP32_S3_ARDUINO_FQBN && input.device.truth.executionReality === "physical" && input.device.truth.physicalVerified);
   if (!identityReady) reasons.push("The latest detected USB device is not a verified physical device for this project.");
   const status: PhysicalAcceptanceRecordDto["status"] = reasons.length === 0 && uploadStatus === "verified" && verificationStatus === "verified" && serialStatus === "observed"
     ? "accepted"

@@ -33,7 +33,23 @@ The compiler stages the durable `src/main.cpp` layout into an isolated Arduino s
 
 ## Generated firmware check
 
-The full commercial golden flow was also run through the application after the three libraries above were installed. The generated OLED firmware compiled successfully, and the log reported `Sketch uses 352236 bytes (10%)`. The report remained blocked because the flow intentionally had no complete physical acceptance and the current Pin Map validation was not a passing release prerequisite.
+The generated firmware now prints the expected `MCU_READY` startup marker immediately after `Serial.begin(115200)`, so the physical serial gate has a concrete marker to observe. The full commercial golden flow was run through the application after the three libraries above were installed. The generated OLED firmware compiled successfully, and the log reported `Sketch uses 352264 bytes (10%)`. The report remained blocked because the flow intentionally had no complete physical acceptance and the current Pin Map validation was not a passing release prerequisite.
+
+## Latest full commercial golden build
+
+The latest run exercised the generated firmware, application BuildRecord path, real Arduino CLI compiler, artifact persistence, readiness derivation, and delivery report in one flow:
+
+- Project ID: `fd9a666c-6587-48dd-9392-90365d69196f`
+- Build ID: `4c4bc1e8-4cd1-4788-ad76-4c37ca1b7342`
+- Artifact version ID: `daf9ced0-01b6-43fa-a742-1b97a756aa34`
+- Build status: `succeeded`; exit code: `0`; `toolchainEvidence=real`
+- Sketch binary: `.arduino-sketch-8YQQhb.ino.bin` — 352,416 bytes — `0e3a1526d74e37f0216c8db4f9ea3f8dda43c64b007d39fbc1c423249fdb1e94`
+- Bootloader: 19,968 bytes — `73bd425e380c709f6abd83aa987cb51c042a9aa8de44a37a9edb22d53bca08dd`
+- ELF: 7,759,684 bytes — `b99155d294fcbc8c7ee15b6ba3b207e3eaf4a6d75ea54990dfab4788712f11cf`
+- Merged binary: 8,388,608 bytes — `d0dc965e365f1f6909201e9000ae209bea1cecc6fcbd80c2812c02f76b68c222`
+- Partitions: 3,072 bytes — `1d9cca96de0fe07ad7fc0648b9878ddecd9ce565e38b589ad20fea698ed4c80c`
+
+The report correctly stayed blocked: this run had no passed Pin Map validation and no physical board, USB upload, verification, or serial observation. The saved physical acceptance boundary also now requires its evidence to match the current build ID, artifact version, binary hash, fixed Reference Kit model/revision, and `MCU_READY`-style serial marker; stale accepted evidence is reclassified as blocked.
 
 ## Explicit non-results
 
@@ -49,5 +65,5 @@ The full commercial golden flow was also run through the application after the t
 - Physical acceptance also requires the detected device model to exactly match `ESP32-S3-DevKitC-1-N8R8`; another board sharing the same FQBN is rejected with an explicit model-mismatch reason.
 - The adapter still fails closed unless exactly one supported `esp32:esp32:esp32s3` board is reported; this software fix does not claim that a board is connected.
 - The local-readiness boundary now re-evaluates the persisted build evidence instead of trusting a saved `readinessStatus` flag. It requires the exact fixed target, Reference Kit ID, base and resolved FQBN, Arduino core package/version, and all four fixed FQBN menu options (`FlashMode=qio`, `FlashSize=8M`, `PSRAM=opi`, `PartitionScheme=default_8MB`). A stale or tampered profile is blocked with `pinned_build_profile_mismatch`.
-- Full regression after the build-profile and stale-readiness boundary fixes: `99` test files passed; `567` tests passed and `1` skipped. Typecheck, lint, production server build, production app build, and `git diff --check` also passed.
+- Full regression after the fixed-model, current-build physical-evidence, and serial-marker fixes: `99` test files passed; `570` tests passed and `1` skipped. Typecheck, lint, production server build, production app build, and `git diff --check` also passed for the verified change set.
 - The final local board check still reported only `COM1` with no matching supported board. Physical acceptance therefore remains pending external hardware evidence.
