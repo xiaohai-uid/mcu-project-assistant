@@ -34,6 +34,15 @@ function makeApp(publicMode = true): ReturnType<typeof createApp> {
 }
 
 describe("public internal-test access boundary", () => {
+  it("exposes only a data-free platform health probe without authentication", async () => {
+    const app = makeApp();
+
+    const response = await request(app).get("/healthz");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ status: "ok" });
+  });
+
   it("requires Basic authentication before exposing the API", async () => {
     const app = makeApp();
 

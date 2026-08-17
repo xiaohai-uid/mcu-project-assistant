@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: mcu-project-assistant-free
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /healthz
+    envVars:
+      - key: MCU_HOST
+        value: 0.0.0.0
+      - key: MCU_PUBLIC_MODE
+        value: "1"
+      - key: MCU_DEVICE_PROVIDER
+        value: companion
+      - key: MCU_AI_PROVIDER
+        value: sensenova
+      - key: SENSENOVA_BASE_URL
+        value: https://token.sensenova.cn/v1
+      - key: SENSENOVA_CHAT_MODEL
+        value: deepseek-v4-flash
+      - key: MCU_BASIC_AUTH_USER
+        sync: false
+      - key: MCU_BASIC_AUTH_PASSWORD
+        sync: false
+      - key: SENSENOVA_API_KEY
+        sync: false

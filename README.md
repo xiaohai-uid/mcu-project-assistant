@@ -84,6 +84,12 @@ docker run --rm --name mcu-project-assistant-staging -p 3000:3000 \
 
 For a short internal review from the current machine, run cloudflared tunnel --url http://127.0.0.1:3000 to proxy the locally protected process. A TryCloudflare URL is temporary and intended for testing; a durable release still needs a managed tunnel/domain and persistent host. Keep MCU_DEVICE_PROVIDER=companion for an online review unless the physical board and Arduino CLI are on the same host as the server.
 
+### Free hosted internal test
+
+The repository includes `render.yaml` for a zero-cost Render Free Web Service. Connect this public repository at Render, choose the Blueprint, and provide `MCU_BASIC_AUTH_USER`, `MCU_BASIC_AUTH_PASSWORD`, and `SENSENOVA_API_KEY` as private environment values. The deployment uses `MCU_DEVICE_PROVIDER=companion`; it is for web/API review and does not claim physical-board acceptance. Render probes `/healthz`, while the UI and `/api` remain Basic-Auth protected.
+
+This is a disposable internal-test tier: Render Free services sleep after inactivity, and the local SQLite database plus generated workspace are not durable across restart, redeploy, or spin-down. Do not put irreplaceable project data there. The TryCloudflare address is even more temporary and depends on this Windows machine and its tunnel process staying online.
+
 ### Offline backup and restore
 
 Back up and restore only while the production server is stopped. These are explicit local operator commands; there is no automatic or cloud backup:

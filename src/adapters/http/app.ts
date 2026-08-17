@@ -171,6 +171,10 @@ const ARCHIVE_TOKEN_TTL_MS = 60_000;
 
 export function createApp(deps: AppDeps): HttpApp {
   const app = express() as HttpApp;
+  // Public platform health probes cannot provide the internal Basic Auth
+  // credentials. Keep this endpoint deliberately data-free; the API health
+  // route below remains protected with the rest of the application surface.
+  app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
   app.use(createBasicAuthMiddleware(deps.basicAuth));
   app.use("/api", createBrowserTrustMiddleware(deps.publicMode ? "public" : "local"));
   app.use("/api", (req, res, next) => {

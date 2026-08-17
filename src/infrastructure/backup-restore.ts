@@ -100,6 +100,7 @@ const MANIFEST_FILE = "manifest.json";
 const DEFAULT_STATE_LOCK_SUFFIX = ".state.lock";
 const SHA256 = /^[a-f0-9]{64}$/i;
 const APP_VERSION = "0.1.0";
+const PROCESS_STARTED_AT_MS = Date.now() - process.uptime() * 1000;
 
 function canonicalPath(path: string): string {
   const absolute = resolve(path);
@@ -148,6 +149,18 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+function isStaleLockOwner(owner: StateLockOwner): boolean {
+  if (!isProcessAlive(owner.pid)) return true;
+  // A container restart can reuse PID 1 while the old lock remains in a
+  // named volume. When the PID is ours but the lock predates this process,
+  // it belongs to the previous container/process instance.
+  if (owner.pid === process.pid) {
+    const createdAtMs = Date.parse(owner.createdAt);
+    return Number.isFinite(createdAtMs) && createdAtMs < PROCESS_STARTED_AT_MS;
+  }
+  return false;
+}
+
 function acquireStateLock(
   lockPath: string,
   resource: { path?: string; kind?: "database" | "workspace" | "custom" } = {},
@@ -178,7 +191,7 @@ function acquireStateLock(
     if (!current) {
       throw new BackupRestoreError("backup_state_in_use", `Production state lock is unreadable: ${absolutePath}`);
     }
-    if (!isProcessAlive(current.pid)) {
+    if (isStaleLockOwner(current)) {
       try {
         rmSync(absolutePath, { force: true });
       } catch (error) {

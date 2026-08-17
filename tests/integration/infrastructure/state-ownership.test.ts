@@ -66,6 +66,30 @@ describe("production state ownership", () => {
     expectOwnershipConflict(() => acquireProductionStateOwnership(dbPath, workspaceDir));
   });
 
+  it("reclaims a lock from a previous process that reused the same pid", () => {
+    const root = mkdtempSync(join(tmpdir(), "mcu-state-ownership-pid-reuse-"));
+    roots.push(root);
+    const dbPath = join(root, "state.db");
+    const workspaceDir = join(root, "workspace");
+    mkdirSync(workspaceDir, { recursive: true });
+    writeFileSync(
+      `${dbPath}.state.lock`,
+      JSON.stringify({
+        version: 1,
+        ownerId: "previous-process",
+        pid: process.pid,
+        createdAt: "2000-01-01T00:00:00.000Z",
+        resourcePath: dbPath,
+        resourceKind: "database",
+      }),
+      "utf8",
+    );
+
+    const owner = acquireProductionStateOwnership(dbPath, workspaceDir);
+
+    owner.release();
+  });
+
   it("blocks an existing workspace alias when the filesystem can create a junction", () => {
     const root = mkdtempSync(join(tmpdir(), "mcu-state-ownership-alias-"));
     roots.push(root);
