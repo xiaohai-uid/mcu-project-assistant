@@ -46,6 +46,7 @@ The full commercial golden flow was also run through the application after the t
 - The physical Arduino adapter now parses Arduino CLI's nested `detected_ports[].port` object, including `address`, `protocol`, `properties.vid`, `properties.pid`, and `properties.serialNumber`.
 - The physical upload command now passes Arduino CLI's explicit `--verify` flag; Arduino CLI 1.5.1 documents that upload verification is opt-in, so a zero exit code is not treated as verification evidence unless this flag is present.
 - Physical acceptance now also fails closed unless both persisted device and flash evidence carry the fixed base FQBN `esp32:esp32:esp32s3`; a generic physical truth record cannot substitute for the selected board target.
+- Physical acceptance also requires the detected device model to exactly match `ESP32-S3-DevKitC-1-N8R8`; another board sharing the same FQBN is rejected with an explicit model-mismatch reason.
 - The adapter still fails closed unless exactly one supported `esp32:esp32:esp32s3` board is reported; this software fix does not claim that a board is connected.
-- Full regression after the adapter and acceptance-boundary fixes: `99` test files passed; `564` tests passed and `1` skipped. Typecheck, lint, production server build, production app build, and `git diff --check` also passed.
+- Full regression after the adapter and acceptance-boundary fixes: `99` test files passed; `565` tests passed and `1` skipped. Typecheck, lint, production server build, production app build, and `git diff --check` also passed.
 - The final local board check still reported only `COM1` with no matching supported board. Physical acceptance therefore remains pending external hardware evidence.

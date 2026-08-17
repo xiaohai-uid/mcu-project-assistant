@@ -25,7 +25,7 @@ function fixture(mode: "success" | "nonzero" | "timeout" | "retry" | "changing" 
     `const marker=${JSON.stringify(marker)};const state=${JSON.stringify(state)};const uploadState=${JSON.stringify(uploadState)};const mode=${JSON.stringify(mode)};`,
     "const args=process.argv.slice(1);",
     "if(args.includes('board')){let count=0;try{count=Number(fs.readFileSync(state,'utf8'))||0}catch{};count++;fs.writeFileSync(state,String(count));",
-    `const ports=mode==='empty'?[]:mode==='ambiguous'?[{port:'COM9',matching_boards:[{fqbn:'${FQBN}'}]},{port:'COM10',matching_boards:[{fqbn:'${FQBN}'}]}]:mode==='nested'?[{port:{address:'COM11',protocol:'serial',properties:{vid:'303a',pid:'1001',serialNumber:'nested-1'}},matching_boards:[{fqbn:'${FQBN}',name:'ESP32-S3 DevKitC-1'}]}]:[{port:mode==='changing'&&count>1?'COM10':'COM9',protocol:'serial',matching_boards:[{fqbn:'${FQBN}',vid:'303a',pid:'1001',serial_number:'fixture-1'}]}];`,
+    `const ports=mode==='empty'?[]:mode==='ambiguous'?[{port:'COM9',matching_boards:[{fqbn:'${FQBN}',name:'ESP32-S3-DevKitC-1-N8R8'}]},{port:'COM10',matching_boards:[{fqbn:'${FQBN}',name:'ESP32-S3-DevKitC-1-N8R8'}]}]:mode==='nested'?[{port:{address:'COM11',protocol:'serial',properties:{vid:'303a',pid:'1001',serialNumber:'nested-1'}},matching_boards:[{fqbn:'${FQBN}',name:'ESP32-S3-DevKitC-1-N8R8'}]}]:[{port:mode==='changing'&&count>1?'COM10':'COM9',protocol:'serial',matching_boards:[{fqbn:'${FQBN}',name:'ESP32-S3-DevKitC-1-N8R8',vid:'303a',pid:'1001',serial_number:'fixture-1'}]}];`,
     "process.stdout.write(JSON.stringify(ports));process.exit(0);}",
     "fs.writeFileSync(marker,JSON.stringify(args));let uploadCount=0;try{uploadCount=Number(fs.readFileSync(uploadState,'utf8'))||0}catch{};uploadCount++;fs.writeFileSync(uploadState,String(uploadCount));",
     "if(mode==='timeout'||(mode==='retry'&&uploadCount===1)){setTimeout(()=>process.exit(0),3000)}else if(mode==='nonzero'){process.exit(7)}else{process.exit(0)}",
@@ -122,7 +122,7 @@ describe("physical Arduino CLI adapter", () => {
     const { device } = deviceFor("nested");
     const detected = await device.detectBoard();
     expect(detected).toMatchObject({
-      model: "ESP32-S3 DevKitC-1",
+      model: "ESP32-S3-DevKitC-1-N8R8",
       port: "COM11",
       fqbn: FQBN,
       vid: "303a",

@@ -61,8 +61,11 @@ export function evaluatePhysicalAcceptance(input: PhysicalAcceptanceEvaluationIn
   if (!input.serialObservation) reasons.push("Serial startup observation is missing.");
   else if (serialStatus === "failed") reasons.push("Serial observation does not contain an expected startup/status marker.");
 
+  if (input.device?.model !== input.boardModel) {
+    reasons.push(`Detected board model must match the exact Reference Kit board ${input.boardModel}.`);
+  }
   const identityReady = input.referenceKitId === input.expectedReferenceKitId
-    && Boolean(input.device?.id && input.device.port && input.device.fqbn === ESP32_S3_ARDUINO_FQBN && input.device.truth.executionReality === "physical" && input.device.truth.physicalVerified);
+    && Boolean(input.device?.id && input.device.port && input.device.model === input.boardModel && input.device.fqbn === ESP32_S3_ARDUINO_FQBN && input.device.truth.executionReality === "physical" && input.device.truth.physicalVerified);
   if (!identityReady) reasons.push("The latest detected USB device is not a verified physical device for this project.");
   const status: PhysicalAcceptanceRecordDto["status"] = reasons.length === 0 && uploadStatus === "verified" && verificationStatus === "verified" && serialStatus === "observed"
     ? "accepted"

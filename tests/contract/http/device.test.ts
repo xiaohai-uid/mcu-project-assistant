@@ -38,7 +38,7 @@ function boot(provider: "companion" | "physical" = "companion") {
   const deviceProvider = provider === "physical"
     ? createPhysicalArduinoDevice({
         arduinoCliPath: process.execPath,
-        executableArgsPrefix: ["-e", `const a=process.argv.slice(1);if(a.includes('board'))process.stdout.write(JSON.stringify([{port:'COM9',protocol:'serial',matching_boards:[{fqbn:'esp32:esp32:esp32s3',vid:'303a',pid:'1001',serial_number:'contract-fixture'}]}]));else process.exit(0);`],
+        executableArgsPrefix: ["-e", `const a=process.argv.slice(1);if(a.includes('board'))process.stdout.write(JSON.stringify([{port:'COM9',protocol:'serial',matching_boards:[{fqbn:'esp32:esp32:esp32s3',name:'ESP32-S3-DevKitC-1-N8R8',vid:'303a',pid:'1001',serial_number:'contract-fixture'}]}]));else process.exit(0);`],
         cwd: ws,
         timeoutMs: 1000,
       })

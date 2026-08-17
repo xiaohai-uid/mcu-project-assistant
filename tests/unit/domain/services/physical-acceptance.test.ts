@@ -10,7 +10,7 @@ const base = {
   artifactVersionId: "firmware-v1",
   buildFirmwareSha256: "a".repeat(64),
   device: {
-    id: "physical-1", model: "ESP32-S3", port: "COM9", baudRate: 115200,
+    id: "physical-1", model: "ESP32-S3-DevKitC-1-N8R8", port: "COM9", baudRate: 115200,
     truth: { executionReality: "physical" as const, verification: "verified" as const, physicalVerified: true, adapter: "esp32-arduino-physical" },
     fqbn: "esp32:esp32:esp32s3", vid: "303a", pid: "1001", serialNumber: "fixture",
   },
@@ -68,5 +68,19 @@ describe("evaluatePhysicalAcceptance", () => {
     });
     expect(result.status).toBe("failed");
     expect(result.reason).toMatch(/FQBN|board/i);
+  });
+
+  it("fails closed when the detected board model is not the exact Reference Kit", () => {
+    const result = evaluatePhysicalAcceptance({
+      ...base,
+      device: { ...base.device, model: "ESP32-S3" },
+      flash: {
+        exitCode: 0, sessionId: "session-1", buildId: "build-1", artifactVersionId: "firmware-v1", firmwareSha256: "a".repeat(64),
+        truth: base.device.truth, fqbn: "esp32:esp32:esp32s3", observedAt: base.now,
+      },
+      serialObservation: "BOOT: MCU_READY status=ok",
+    });
+    expect(result.status).toBe("failed");
+    expect(result.reason).toMatch(/model|Reference Kit/i);
   });
 });
