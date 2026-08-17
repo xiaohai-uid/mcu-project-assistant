@@ -136,7 +136,7 @@ import {
 import { MAX_HTTP_BODY_BYTES, MAX_SERIAL_WRITE_BYTES, ResourceLimitError, assertUtf8Bytes } from "@/src/shared/resource-limits";
 import { SerialWriteTooLargeError } from "@/src/ports/device";
 import { createBrowserTrustMiddleware } from "./browser-trust";
-import { createBasicAuthMiddleware, type BasicAuthCredentials } from "./basic-auth";
+import { createBasicAuthMiddleware, createBrowserSessionAuth, invalidCredentials, type BasicAuthCredentials } from "./basic-auth";
 import { IdempotencyConflictError, InvalidIdempotencyKeyError, makeIdempotencyRequest, parseIdempotencyKey } from "@/src/shared/idempotency";
 import type { ShutdownState } from "@/src/infrastructure/shutdown";
 
@@ -171,12 +171,43 @@ const ARCHIVE_TOKEN_TTL_MS = 60_000;
 
 export function createApp(deps: AppDeps): HttpApp {
   const app = express() as HttpApp;
+  const browserSessions = createBrowserSessionAuth(deps.basicAuth);
   // Public platform health probes cannot provide the internal Basic Auth
   // credentials. Keep this endpoint deliberately data-free; the API health
   // route below remains protected with the rest of the application surface.
   app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
-  app.use(createBasicAuthMiddleware(deps.basicAuth));
+  // Load the JSON parser and browser shell before the API perimeter. This
+  // lets a browser show a normal login form instead of receiving a native
+  // Basic Auth challenge, which some embedded browsers cannot complete.
+  app.use(express.json({ limit: MAX_HTTP_BODY_BYTES }));
+  if (deps.frontendDist) {
+    app.use(express.static(deps.frontendDist, { index: "index.html" }));
+    app.get("*", (req, res, next) => {
+      if (req.path.startsWith("/api/")) {
+        next();
+        return;
+      }
+      res.sendFile(join(deps.frontendDist!, "index.html"));
+    });
+  }
   app.use("/api", createBrowserTrustMiddleware(deps.publicMode ? "public" : "local"));
+  app.get("/api/v1/auth/session", (req, res) => {
+    res.json({ authenticated: browserSessions.isValid(req) });
+  });
+  app.post("/api/v1/auth/login", (req, res) => {
+    const username = typeof req.body?.username === "string" ? req.body.username : "";
+    const password = typeof req.body?.password === "string" ? req.body.password : "";
+    if (!browserSessions.login(req, res, username, password)) {
+      invalidCredentials(res);
+      return;
+    }
+    res.json({ authenticated: true });
+  });
+  app.post("/api/v1/auth/logout", (req, res) => {
+    browserSessions.clear(res, req);
+    res.json({ authenticated: false });
+  });
+  app.use(createBasicAuthMiddleware(deps.basicAuth, browserSessions));
   app.use("/api", (req, res, next) => {
     if (deps.shutdown?.isDraining() && ["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
       res.status(503).json({ error: { code: "server_draining", message: "Server is shutting down" } });
@@ -196,8 +227,6 @@ export function createApp(deps: AppDeps): HttpApp {
       next(err);
     }
   });
-  app.use(express.json({ limit: MAX_HTTP_BODY_BYTES }));
-
   const capDeps = { persistence: deps.persistence };
   const artifactDeps = { persistence: deps.persistence, content: deps.content, events: deps.events };
   const now = deps.now ?? (() => new Date());
@@ -1089,17 +1118,6 @@ export function createApp(deps: AppDeps): HttpApp {
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: { code: "not_found", message: "API route not found" } });
   });
-
-  if (deps.frontendDist) {
-    app.use(express.static(deps.frontendDist, { index: "index.html" }));
-    app.get("*", (req, res, next) => {
-      if (req.path.startsWith("/api/")) {
-        next();
-        return;
-      }
-      res.sendFile(join(deps.frontendDist!, "index.html"));
-    });
-  }
 
   // Keep every API failure JSON-shaped, including express.json() parser
   // failures and handlers that are not wrapped by a route-specific adapter.

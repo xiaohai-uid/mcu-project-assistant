@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolve } from "node:path";
 import request from "supertest";
 import { createApp, type AppDeps } from "@/src/adapters/http/app";
 import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
@@ -27,6 +28,7 @@ function makeApp(publicMode = true): ReturnType<typeof createApp> {
     compiler: createMockCompiler(),
     device,
     ai: createMockAiProvider({ slow: false }),
+    frontendDist: resolve(process.cwd(), "tests", "fixtures", "http-frontend"),
     publicMode,
     basicAuth: { username: "pilot", password: "a-secure-internal-test-password" },
   };
@@ -41,6 +43,52 @@ describe("public internal-test access boundary", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ status: "ok" });
+  });
+
+  it("serves the browser shell without triggering a native Basic Auth challenge", async () => {
+    const app = makeApp();
+
+    const response = await request(app).get("/");
+
+    expect(response.status).toBe(200);
+    expect(response.text).toContain("MCU browser fixture");
+    expect(response.headers["www-authenticate"]).toBeUndefined();
+  });
+
+  it("creates a browser session through the normal web login contract", async () => {
+    const app = makeApp();
+
+    const unauthenticated = await request(app).get("/api/v1/auth/session");
+    expect(unauthenticated.status).toBe(200);
+    expect(unauthenticated.body).toEqual({ authenticated: false });
+
+    const login = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ username: "pilot", password: "a-secure-internal-test-password" });
+
+    expect(login.status).toBe(200);
+    expect(login.body).toEqual({ authenticated: true });
+    const sessionCookie = login.headers["set-cookie"]?.[0] ?? "";
+    expect(sessionCookie).toContain("mcu_session=");
+
+    const authenticated = await request(app)
+      .get("/api/v1/health")
+      .set("Cookie", sessionCookie);
+
+    expect(authenticated.status).toBe(200);
+    expect(authenticated.body).toEqual({ status: "ok" });
+  });
+
+  it("rejects a wrong web login without issuing a native auth challenge", async () => {
+    const app = makeApp();
+
+    const response = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ username: "pilot", password: "wrong-password-for-preview" });
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({ error: { code: "invalid_credentials", message: "Invalid credentials" } });
+    expect(response.headers["www-authenticate"]).toBeUndefined();
   });
 
   it("requires Basic authentication before exposing the API", async () => {

@@ -14,6 +14,7 @@ import { CompanionView } from "./components/CompanionView";
 import { SettingsView } from "./components/SettingsView";
 import { StaleBanner, staleKindsFor } from "./components/ui";
 import { StateLab } from "./components/StateLab";
+import { AuthGate } from "./components/AuthGate";
 import { AppProvider, useApp } from "./state/AppContext";
 import { t } from "./lib/i18n";
 
@@ -172,8 +173,10 @@ function AppInner() {
 
 export default function App() {
   return (
-    <AppProvider>
-      <AppInner />
-    </AppProvider>
+    <AuthGate>
+      <AppProvider>
+        <AppInner />
+      </AppProvider>
+    </AuthGate>
   );
 }
