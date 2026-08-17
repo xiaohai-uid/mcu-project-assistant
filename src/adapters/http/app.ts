@@ -135,7 +135,8 @@ import {
 } from "@/src/application/capabilities/bom";
 import { MAX_HTTP_BODY_BYTES, MAX_SERIAL_WRITE_BYTES, ResourceLimitError, assertUtf8Bytes } from "@/src/shared/resource-limits";
 import { SerialWriteTooLargeError } from "@/src/ports/device";
-import { browserTrustMiddleware } from "./browser-trust";
+import { createBrowserTrustMiddleware } from "./browser-trust";
+import { createBasicAuthMiddleware, type BasicAuthCredentials } from "./basic-auth";
 import { IdempotencyConflictError, InvalidIdempotencyKeyError, makeIdempotencyRequest, parseIdempotencyKey } from "@/src/shared/idempotency";
 import type { ShutdownState } from "@/src/infrastructure/shutdown";
 
@@ -151,6 +152,8 @@ export interface AppDeps {
   frontendDist?: string;
   now?: () => Date;
   shutdown?: ShutdownState;
+  publicMode?: boolean;
+  basicAuth?: BasicAuthCredentials | null;
 }
 
 export interface HttpApp extends Express {
@@ -168,7 +171,8 @@ const ARCHIVE_TOKEN_TTL_MS = 60_000;
 
 export function createApp(deps: AppDeps): HttpApp {
   const app = express() as HttpApp;
-  app.use("/api", browserTrustMiddleware);
+  app.use(createBasicAuthMiddleware(deps.basicAuth));
+  app.use("/api", createBrowserTrustMiddleware(deps.publicMode ? "public" : "local"));
   app.use("/api", (req, res, next) => {
     if (deps.shutdown?.isDraining() && ["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
       res.status(503).json({ error: { code: "server_draining", message: "Server is shutting down" } });

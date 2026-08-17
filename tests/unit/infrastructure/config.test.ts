@@ -24,6 +24,8 @@ describe("production runtime configuration", () => {
       arduinoCliPath: "arduino-cli",
       arduinoCliConfigPath: null,
       buildTimeoutMs: 600000,
+      publicMode: false,
+      basicAuth: null,
     });
   });
 
@@ -67,6 +69,39 @@ describe("production runtime configuration", () => {
 
   it("rejects an empty host instead of falling back silently", () => {
     expect(() => loadConfig({ ...valid, MCU_HOST: "  " })).toThrow(/MCU_HOST/i);
+  });
+
+  it("requires explicit credentials before enabling public mode", () => {
+    expect(() => loadConfig({ ...valid, MCU_PUBLIC_MODE: "1" })).toThrow(/MCU_PUBLIC_MODE|MCU_BASIC_AUTH/i);
+    expect(() => loadConfig({ ...valid, MCU_PUBLIC_MODE: "maybe" })).toThrow(/MCU_PUBLIC_MODE/i);
+    expect(() => loadConfig({ ...valid, MCU_PUBLIC_MODE: "1", MCU_BASIC_AUTH_USER: "pilot" })).toThrow(/provided together/i);
+  });
+
+  it("accepts a protected public bind address and never accepts it unprotected", () => {
+    expect(() => loadConfig({ ...valid, MCU_HOST: "0.0.0.0" })).toThrow(/MCU_HOST/i);
+    const config = loadConfig({
+      ...valid,
+      MCU_HOST: "0.0.0.0",
+      MCU_PUBLIC_MODE: "true",
+      MCU_BASIC_AUTH_USER: "pilot",
+      MCU_BASIC_AUTH_PASSWORD: "a-secure-internal-test-password",
+    });
+    expect(config.publicMode).toBe(true);
+    expect(config.basicAuth).toEqual({ username: "pilot", password: "a-secure-internal-test-password" });
+  });
+
+  it("rejects weak or malformed Basic Auth credentials", () => {
+    expect(() => loadConfig({ ...valid, MCU_BASIC_AUTH_USER: "pilot" })).toThrow(/provided together/i);
+    expect(() => loadConfig({
+      ...valid,
+      MCU_BASIC_AUTH_USER: "pilot",
+      MCU_BASIC_AUTH_PASSWORD: "short",
+    })).toThrow(/16 characters/i);
+    expect(() => loadConfig({
+      ...valid,
+      MCU_BASIC_AUTH_USER: "pilot:name",
+      MCU_BASIC_AUTH_PASSWORD: "a-secure-internal-test-password",
+    })).toThrow(/username/i);
   });
 
   it("requires an explicit supported device provider and never falls back from physical", () => {

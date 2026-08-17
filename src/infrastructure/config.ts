@@ -2,6 +2,11 @@
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+export interface BasicAuthConfig {
+  username: string;
+  password: string;
+}
+
 export interface AppConfig {
   host: string;
   port: number;
@@ -11,6 +16,8 @@ export interface AppConfig {
   arduinoCliPath: string;
   arduinoCliConfigPath: string | null;
   buildTimeoutMs: number;
+  publicMode: boolean;
+  basicAuth: BasicAuthConfig | null;
 }
 
 export interface StorageConfig {
@@ -22,12 +29,17 @@ const APPLICATION_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot = APPLICATION_ROOT): AppConfig {
   const root = applicationRoot;
+  const publicMode = parseBoolean(env.MCU_PUBLIC_MODE, "MCU_PUBLIC_MODE");
   const rawHost = env.MCU_HOST;
   if (rawHost !== undefined && !rawHost.trim()) throw new Error("MCU_HOST must not be empty");
   const host = rawHost?.trim() || "127.0.0.1";
-  if (host !== "127.0.0.1" && host !== "localhost") {
-    throw new Error("MCU_HOST must be localhost or 127.0.0.1 for the local execution mode");
+  if (!publicMode && host !== "127.0.0.1" && host !== "localhost") {
+    throw new Error("MCU_HOST must be localhost or 127.0.0.1 unless MCU_PUBLIC_MODE is enabled");
   }
+  if (publicMode && host !== "127.0.0.1" && host !== "localhost" && host !== "0.0.0.0" && host !== "::") {
+    throw new Error("MCU_HOST must be localhost, 127.0.0.1, 0.0.0.0, or ::");
+  }
+  const basicAuth = loadBasicAuth(env, publicMode);
 
   const rawPort = env.MCU_PORT?.trim() || "3000";
   if (!/^\d+$/.test(rawPort)) throw new Error("MCU_PORT must be an integer from 1 to 65535");
@@ -63,7 +75,41 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot
     arduinoCliPath,
     arduinoCliConfigPath: rawArduinoCliConfigPath ? resolve(rawArduinoCliConfigPath) : null,
     buildTimeoutMs,
+    publicMode,
+    basicAuth,
   };
+}
+
+function parseBoolean(raw: string | undefined, name: string): boolean {
+  if (raw === undefined || raw.trim() === "") return false;
+  const value = raw.trim().toLowerCase();
+  if (value === "1" || value === "true") return true;
+  if (value === "0" || value === "false") return false;
+  throw new Error(name + " must be true or false");
+}
+
+function loadBasicAuth(env: NodeJS.ProcessEnv, publicMode: boolean): BasicAuthConfig | null {
+  const rawUsername = env.MCU_BASIC_AUTH_USER;
+  const rawPassword = env.MCU_BASIC_AUTH_PASSWORD;
+  const hasUsername = rawUsername !== undefined;
+  const hasPassword = rawPassword !== undefined;
+  if (hasUsername !== hasPassword) {
+    throw new Error("MCU_BASIC_AUTH_USER and MCU_BASIC_AUTH_PASSWORD must be provided together");
+  }
+  if (!hasUsername && !hasPassword) {
+    if (publicMode) throw new Error("MCU_PUBLIC_MODE requires MCU_BASIC_AUTH_USER and MCU_BASIC_AUTH_PASSWORD");
+    return null;
+  }
+
+  const username = rawUsername!.trim();
+  const password = rawPassword!;
+  if (!username || username.includes(":") || /[\r\n]/.test(username)) {
+    throw new Error("MCU_BASIC_AUTH_USER must be a non-empty username without colon or line breaks");
+  }
+  if (password.length < 16 || /[\r\n]/.test(password)) {
+    throw new Error("MCU_BASIC_AUTH_PASSWORD must be at least 16 characters without line breaks");
+  }
+  return { username, password };
 }
 
 export function loadStorageConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot = APPLICATION_ROOT): StorageConfig {

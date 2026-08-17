@@ -93,6 +93,8 @@ async function startServer(): Promise<void> {
       ai,
       frontendDist,
       shutdown: shutdownState,
+      publicMode: config.publicMode,
+      basicAuth: config.basicAuth,
     });
 
     // Recovery claims/schedules before listen; long executions continue after HTTP is exposed.

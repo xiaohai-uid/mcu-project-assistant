@@ -1,6 +1,6 @@
 # MCU Project Assistant
 
-Local-first engineering assistant for microcontroller projects: requirements discovery → hardware selection → pin/wiring constraints → firmware generation → build/validation → companion device flash + serial telemetry. TypeScript modular monolith (Node.js 20.x + Express + SQLite + React/Vite).
+Local-first engineering assistant for microcontroller projects: requirements discovery → hardware selection → pin/wiring constraints → firmware generation → build/validation → companion device flash + serial telemetry. TypeScript modular monolith (Node.js 20.x + Express + SQLite + React/Vite). The internal-test deployment path is a single protected process with isolated persistent storage.
 
 ## Architecture
 
@@ -54,7 +54,7 @@ npm run build        # typecheck + backend artifact (dist/server) + frontend (ap
 MCU_DEVICE_PROVIDER=companion MCU_AI_PROVIDER=sensenova SENSENOVA_API_KEY=... SENSENOVA_BASE_URL=https://token.sensenova.cn/v1 SENSENOVA_CHAT_MODEL=deepseek-v4-flash MCU_DB_PATH=C:\\absolute\\path\\mcu.db MCU_WORKSPACE_DIR=C:\\absolute\\path\\workspace npm start   # http://127.0.0.1:3000
 ```
 
-Configuration: use `.env.example` as a reference for the environment passed to the server (`MCU_PORT`, absolute `MCU_DB_PATH`, absolute `MCU_WORKSPACE_DIR`, explicit `MCU_DEVICE_PROVIDER=companion|physical`, `MCU_ARDUINO_CLI_PATH`, optional absolute `MCU_ARDUINO_CLI_CONFIG_PATH` for a non-default Arduino CLI data/core directory, the optional positive `SENSENOVA_TIMEOUT_MS`, and the required explicit real AI provider settings). If the storage variables are omitted, the runtime uses its application-root `data/mcu.db` and `workspace` defaults; any explicitly supplied storage path must be absolute. The server does not auto-load a `.env` file and refuses to start when the provider, device provider, storage paths, or provider credentials are missing or malformed. Physical mode starts without hardware but reports typed tool/device errors, never falls back to Companion, and only reports physical verification after a fresh Arduino CLI discovery plus a successful upload with explicit `--verify`; the persisted device and flash evidence must also carry the fixed ESP32-S3 FQBN. Serial-session baud is selected by the request and defaults to the adapter's current 115200 setting when omitted. Deterministic mock adapters are test fixtures only. The production server resolves its built frontend relative to the server artifact, not the launch cwd.
+Configuration: use `.env.example` as a reference for the environment passed to the server (`MCU_PORT`, absolute `MCU_DB_PATH`, absolute `MCU_WORKSPACE_DIR`, explicit `MCU_DEVICE_PROVIDER=companion|physical`, `MCU_ARDUINO_CLI_PATH`, optional absolute `MCU_ARDUINO_CLI_CONFIG_PATH` for a non-default Arduino CLI data/core directory, the optional positive `SENSENOVA_TIMEOUT_MS`, and the required explicit real AI provider settings). If the storage variables are omitted, the runtime uses its application-root `data/mcu.db` and `workspace` defaults; any explicitly supplied storage path must be absolute. The server does not auto-load a `.env` file and refuses to start when the provider, device provider, storage paths, or provider credentials are missing or malformed. Physical mode starts without hardware but reports typed tool/device errors, never falls back to Companion, and only reports physical verification after a fresh Arduino CLI discovery plus a successful upload with explicit `--verify`; the persisted device and flash evidence must also carry the fixed ESP32-S3 FQBN. Serial-session baud is selected by the request and defaults to the adapter's current 115200 setting when omitted. Deterministic mock adapters are test fixtures only. The production server resolves its built frontend relative to the server artifact, not the launch cwd. For an internal/public proxy, set `MCU_PUBLIC_MODE=1`, provide `MCU_BASIC_AUTH_USER` and a 16+ character `MCU_BASIC_AUTH_PASSWORD`, and use `MCU_HOST=0.0.0.0` when the process must bind a container interface; the same Basic Auth protects the API and built UI, and browser Origin is restricted to the request Host.
 
 For the first Reference Kit's generated OLED firmware, install the pinned Arduino libraries into the same CLI config directory before running a real build. Arduino CLI does not consume `platformio.ini` dependency declarations during compilation; the generated file remains the project-facing dependency record.
 
@@ -64,6 +64,25 @@ When adding an exact user BOM item, use the canonical component ID shown by the 
 arduino-cli --config-file C:\absolute\path\to\arduino-cli.yaml lib install `
   "Adafruit SSD1306@2.5.10" "Adafruit GFX Library@1.11.9" "Adafruit BusIO@1.17.4"
 ```
+
+### Docker staging / internal test
+
+Build the production image and run it with fresh staging storage. Do not mount the repository's local data or workspace directories when you want an isolated test run:
+
+~~~bash
+docker build -t mcu-project-assistant:staging .
+docker run --rm --name mcu-project-assistant-staging -p 3000:3000 \
+  -e MCU_HOST=0.0.0.0 -e MCU_PUBLIC_MODE=1 \
+  -e MCU_BASIC_AUTH_USER=pilot -e MCU_BASIC_AUTH_PASSWORD=<16+ character secret> \
+  -e MCU_DEVICE_PROVIDER=companion -e MCU_AI_PROVIDER=sensenova \
+  -e SENSENOVA_API_KEY=<secret> -e SENSENOVA_BASE_URL=https://token.sensenova.cn/v1 \
+  -e SENSENOVA_CHAT_MODEL=deepseek-v4-flash \
+  -v mcu-project-assistant-staging-data:/app/data \
+  -v mcu-project-assistant-staging-workspace:/app/workspace \
+  mcu-project-assistant:staging
+~~~
+
+For a short internal review from the current machine, run cloudflared tunnel --url http://127.0.0.1:3000 to proxy the locally protected process. A TryCloudflare URL is temporary and intended for testing; a durable release still needs a managed tunnel/domain and persistent host. Keep MCU_DEVICE_PROVIDER=companion for an online review unless the physical board and Arduino CLI are on the same host as the server.
 
 ### Offline backup and restore
 
