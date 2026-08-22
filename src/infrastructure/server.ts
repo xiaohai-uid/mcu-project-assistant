@@ -101,6 +101,7 @@ async function startServer(): Promise<void> {
       shutdown: shutdownState,
       publicMode: config.publicMode,
       basicAuth: config.basicAuth,
+      trustedProxies: config.trustedProxies,
       eventLog,
       logger,
     });

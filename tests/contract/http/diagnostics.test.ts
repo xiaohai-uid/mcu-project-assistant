@@ -25,7 +25,7 @@ let db: SqliteDb;
 let app: ReturnType<typeof createApp>;
 let eventLog: EventLogPort;
 
-function makeApp(): ReturnType<typeof createApp> {
+function makeApp(trustedProxies?: readonly string[]): ReturnType<typeof createApp> {
   const persistence = createProjectStore(db);
   const events = createPersistingEvents(createNoopEvents(), eventLog);
   const deps: AppDeps = {
@@ -40,6 +40,7 @@ function makeApp(): ReturnType<typeof createApp> {
     publicMode: true,
     basicAuth: OPERATOR,
     eventLog,
+    trustedProxies,
   };
   return createApp(deps);
 }
@@ -127,6 +128,64 @@ describe("POST /api/v1/diagnostics/client-errors", () => {
       .post("/api/v1/diagnostics/client-errors")
       .set("Authorization", authHeader(OPERATOR))
       .send({ message: "overflow" });
+    expect(overflow.status).toBe(429);
+    expect(overflow.body.error.code).toBe("rate_limited");
+  });
+
+  it("does not let a client rotate a forged X-Forwarded-For header past the quota", async () => {
+    for (let i = 0; i < 60; i += 1) {
+      const r = await request(app)
+        .post("/api/v1/diagnostics/client-errors")
+        .set("Authorization", authHeader(OPERATOR))
+        .set("X-Forwarded-For", `198.51.100.${i}, 198.51.100.200`)
+        .send({ message: `spoof-${i}` });
+      expect(r.status).toBe(202);
+    }
+    const overflow = await request(app)
+      .post("/api/v1/diagnostics/client-errors")
+      .set("Authorization", authHeader(OPERATOR))
+      .set("X-Forwarded-For", "203.0.113.250")
+      .send({ message: "overflow-after-rotation" });
+    expect(overflow.status).toBe(429);
+    expect(overflow.body.error.code).toBe("rate_limited");
+  });
+
+  it("keys by the rightmost untrusted hop when a trusted reverse proxy is declared", async () => {
+    const proxied = makeApp(["127.0.0.1", "::1"]);
+    // socket 地址是可信反代；链右起第一个非可信跳才是客户端键，左侧伪造噪声被忽略
+    for (let i = 0; i < 60; i += 1) {
+      const r = await request(proxied)
+        .post("/api/v1/diagnostics/client-errors")
+        .set("Authorization", authHeader(OPERATOR))
+        .set("X-Forwarded-For", `198.51.100.${i}, 10.0.0.9`)
+        .send({ message: `via-proxy-${i}` });
+      expect(r.status).toBe(202);
+    }
+    const overflow = await request(proxied)
+      .post("/api/v1/diagnostics/client-errors")
+      .set("Authorization", authHeader(OPERATOR))
+      .set("X-Forwarded-For", "10.0.0.9")
+      .send({ message: "proxy-overflow" });
+    expect(overflow.status).toBe(429);
+    expect(overflow.body.error.code).toBe("rate_limited");
+  });
+
+  it("ignores X-Forwarded-For when the socket peer is not a declared trusted proxy", async () => {
+    // 直连源站攻击面：配置了可信反代，但对端不是反代——伪造链必须整体失效
+    const hardened = makeApp(["10.0.0.99"]);
+    for (let i = 0; i < 60; i += 1) {
+      const r = await request(hardened)
+        .post("/api/v1/diagnostics/client-errors")
+        .set("Authorization", authHeader(OPERATOR))
+        .set("X-Forwarded-For", `198.51.100.${i}`)
+        .send({ message: `direct-${i}` });
+      expect(r.status).toBe(202);
+    }
+    const overflow = await request(hardened)
+      .post("/api/v1/diagnostics/client-errors")
+      .set("Authorization", authHeader(OPERATOR))
+      .set("X-Forwarded-For", "203.0.113.250")
+      .send({ message: "direct-overflow" });
     expect(overflow.status).toBe(429);
     expect(overflow.body.error.code).toBe("rate_limited");
   });

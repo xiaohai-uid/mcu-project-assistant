@@ -26,6 +26,7 @@ describe("production runtime configuration", () => {
       buildTimeoutMs: 600000,
       publicMode: false,
       basicAuth: null,
+      trustedProxies: [],
       logLevel: "info",
     });
   });
@@ -118,6 +119,19 @@ describe("production runtime configuration", () => {
     expect(() => loadConfig({ ...valid, MCU_DEVICE_PROVIDER: undefined })).toThrow(/MCU_DEVICE_PROVIDER/i);
     expect(() => loadConfig({ ...valid, MCU_DEVICE_PROVIDER: "unknown" })).toThrow(/MCU_DEVICE_PROVIDER/i);
     expect(loadConfig({ ...valid, MCU_DEVICE_PROVIDER: "physical" }).deviceProvider).toBe("physical");
+  });
+
+  it("parses trusted reverse proxies from a comma-separated IP list and defaults to empty", () => {
+    expect(loadConfig(valid).trustedProxies).toEqual([]);
+    const config = loadConfig({
+      ...valid,
+      MCU_TRUSTED_PROXIES: "10.0.0.2, ::ffff:10.0.0.3 , ::1",
+    });
+    expect(config.trustedProxies).toEqual(["10.0.0.2", "::ffff:10.0.0.3", "::1"]);
+  });
+
+  it.each(["proxy.example", "10.0.0.256", "not an ip", "::::"])('refuses non-IP trusted proxy entry "%s"', (entry) => {
+    expect(() => loadConfig({ ...valid, MCU_TRUSTED_PROXIES: entry })).toThrow(/MCU_TRUSTED_PROXIES/);
   });
 
   it("keeps the database and workspace roots separate", () => {

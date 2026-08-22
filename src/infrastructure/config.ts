@@ -1,5 +1,6 @@
 // infrastructure/config.ts — 本地配置（M1 单用户；app-data 由未来 Slice 管理）
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { isIP } from "node:net";
 import { fileURLToPath } from "node:url";
 
 export interface BasicAuthConfig {
@@ -18,6 +19,8 @@ export interface AppConfig {
   buildTimeoutMs: number;
   publicMode: boolean;
   basicAuth: BasicAuthConfig | null;
+  /** Reverse proxies trusted to append the real client address to X-Forwarded-For (MCU_TRUSTED_PROXIES). */
+  trustedProxies: string[];
   logLevel: "debug" | "info" | "warn" | "error";
 }
 
@@ -83,8 +86,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot
     buildTimeoutMs,
     publicMode,
     basicAuth,
+    trustedProxies: parseTrustedProxies(env),
     logLevel: rawLogLevel,
   };
+}
+
+function parseTrustedProxies(env: NodeJS.ProcessEnv): string[] {
+  const raw = env.MCU_TRUSTED_PROXIES?.trim();
+  if (!raw) return [];
+  const entries = raw.split(",").map((entry) => entry.trim()).filter(Boolean);
+  for (const entry of entries) {
+    if (!isIP(entry)) {
+      throw new Error(`MCU_TRUSTED_PROXIES entries must be IP literals, refusing "${entry}"`);
+    }
+  }
+  return entries;
 }
 
 function parseBoolean(raw: string | undefined, name: string): boolean {

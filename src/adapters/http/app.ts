@@ -134,6 +134,7 @@ import {
   getProjectBom,
 } from "@/src/application/capabilities/bom";
 import { MAX_HTTP_BODY_BYTES, MAX_SERIAL_WRITE_BYTES, ResourceLimitError, assertUtf8Bytes } from "@/src/shared/resource-limits";
+import { createClientRateLimiter, resolveClientAddress } from "@/src/shared/client-rate-limit";
 import { SerialWriteTooLargeError } from "@/src/ports/device";
 import { createBrowserTrustMiddleware } from "./browser-trust";
 import { createBasicAuthMiddleware, createBrowserSessionAuth, hasOperatorBasicCredentials, invalidCredentials, type BasicAuthCredentials } from "./basic-auth";
@@ -158,6 +159,8 @@ export interface AppDeps {
   publicMode?: boolean;
   basicAuth?: BasicAuthCredentials | null;
   eventLog?: EventLogPort;
+  /** Reverse proxies trusted to append the real client address to X-Forwarded-For. Empty = never honor the header. */
+  trustedProxies?: readonly string[];
   logger?: Logger;
 }
 
@@ -1148,25 +1151,23 @@ export function createApp(deps: AppDeps): HttpApp {
   app.get("/api/v1/projects/:projectId/events", route(handleEvents));
 
   // ---------- 诊断切片：客户端错误上报 + 运营者诊断读取 ----------
-  const clientReportHits = new Map<string, { count: number; resetAt: number }>();
-  const CLIENT_REPORT_LIMIT = 60;
-  const CLIENT_REPORT_WINDOW_MS = 10 * 60 * 1000;
+  const clientReportLimiter = createClientRateLimiter({
+    limit: 60,
+    windowMs: 10 * 60 * 1000,
+    maxKeys: 10_000,
+  });
   const asBoundedString = (value: unknown, max: number): string | undefined => {
     if (typeof value !== "string" || !value.trim()) return undefined;
     return value.length > max ? value.slice(0, max) : value;
   };
   const handleClientErrorReport = async (req: Request, res: Response) => {
     if (!deps.eventLog) throw new ApiError(503, "resource_capacity_exceeded", "Diagnostics storage is not available");
-    const ip = (req.header("x-forwarded-for")?.split(",", 1)[0]?.trim() || req.ip || "unknown");
-    const nowMs = Date.now();
-    const hit = clientReportHits.get(ip);
-    if (!hit || hit.resetAt <= nowMs) {
-      clientReportHits.set(ip, { count: 1, resetAt: nowMs + CLIENT_REPORT_WINDOW_MS });
-    } else {
-      hit.count += 1;
-      if (hit.count > CLIENT_REPORT_LIMIT) {
-        throw new ApiError(429, "rate_limited", "Too many client error reports from this address");
-      }
+    const clientAddress = resolveClientAddress(
+      { remoteAddress: req.socket.remoteAddress, forwardedFor: req.header("x-forwarded-for") },
+      deps.trustedProxies ?? [],
+    );
+    if (!clientReportLimiter.take(clientAddress)) {
+      throw new ApiError(429, "rate_limited", "Too many client error reports from this address");
     }
     const body = (req.body ?? {}) as Record<string, unknown>;
     const message = asBoundedString(body.message, 2000);
