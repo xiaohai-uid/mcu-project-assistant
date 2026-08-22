@@ -1,6 +1,6 @@
 # ISSUE-006: 诊断切片卫生清理（可选，低优先）
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Priority: P3（不阻塞任何门禁；适合闲时或随下一诊断提交顺路）
 Blocked by: 002, 003, 004（避免与缺陷修复改同一处代码）
@@ -16,7 +16,14 @@ Blocked by: 002, 003, 004（避免与缺陷修复改同一处代码）
 
 ## DoD
 
-- [ ] 1–5 完成，全量门禁绿；6 仅记录不实施。
+- [x] 1–5 完成，全量门禁绿；6 仅记录不实施。
+
+## Comments
+
+- 2026-08-23 agent: item 2 随 item 1 消解——createMemoryEventLog 零调用即删（Speculative Generality），单实现无可提取。
+- 2026-08-23 agent: parseLogLevel 确认死代码（config.ts 内联解析 MCU_LOG_LEVEL）；logger.child 接口+实现、createMemoryEventLog 一并删除。
+- 2026-08-23 agent: newCorrelationId 迁至 src/shared/correlation-id.ts；requireOperator 更名 requireOperatorDiagnostics 并注释双门（凭据 403 / 存储 503）。
+- 2026-08-23 agent: item 6（{ logger, eventLog } 与 { code, path, method, requestId } data clumps）按票面仅记录，不实施。
 
 ## Comments
 

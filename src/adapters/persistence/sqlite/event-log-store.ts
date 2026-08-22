@@ -1,6 +1,5 @@
 // adapters/persistence/sqlite/event-log-store.ts — 诊断与飞轮事件持久化（migration v14）
 // 追加只写；行数上限裁剪防免费持久盘膨胀。绝不存密钥类字段（调用方负责脱敏，这里再做一层 JSON 大小上限）。
-import { randomUUID } from "node:crypto";
 import type { SqliteDb } from "./connection";
 
 export type EventLogLevel = "info" | "warn" | "error";
@@ -167,58 +166,4 @@ export function createEventLogStore(db: SqliteDb): EventLogPort {
       return { total: (countTotal.get() as { n: number }).n, windows };
     },
   };
-}
-
-/** 供无 DB 场景（单测/工具）使用的内存实现，行为与 SQLite 版一致。 */
-export function createMemoryEventLog(cap = EVENT_LOG_MAX_ROWS): EventLogPort {
-  const entries: EventLogEntry[] = [];
-  let nextId = 1;
-  return {
-    append(input) {
-      entries.push({
-        id: nextId++,
-        ts: new Date().toISOString(),
-        level: input.level,
-        source: input.source,
-        type: input.type,
-        projectId: input.projectId ?? null,
-        correlationId: input.correlationId ?? null,
-        data: JSON.parse(sanitizeData(input.data)) as Record<string, unknown>,
-      });
-      if (entries.length > cap) entries.splice(0, entries.length - cap);
-    },
-    list(query) {
-      const limit = Math.max(1, Math.min(query.limit ?? 200, 1000));
-      return [...entries]
-        .reverse()
-        .filter((e) => (!query.level || e.level === query.level)
-          && (!query.source || e.source === query.source)
-          && (!query.type || e.type === query.type)
-          && (!query.projectId || e.projectId === query.projectId))
-        .slice(0, limit);
-    },
-    summary() {
-      const now = Date.now();
-      const windows: EventLogSummaryWindow[] = [24, 168].map((hours) => {
-        const since = now - hours * 60 * 60 * 1000;
-        const inWindow = entries.filter((e) => new Date(e.ts).getTime() >= since);
-        const byLevel: Record<string, number> = {};
-        const byTypeMap = new Map<string, number>();
-        for (const e of inWindow) {
-          byLevel[e.level] = (byLevel[e.level] ?? 0) + 1;
-          byTypeMap.set(e.type, (byTypeMap.get(e.type) ?? 0) + 1);
-        }
-        return {
-          window: hours === 24 ? ("24h" as const) : ("7d" as const),
-          byLevel,
-          byType: [...byTypeMap.entries()].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([type, count]) => ({ type, count })),
-        };
-      });
-      return { total: entries.length, windows };
-    },
-  };
-}
-
-export function newCorrelationId(): string {
-  return randomUUID();
 }

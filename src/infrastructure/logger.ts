@@ -9,7 +9,6 @@ export interface Logger {
   info(message: string, data?: Record<string, unknown>): void;
   warn(message: string, data?: Record<string, unknown>): void;
   error(message: string, data?: Record<string, unknown>): void;
-  child(bindings: Record<string, unknown>): Logger;
 }
 
 function serializeValue(value: unknown): unknown {
@@ -47,13 +46,5 @@ export function createLogger(minLevel: LogLevel = "info", base: Record<string, u
     info: (message, data) => write("info", message, data),
     warn: (message, data) => write("warn", message, data),
     error: (message, data) => write("error", message, data),
-    child: (bindings) => createLogger(minLevel, { ...base, ...sanitizeData(bindings) }),
   };
-}
-
-export function parseLogLevel(raw: string | undefined): LogLevel {
-  const value = raw?.trim().toLowerCase();
-  if (!value) return "info";
-  if (value in LEVEL_ORDER) return value as LogLevel;
-  throw new Error('MCU_LOG_LEVEL must be one of "debug", "info", "warn", "error"');
 }

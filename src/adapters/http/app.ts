@@ -80,6 +80,7 @@ import type { InProcessTaskRuntime } from "@/src/adapters/task/in-process";
 import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
 import type { ArtifactKind, DeviceExecutionReality, SerialSessionDto } from "@/src/shared-contracts/types";
 import { toSafeError } from "@/src/shared-contracts/errors";
+import { newCorrelationId } from "@/src/shared/correlation-id";
 import { ApiError, apiErrorBoundary, recordApiError, withErrorHandler } from "./error";
 import { loadVerifiedArtifactContent, PersistenceIntegrityError } from "@/src/shared/persistence-integrity";
 import { writeProjectMirror } from "@/src/infrastructure/workspace";
@@ -140,7 +141,6 @@ import { SerialWriteTooLargeError } from "@/src/ports/device";
 import { createBrowserTrustMiddleware } from "./browser-trust";
 import { createBasicAuthMiddleware, createBrowserSessionAuth, hasOperatorBasicCredentials, invalidCredentials, type BasicAuthCredentials } from "./basic-auth";
 import type { EventLogPort } from "@/src/adapters/persistence/sqlite/event-log-store";
-import { newCorrelationId } from "@/src/adapters/persistence/sqlite/event-log-store";
 import type { Logger } from "@/src/infrastructure/logger";
 import { IdempotencyConflictError, InvalidIdempotencyKeyError, makeIdempotencyRequest, parseIdempotencyKey } from "@/src/shared/idempotency";
 import type { ShutdownState } from "@/src/infrastructure/shutdown";
@@ -1196,6 +1196,15 @@ export function createApp(deps: AppDeps): HttpApp {
     // 客户端自造 sessionId 降级为 data 字段保留（同浏览器多错误的聚合键）。
     const requestId = res.getHeader("x-request-id");
     const sessionId = asBoundedString(body.sessionId, 64);
+    // 有界字段一次计算（ISSUE-006：消除双取）。
+    const bounded = Object.fromEntries(
+      ([
+        ["stack", asBoundedString(body.stack, 16000)],
+        ["url", asBoundedString(body.url, 500)],
+        ["userAgent", asBoundedString(body.userAgent, 200)],
+        ["appVersion", asBoundedString(body.appVersion, 64)],
+      ] as const).filter((pair) => pair[1] !== undefined),
+    );
     deps.eventLog.append({
       level: "error",
       source: "client",
@@ -1204,23 +1213,21 @@ export function createApp(deps: AppDeps): HttpApp {
       data: {
         message,
         ...(sessionId ? { sessionId } : {}),
-        ...(asBoundedString(body.stack, 16000) ? { stack: asBoundedString(body.stack, 16000) } : {}),
-        ...(asBoundedString(body.url, 500) ? { url: asBoundedString(body.url, 500) } : {}),
-        ...(asBoundedString(body.userAgent, 200) ? { userAgent: asBoundedString(body.userAgent, 200) } : {}),
-        ...(asBoundedString(body.appVersion, 64) ? { appVersion: asBoundedString(body.appVersion, 64) } : {}),
+        ...bounded,
         ...(extra ? { extra } : {}),
       },
     });
     res.status(202).json({ status: "accepted" });
   };
-  const requireOperator = (req: Request): void => {
+  // 双重门：运营者凭据（403）+ 诊断存储可用性（503）。
+  const requireOperatorDiagnostics = (req: Request): void => {
     if (!hasOperatorBasicCredentials(req, deps.basicAuth)) {
       throw new ApiError(403, "forbidden", "Operator credentials required");
     }
     if (!deps.eventLog) throw new ApiError(503, "resource_capacity_exceeded", "Diagnostics storage is not available");
   };
   const handleDiagnosticsEvents = async (req: Request, res: Response) => {
-    requireOperator(req);
+    requireOperatorDiagnostics(req);
     const level = req.query.level === "info" || req.query.level === "warn" || req.query.level === "error" ? req.query.level : undefined;
     const source = req.query.source === "server" || req.query.source === "client" ? req.query.source : undefined;
     const type = asBoundedString(req.query.type, 100);
@@ -1229,7 +1236,7 @@ export function createApp(deps: AppDeps): HttpApp {
     res.json({ events: deps.eventLog!.list({ level, source, type, projectId, limit: limitRaw }) });
   };
   const handleDiagnosticsSummary = async (req: Request, res: Response) => {
-    requireOperator(req);
+    requireOperatorDiagnostics(req);
     res.json(deps.eventLog!.summary());
   };
   app.post("/api/v1/diagnostics/client-errors", route(handleClientErrorReport));
