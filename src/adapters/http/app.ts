@@ -218,7 +218,7 @@ export function createApp(deps: AppDeps): HttpApp {
   });
   app.use(createBasicAuthMiddleware(deps.basicAuth, browserSessions));
 
-  // 诊断切片：请求关联 ID + 请求日志（stdout 全量；event_log 只收 ≥400 或慢请求）。
+  // 诊断切片：请求关联 ID + 请求日志（stdout 全量；event_log 收 4xx 与慢请求，≥500 由 api.error 单一事实源承载）。
   const httpObservers = { logger: deps.logger, eventLog: deps.eventLog };
   const route = (handler: (req: Request, res: Response) => Promise<unknown> | unknown) => withErrorHandler(handler, httpObservers);
   app.use("/api", (req, res, next) => {
@@ -230,10 +230,12 @@ export function createApp(deps: AppDeps): HttpApp {
       const status = res.statusCode;
       deps.logger?.info("http.request", { method: req.method, path: req.path, status, durationMs, requestId });
       if (!deps.eventLog) return;
-      // 持久化策略：错误/告警状态码，或慢请求（成功但 >5s）
+      // 持久化策略：4xx 完成指标与慢请求（成功但 >5s）；≥500 的失败细节由
+      // api.error 单一事实源承载，这里不再双写（ISSUE-004）。
+      if (status >= 500) return;
       if (status >= 400 || durationMs > 5_000) {
         deps.eventLog.append({
-          level: status >= 500 ? "error" : "warn",
+          level: "warn",
           source: "server",
           type: "http.request",
           correlationId: requestId,

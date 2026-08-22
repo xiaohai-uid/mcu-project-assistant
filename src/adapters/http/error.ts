@@ -101,6 +101,33 @@ export interface HttpErrorObservers {
   eventLog?: EventLogPort;
 }
 
+/**
+ * api.error 是 5xx 失败细节的单一事实源（ISSUE-004：不再与 http.request 双写）。
+ * 三处记录点（边界未处理错误 / ApiError ≥500 / 包装器兜底）统一走此助手。
+ */
+function recordApiError(
+  observers: HttpErrorObservers | undefined,
+  req: Request,
+  res: Response,
+  level: "warn" | "error",
+  safe: { code: string },
+  data: Record<string, unknown>,
+): void {
+  const requestId = res.getHeader("x-request-id");
+  observers?.logger?.[level](level === "warn" ? "API error response" : "Unhandled API error", {
+    code: safe.code,
+    ...data,
+    requestId,
+  });
+  observers?.eventLog?.append({
+    level,
+    source: "server",
+    type: "api.error",
+    correlationId: typeof requestId === "string" ? requestId : null,
+    data,
+  });
+}
+
 export function apiErrorBoundary(observers?: HttpErrorObservers): ErrorRequestHandler {
   return (err: unknown, req: Request, res: Response, next: NextFunction) => {
     if (res.headersSent) {
@@ -118,15 +145,7 @@ export function apiErrorBoundary(observers?: HttpErrorObservers): ErrorRequestHa
     }
     if (req.path.startsWith("/api/")) {
       const safe = toSafeError(err);
-      const requestId = res.getHeader("x-request-id");
-      observers?.logger?.error("Unhandled API error", { code: safe.code, path: req.path, method: req.method, requestId });
-      observers?.eventLog?.append({
-        level: "error",
-        source: "server",
-        type: "api.error",
-        correlationId: typeof requestId === "string" ? requestId : null,
-        data: { code: safe.code, path: req.path, method: req.method },
-      });
+      recordApiError(observers, req, res, "error", safe, { code: safe.code, path: req.path, method: req.method });
       res.status(500).json({ error: safe });
       return;
     }
@@ -139,7 +158,7 @@ export function withErrorHandler(
   observers?: HttpErrorObservers,
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req, res, next) => {
-    Promise.resolve(handler(req, res)).catch((err) => {
+    const handleError = (err: unknown): void => {
       const respond = (status: number, payload: Record<string, unknown>): void => {
         res.status(status).json(payload);
       };
@@ -147,31 +166,22 @@ export function withErrorHandler(
         const safe = toSafeError(err);
         const details = safe.code === "outdated_proposal" && err.details && typeof err.details === "object" ? err.details : undefined;
         if (err.status >= 500) {
-          const requestId = res.getHeader("x-request-id");
-          observers?.logger?.warn("API error response", { code: safe.code, status: err.status, path: req.path, method: req.method, requestId });
-          observers?.eventLog?.append({
-            level: "warn",
-            source: "server",
-            type: "api.error",
-            correlationId: typeof requestId === "string" ? requestId : null,
-            data: { code: safe.code, status: err.status, path: req.path, method: req.method },
-          });
+          recordApiError(observers, req, res, "warn", safe, { code: safe.code, status: err.status, path: req.path, method: req.method });
         }
         respond(err.status, { error: { ...safe, ...(details ? { details } : {}) } });
         return;
       }
       const safe = toSafeError(err);
-      const requestId = res.getHeader("x-request-id");
-      observers?.logger?.error("Unhandled API error", { code: safe.code, path: req.path, method: req.method, requestId });
-      observers?.eventLog?.append({
-        level: "error",
-        source: "server",
-        type: "api.error",
-        correlationId: typeof requestId === "string" ? requestId : null,
-        data: { code: safe.code, path: req.path, method: req.method },
-      });
+      recordApiError(observers, req, res, "error", safe, { code: safe.code, path: req.path, method: req.method });
       respond(500, { error: safe });
-    });
+    };
+    // 同步 handler 的 throw 不能穿透到 express 默认错误中间件——否则 ApiError 的
+    // 声明状态码（如 server_draining 503）会被降级成 500 且绕开 warn 分支。
+    try {
+      void Promise.resolve(handler(req, res)).catch(handleError);
+    } catch (err) {
+      handleError(err);
+    }
     void next;
   };
 }

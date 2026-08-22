@@ -1,6 +1,6 @@
 # ISSUE-004: 消除 5xx 失败的 event_log 双写
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Priority: P2
 Blocked by: 无
@@ -16,9 +16,9 @@ Blocked by: 无
 
 ## DoD
 
-- [ ] 测试：任一 5xx 请求恰好产生一行 error 类事件。
-- [ ] error.ts 不再有重复的事件记录块。
-- [ ] 全量门禁绿。
+- [x] 测试：任一 5xx 请求恰好产生一行 error 类事件。
+- [x] error.ts 不再有重复的事件记录块。
+- [x] 全量门禁绿。
 
 ## Comments
 

@@ -25,7 +25,7 @@ let db: SqliteDb;
 let app: ReturnType<typeof createApp>;
 let eventLog: EventLogPort;
 
-function makeApp(trustedProxies?: readonly string[]): ReturnType<typeof createApp> {
+function makeApp(trustedProxies?: readonly string[], overrides: Partial<AppDeps> = {}): ReturnType<typeof createApp> {
   const persistence = createProjectStore(db);
   const events = createPersistingEvents(createNoopEvents(), eventLog);
   const deps: AppDeps = {
@@ -41,6 +41,7 @@ function makeApp(trustedProxies?: readonly string[]): ReturnType<typeof createAp
     basicAuth: OPERATOR,
     eventLog,
     trustedProxies,
+    ...overrides,
   };
   return createApp(deps);
 }
@@ -219,6 +220,54 @@ describe("POST /api/v1/diagnostics/client-errors", () => {
       .post("/api/v1/diagnostics/client-errors")
       .send({ message: "anon" });
     expect(response.status).toBe(401);
+  });
+});
+
+describe("5xx event_log 单一事实源（ISSUE-004）", () => {
+  it("unhandled 500 writes exactly one server row: api.error, no http.request twin", async () => {
+    const crashing = makeApp(undefined, {
+      persistence: {
+        ...createProjectStore(db),
+        getProject: async () => {
+          throw new Error("simulated crash");
+        },
+      },
+    });
+    const response = await request(crashing)
+      .get("/api/v1/projects/nope")
+      .set("Authorization", authHeader(OPERATOR));
+    expect(response.status).toBe(500);
+    const rows = eventLog.list({ source: "server" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.type).toBe("api.error");
+    expect(rows[0]!.level).toBe("error");
+    expect((rows[0]!.data as { code?: string }).code).toBeDefined();
+    expect(rows[0]!.correlationId).toBe(response.headers["x-request-id"]);
+  });
+
+  it("ApiError 503 writes exactly one server row: warn-level api.error", async () => {
+    const draining = makeApp(undefined, { shutdown: { isDraining: () => true, begin: () => false, complete: () => {} } });
+    const response = await request(draining)
+      .get("/api/v1/projects/p1/events")
+      .set("Authorization", authHeader(OPERATOR));
+    expect(response.status).toBe(503);
+    const rows = eventLog.list({ source: "server" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.type).toBe("api.error");
+    expect(rows[0]!.level).toBe("warn");
+    expect((rows[0]!.data as { code?: string }).code).toBe("server_draining");
+    expect(rows[0]!.correlationId).toBe(response.headers["x-request-id"]);
+  });
+
+  it("4xx and slow-success requests still persist their http.request rows", async () => {
+    await request(app)
+      .post("/api/v1/diagnostics/client-errors")
+      .set("Authorization", authHeader(OPERATOR))
+      .send({ stack: "no message" }); // 400
+    const rows = eventLog.list({ source: "server" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.type).toBe("http.request");
+    expect(rows[0]!.level).toBe("warn");
   });
 });
 
