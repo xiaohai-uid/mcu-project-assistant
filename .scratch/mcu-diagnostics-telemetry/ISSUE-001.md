@@ -15,3 +15,4 @@ OVERRIDE: 卫星解冻单项（用户 2026-08-21 当次指令）
 ## Comments
 
 - 2026-08-21 zcode: 实现完成，见最终交付报告与 vault 记录。
+- 2026-08-23 agent: [E1]/[E2] 证据已入库 `docs/audit/diagnostics-gate-evidence-2026-08-23.md`（门禁摘要 + 真实进程四步往返，含 ISSUE-003/004 契约核验点）。[E3] 托管 smoke 备好待用户执行（公网 URL/部署控制台需人）。
