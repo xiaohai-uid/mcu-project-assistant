@@ -64,6 +64,48 @@ violated — expect intermittent NACK/garbled OLED at long cables. Keep total
 pull-up ≤ 4.7 kΩ for 100 kHz operation; for 400 kHz fit external 2.2 kΩ in
 parallel (effective ≈1.5 kΩ, t_r≈254 ns).
 
+## SPICE cross-check (ngspice-47, same decks) — drift review
+
+All three netlists were executed in ngspice-47 (batch, `.MEAS`) to verify the
+closed-form values above. Results and corrections:
+
+| Quantity | Analytical | ngspice | Drift |
+| --- | --- | --- | --- |
+| CASE1 ADC settle (<1 LSB after step @1.01 ms) | ≈3457 ns incl. ramp | **3452 ns** | <0.15 % |
+| CASE3 t_r @Rp=4.7 k/200 pF | 796 ns | **796 ns** | 0 % |
+| CASE3 t_r @2.2 k / 1 k | 373 / 169 ns | **373 / 169 ns** | 0 % |
+| CASE3 t_r @10 k | 1694 ns | **1695 ns** | +0.06 % |
+| CASE2 flyback clamp peak | ~5.7 V | **5.83 V** | +0.13 V (diode dynamics) |
+| CASE2 collector spike w/o diode | "kV-class theoretical" | **272 V** (model-limited) | ≫ S8050 V_CEO 25 V → fatal either way |
+
+### Correction to CASE 2 (self-review finding)
+
+The original table called Rb=1 kΩ "saturation not guaranteed" from the
+forced-β ≤ 20 rule of thumb. The SPICE sweep over β shows that was **over-
+pessimistic**: worst-case BF=40 still saturates at Rb=1 kΩ (V_CE=141 mV). The
+actual boundary sits near Rb≈1.4 kΩ for β_min=40:
+
+| Rb \ hFE | 150 (typical) | 40 (worst-case) |
+| --- | --- | --- |
+| 470 Ω | 89 mV deep-sat | 89 mV deep-sat |
+| 1 kΩ | 100 mV deep-sat | 141 mV deep-sat |
+| 2.2 kΩ | 130 mV deep-sat | **2093 mV — linear region, driver heating** |
+| 4.7 kΩ | 360 mV marginal | saturated-off territory |
+
+Actionable rule stands corrected to: **Rb ≤ 1 kΩ guarantees saturation across
+the transistor spread; 2.2 kΩ is acceptable only if the module's transistor β
+is verified >60.**
+
+### Tooling notes (for reproducibility)
+
+- ngspice consumes the first deck line as title — a deck starting directly
+  with an element line silently loses that element (this produced a bogus
+  "no supply" run during bring-up).
+- `.MEAS ... FROM/TO` with `M` suffixes parsed unreliably in this build;
+  decimal seconds used throughout.
+- A coil R∥L topology error in the first delivered netlist was caught by this
+  cross-check loop and fixed (`case2_relay_driver.cir`: R and L now in series).
+
 ## Summary of actionable items before physical acceptance
 
 1. Firmware/config: revisit `SOIL_DRY_THRESHOLD=1800` against real sensor calibration (CASE 1).
