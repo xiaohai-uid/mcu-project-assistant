@@ -1,6 +1,6 @@
 # ISSUE-003: 客户端错误行可关联到服务端请求日志
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Priority: P2
 Blocked by: 无
@@ -17,9 +17,9 @@ PRD 要求「请求关联 ID（x-request-id）贯穿请求日志与错误记录�
 
 ## DoD
 
-- [ ] 测试：POST /client-errors 产生的 event_log 行 correlationId == 该请求的 x-request-id 响应头值。
-- [ ] 既有 sessionId 不丢失（data 内可查）。
-- [ ] 全量门禁绿。
+- [x] 测试：POST /client-errors 产生的 event_log 行 correlationId == 该请求的 x-request-id 响应头值。
+- [x] 既有 sessionId 不丢失（data 内可查）。
+- [x] 全量门禁绿。
 
 ## Comments
 
