@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { isAbsolute as isPosixAbsolute } from "node:path/posix";
+import { isAbsolute as isWin32Absolute } from "node:path/win32";
+import { join, resolve } from "node:path";
 import { loadConfig } from "@/src/infrastructure/config";
 
 describe("production runtime configuration", () => {
@@ -62,8 +64,12 @@ describe("production runtime configuration", () => {
 
     expect(dbPath).toBeTruthy();
     expect(workspaceDir).toBeTruthy();
-    expect(isAbsolute(dbPath!)).toBe(true);
-    expect(isAbsolute(workspaceDir!)).toBe(true);
+    // Canonical examples must be platform-neutral: absolute under both POSIX and
+    // Windows path semantics, so any host can copy them verbatim and pass validation.
+    expect(isPosixAbsolute(dbPath!)).toBe(true);
+    expect(isWin32Absolute(dbPath!)).toBe(true);
+    expect(isPosixAbsolute(workspaceDir!)).toBe(true);
+    expect(isWin32Absolute(workspaceDir!)).toBe(true);
     expect(loadConfig({ ...valid, MCU_DB_PATH: dbPath, MCU_WORKSPACE_DIR: workspaceDir })).toMatchObject({
       dbPath: resolve(dbPath!),
       workspaceDir: resolve(workspaceDir!),

@@ -46,7 +46,7 @@ labels: [wayfinder:map, mcu, commercial]
 - `issues/08-recommendation-missing-facts-trace.md` open: US25 missing-facts half of the recommendation trace.
 - `issues/09-global-tri-state-badges-and-companion-propagation.md` open: widen R2 badges, close action→state loop.
 - `issues/10-middleware-level-ai-permission-enforcement.md` open: enforce AI tiers at the routing layer.
-- `issues/11-platform-neutral-storage-examples.md` open: config test fails on POSIX hosts (C:/ examples vs isAbsolute).
+- `issues/11-platform-neutral-storage-examples.md` resolved (2026-08-22): canonical `/absolute/…` examples valid under both POSIX and win32 semantics; test asserts dual-semantics absoluteness.
 
 ## Not yet specified
 
