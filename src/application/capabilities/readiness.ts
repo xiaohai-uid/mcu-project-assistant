@@ -3,7 +3,7 @@ import type { PersistencePort } from "@/src/ports/persistence";
 import { getProjectBom } from "@/src/application/capabilities/bom";
 import { deriveDeliveryReport } from "@/src/domain/services/delivery-report";
 import type { CommercialReadinessReportDto, DeliveryBoardIdentityDto, DeliveryReportDto, DeviceInfoDto } from "@/src/shared-contracts/types";
-import { deriveCommercialReadiness } from "@/src/domain/services/commercial-readiness";
+import { deriveAcceptancePolicy } from "@/src/domain/services/acceptance-policy";
 
 export class ReadinessProjectNotFoundError extends Error {
   constructor() {
@@ -99,7 +99,7 @@ export async function getCommercialReadinessReport(
   const lastDevice = deviceTruth(await deps.persistence.getPreference("last_device"));
   const physicalAcceptance = await deps.persistence.latestPhysicalAcceptance?.(input.projectId) ?? null;
 
-  return deriveCommercialReadiness({
+  return deriveAcceptancePolicy({
     projectId: input.projectId,
     generatedAt,
     hardware: { referenceKitId: referenceKitId(hardware.content), versionId: hardware.versionId, observedAt: hardware.createdAt },

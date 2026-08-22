@@ -1,5 +1,5 @@
 import { ESP32_S3_REFERENCE_KIT_ID } from "@/src/domain/services/build-profile";
-import { deriveCommercialReadiness } from "@/src/domain/services/commercial-readiness";
+import { deriveAcceptancePolicy } from "@/src/domain/services/acceptance-policy";
 import type { BuildRecord } from "@/src/domain/models/build-record";
 import type { DeliveryBoardIdentityDto, DeliveryReportDto, DeliveryRiskDto, DeviceTruthDto, PhysicalAcceptanceRecordDto, ProjectBomDto, ReadinessEvidenceDto, ValidationRecordDto } from "@/src/shared-contracts/types";
 
@@ -102,7 +102,7 @@ function risks(input: DeliveryReportInput, readiness: DeliveryReportDto): Delive
 }
 
 export function deriveDeliveryReport(input: DeliveryReportInput): DeliveryReportDto {
-  const readiness = deriveCommercialReadiness({
+  const readiness = deriveAcceptancePolicy({
     projectId: input.projectId,
     generatedAt: input.generatedAt,
     hardware: {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BuildRecord } from "@/src/domain/models/build-record";
-import { deriveCommercialReadiness } from "@/src/domain/services/commercial-readiness";
+import { deriveAcceptancePolicy } from "@/src/domain/services/acceptance-policy";
 
 const NOW = "2026-08-16T00:00:00.000Z";
 
@@ -39,9 +39,9 @@ function build(overrides: Partial<BuildRecord> = {}): BuildRecord {
   };
 }
 
-describe("deriveCommercialReadiness", () => {
+describe("deriveAcceptancePolicy", () => {
   it("requires local build and physical truth before paid release", () => {
-    const report = deriveCommercialReadiness({
+    const report = deriveAcceptancePolicy({
       projectId: "project-1",
       generatedAt: NOW,
       hardware: { referenceKitId: "esp32-s3-devkitc-1-n8r8-v1.1", versionId: "hardware-v1", observedAt: NOW },
@@ -60,7 +60,7 @@ describe("deriveCommercialReadiness", () => {
   });
 
   it("does not pass a failed or fixture-only build", () => {
-    const report = deriveCommercialReadiness({
+    const report = deriveAcceptancePolicy({
       projectId: "project-1",
       generatedAt: NOW,
       hardware: { referenceKitId: "esp32-s3-devkitc-1-n8r8-v1.1", versionId: "hardware-v1", observedAt: NOW },
@@ -76,7 +76,7 @@ describe("deriveCommercialReadiness", () => {
   });
 
   it("re-evaluates saved build evidence instead of trusting a stale local-ready flag", () => {
-    const report = deriveCommercialReadiness({
+    const report = deriveAcceptancePolicy({
       projectId: "project-1",
       generatedAt: NOW,
       hardware: { referenceKitId: "esp32-s3-devkitc-1-n8r8-v1.1", versionId: "hardware-v1", observedAt: NOW },
@@ -96,7 +96,7 @@ describe("deriveCommercialReadiness", () => {
   });
 
   it("only passes paid release when physical truth is explicitly verified", () => {
-    const report = deriveCommercialReadiness({
+    const report = deriveAcceptancePolicy({
       projectId: "project-1",
       generatedAt: NOW,
       hardware: { referenceKitId: "esp32-s3-devkitc-1-n8r8-v1.1", versionId: "hardware-v1", observedAt: NOW },
@@ -118,7 +118,7 @@ describe("deriveCommercialReadiness", () => {
   });
 
   it("does not reuse accepted physical evidence for a different current build", () => {
-    const report = deriveCommercialReadiness({
+    const report = deriveAcceptancePolicy({
       projectId: "project-1",
       generatedAt: NOW,
       hardware: { referenceKitId: "esp32-s3-devkitc-1-n8r8-v1.1", versionId: "hardware-v1", observedAt: NOW },

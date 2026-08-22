@@ -7,7 +7,7 @@ import {
 import { deriveLocalReady } from "@/src/domain/services/build-readiness";
 import type { DeviceTruthDto, ValidationRecordDto, CommercialReadinessReportDto, PhysicalAcceptanceRecordDto, ReadinessEvidenceDto, ReadinessGateDto } from "@/src/shared-contracts/types";
 
-export interface CommercialReadinessInput {
+export interface AcceptancePolicyInput {
   projectId: string;
   generatedAt: string;
   hardware: { referenceKitId: string | null; versionId: string | null; observedAt: string | null };
@@ -86,7 +86,7 @@ function simulationGate(truth: DeviceTruthDto | null, generatedAt: string): Read
   return gate("simulation-ready", "blocked", "Simulation evidence exists but is not verified.", "Resolve the simulation failure and repeat the simulation.", truthEvidence);
 }
 
-function localGate(input: CommercialReadinessInput): ReadinessGateDto {
+function localGate(input: AcceptancePolicyInput): ReadinessGateDto {
   const evidenceRefs: ReadinessEvidenceDto[] = [];
   const hardwareReady = input.hardware.referenceKitId === ESP32_S3_REFERENCE_KIT_ID;
   if (input.hardware.versionId) {
@@ -125,7 +125,7 @@ function localGate(input: CommercialReadinessInput): ReadinessGateDto {
   return gate("local-ready", "blocked", buildReadiness.reasons.length ? buildReadiness.reasons.join(", ") : "The saved build is not local-ready.", "Resolve the saved build blockers and run the build again.", evidenceRefs);
 }
 
-export function deriveCommercialReadiness(input: CommercialReadinessInput): CommercialReadinessReportDto {
+export function deriveAcceptancePolicy(input: AcceptancePolicyInput): CommercialReadinessReportDto {
   const local = localGate(input);
   const simulation = simulationGate(input.simulation, input.generatedAt);
   const physical = physicalGate(input.physical, input.physicalAcceptance ?? null, input.generatedAt, input.build);
