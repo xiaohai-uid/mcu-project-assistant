@@ -136,6 +136,8 @@ const KNOWN_CODES = new Set([
   "confirmation_missing", "confirmation_invalid", "confirmation_expired", "token_reused", "device_mismatch",
   "device_disconnected", "device_busy", "physical_flash_blocked", "physical_flash_failed", "serial_session_not_found",
   "already_archived", "archived_read_only", "network_unavailable",
+  // 诊断切片：运营者边界与客户端上报限流
+  "forbidden", "rate_limited",
 ]);
 
 function recordOf(value: unknown): Record<string, unknown> | null {

@@ -120,3 +120,15 @@ export function createBasicAuthMiddleware(credentials: BasicAuthCredentials | nu
 export function invalidCredentials(res: Response): void {
   res.status(401).json({ error: { code: "invalid_credentials", message: INVALID_CREDENTIALS } });
 }
+
+/**
+ * 操作员专用判定：只接受 Authorization: Basic 头，不接受网页会话 Cookie。
+ * 用于诊断/运营端点——公网内测用户只有 Cookie，天然被挡在外面。
+ * 未配置凭据（本地单机）视为操作员本机。
+ */
+export function hasOperatorBasicCredentials(req: Request, credentials: BasicAuthCredentials | null | undefined): boolean {
+  if (!credentials) return true;
+  const provided = parseAuthorization(req.header("authorization"));
+  if (!provided) return false;
+  return safeEqual(provided.username, credentials.username) && safeEqual(provided.password, credentials.password);
+}

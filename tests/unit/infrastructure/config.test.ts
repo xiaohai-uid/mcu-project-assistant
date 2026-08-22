@@ -26,11 +26,21 @@ describe("production runtime configuration", () => {
       buildTimeoutMs: 600000,
       publicMode: false,
       basicAuth: null,
+      logLevel: "info",
     });
   });
 
   it.each(["0", "65536", "3000.5", "not-a-port"])('rejects malformed port "%s"', (port) => {
     expect(() => loadConfig({ ...valid, MCU_PORT: port })).toThrow(/MCU_PORT/i);
+  });
+
+  it('rejects malformed log level "verbose"', () => {
+    expect(() => loadConfig({ ...valid, MCU_LOG_LEVEL: "verbose" })).toThrow(/MCU_LOG_LEVEL/i);
+  });
+
+  it("normalizes and defaults the log level like other optional fields", () => {
+    expect(loadConfig({ ...valid, MCU_LOG_LEVEL: "DEBUG" }).logLevel).toBe("debug");
+    expect(loadConfig({ ...valid, MCU_LOG_LEVEL: "" }).logLevel).toBe("info");
   });
 
   it("rejects relative production storage paths instead of binding them to the current cwd", () => {

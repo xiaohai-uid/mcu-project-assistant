@@ -112,6 +112,13 @@ export async function resolveProposal(
       uow.resolveStaleMarks(proposal.artifactId, currentVersionId ?? "");
     }
   });
+  deps.events.publish({
+    type: "proposal.decided",
+    projectId: proposal.projectId,
+    proposalId: proposal.id,
+    decision: input.decision,
+    proposalType: proposal.type,
+  });
   return decided;
 }
 

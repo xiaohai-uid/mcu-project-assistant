@@ -68,6 +68,8 @@ export type LogicalEvent =
       outcome: "validated" | "proposal_created" | "error";
     }
   | { type: "proposal.created"; projectId: string; proposalId: string; kind: ArtifactKind }
+  // 诊断/飞轮切片：人类偏好信号（accept/reject 决策）
+  | { type: "proposal.decided"; projectId: string; proposalId: string; decision: "accept" | "reject"; proposalType: string }
   // ---------- S7 Build ----------
   | { type: "build.output"; projectId: string; buildId: string; line: string }
   | { type: "build.succeeded"; projectId: string; buildId: string; exitCode: number }

@@ -136,7 +136,10 @@ import {
 import { MAX_HTTP_BODY_BYTES, MAX_SERIAL_WRITE_BYTES, ResourceLimitError, assertUtf8Bytes } from "@/src/shared/resource-limits";
 import { SerialWriteTooLargeError } from "@/src/ports/device";
 import { createBrowserTrustMiddleware } from "./browser-trust";
-import { createBasicAuthMiddleware, createBrowserSessionAuth, invalidCredentials, type BasicAuthCredentials } from "./basic-auth";
+import { createBasicAuthMiddleware, createBrowserSessionAuth, hasOperatorBasicCredentials, invalidCredentials, type BasicAuthCredentials } from "./basic-auth";
+import type { EventLogPort } from "@/src/adapters/persistence/sqlite/event-log-store";
+import { newCorrelationId } from "@/src/adapters/persistence/sqlite/event-log-store";
+import type { Logger } from "@/src/infrastructure/logger";
 import { IdempotencyConflictError, InvalidIdempotencyKeyError, makeIdempotencyRequest, parseIdempotencyKey } from "@/src/shared/idempotency";
 import type { ShutdownState } from "@/src/infrastructure/shutdown";
 
@@ -154,6 +157,8 @@ export interface AppDeps {
   shutdown?: ShutdownState;
   publicMode?: boolean;
   basicAuth?: BasicAuthCredentials | null;
+  eventLog?: EventLogPort;
+  logger?: Logger;
 }
 
 export interface HttpApp extends Express {
@@ -208,6 +213,33 @@ export function createApp(deps: AppDeps): HttpApp {
     res.json({ authenticated: false });
   });
   app.use(createBasicAuthMiddleware(deps.basicAuth, browserSessions));
+
+  // 诊断切片：请求关联 ID + 请求日志（stdout 全量；event_log 只收 ≥400 或慢请求）。
+  const httpObservers = { logger: deps.logger, eventLog: deps.eventLog };
+  const route = (handler: (req: Request, res: Response) => Promise<unknown> | unknown) => withErrorHandler(handler, httpObservers);
+  app.use("/api", (req, res, next) => {
+    const requestId = newCorrelationId();
+    res.setHeader("x-request-id", requestId);
+    const startedAt = Date.now();
+    res.on("finish", () => {
+      const durationMs = Date.now() - startedAt;
+      const status = res.statusCode;
+      deps.logger?.info("http.request", { method: req.method, path: req.path, status, durationMs, requestId });
+      if (!deps.eventLog) return;
+      // 持久化策略：错误/告警状态码，或慢请求（成功但 >5s）
+      if (status >= 400 || durationMs > 5_000) {
+        deps.eventLog.append({
+          level: status >= 500 ? "error" : "warn",
+          source: "server",
+          type: "http.request",
+          correlationId: requestId,
+          data: { method: req.method, path: req.path, status, durationMs },
+        });
+      }
+    });
+    next();
+  });
+
   app.use("/api", (req, res, next) => {
     if (deps.shutdown?.isDraining() && ["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
       res.status(503).json({ error: { code: "server_draining", message: "Server is shutting down" } });
@@ -1068,52 +1100,118 @@ export function createApp(deps: AppDeps): HttpApp {
   };
 
   app.get("/api/v1/health", (_req, res) => res.json({ status: "ok" }));
-  app.post("/api/v1/projects", withErrorHandler(handleCreate));
-  app.get("/api/v1/projects", withErrorHandler(handleList));
-  app.get("/api/v1/projects/:id", withErrorHandler(handleGet));
-  app.post("/api/v1/projects/:id/archive-token", withErrorHandler(handleArchiveToken));
-  app.post("/api/v1/projects/:id/archive", withErrorHandler(handleArchive));
-  app.get("/api/v1/projects/:projectId/artifacts", withErrorHandler(handleListArtifacts));
-  app.post("/api/v1/projects/:projectId/artifacts", withErrorHandler(handleEnsureArtifact));
-  app.post("/api/v1/artifacts/:artifactId/versions", withErrorHandler(handleCommitVersion));
-  app.get("/api/v1/artifacts/:artifactId/versions", withErrorHandler(handleListVersions));
-  app.get("/api/v1/versions/:versionId", withErrorHandler(handleGetVersion));
-  app.post("/api/v1/versions/:versionId/validations", withErrorHandler(handleValidateWiring));
-  app.get("/api/v1/versions/:versionId/validations", withErrorHandler(handleLatestValidation));
-  app.post("/api/v1/projects/:projectId/commands", withErrorHandler(handleCommands));
-  app.get("/api/v1/projects/:projectId/tasks", withErrorHandler(handleListTasks));
-  app.get("/api/v1/projects/:projectId/proposals", withErrorHandler(handleListProposals));
-  app.post("/api/v1/projects/:projectId/requirements/commit", withErrorHandler(handleCommitRequirements));
-  app.post("/api/v1/proposals/:proposalId/decision", withErrorHandler(handleResolveProposal));
-  app.post("/api/v1/commands/:taskId/clarification", withErrorHandler(handleClarification));
-  app.post("/api/v1/commands/:taskId/cancel", withErrorHandler(handleCancel));
-  app.get("/api/v1/commands/:taskId", withErrorHandler(handleGetTask));
-  app.get("/api/v1/projects/:projectId/stale-marks", withErrorHandler(handleStaleMarks));
-  app.post("/api/v1/projects/:projectId/builds", withErrorHandler(handleRunBuild));
-  app.get("/api/v1/builds/:buildId", withErrorHandler(handleGetBuild));
-  app.get("/api/v1/projects/:projectId/readiness-report", withErrorHandler(handleReadinessReport));
-  app.get("/api/v1/projects/:projectId/delivery-report", withErrorHandler(handleDeliveryReport));
-  app.post("/api/v1/builds/:buildId/diagnose", withErrorHandler(handleDiagnoseBuild));
-  app.post("/api/v1/builds/:buildId/cancel", withErrorHandler(handleCancelBuild));
-  app.get("/api/v1/versions/:versionId/builds", withErrorHandler(handleListBuilds));
-  app.get("/api/v1/toolchain", withErrorHandler(handleToolchain));
-  app.post("/api/v1/device/detect", withErrorHandler(handleDetectDevice));
-  app.get("/api/v1/projects/:projectId/device-state", withErrorHandler(handleDeviceState));
-  app.get("/api/v1/projects/:projectId/physical-acceptance", withErrorHandler(handleLatestPhysicalAcceptance));
-  app.post("/api/v1/projects/:projectId/physical-acceptance", withErrorHandler(handlePhysicalAcceptance));
-  app.get("/api/v1/projects/:projectId/bom", withErrorHandler(handleGetBom));
-  app.get("/api/v1/projects/:projectId/bom/export", withErrorHandler(handleBomExport));
-  app.post("/api/v1/projects/:projectId/bom/items", withErrorHandler(handleCreateBomItem));
-  app.post("/api/v1/projects/:projectId/bom/items/:itemId/price-observations", withErrorHandler(handlePriceObservation));
-  app.post("/api/v1/device/flash-token", withErrorHandler(handleFlashToken));
-  app.post("/api/v1/device/flash", withErrorHandler(handleFlash));
-  app.post("/api/v1/device/disconnect", withErrorHandler(handleDisconnect));
-  app.post("/api/v1/projects/:projectId/device/serial/session", withErrorHandler(handleOpenSerial));
-  app.get("/api/v1/projects/:projectId/device/serial/session/:sessionId", withErrorHandler(handleSerialState));
-  app.delete("/api/v1/projects/:projectId/device/serial/session/:sessionId", withErrorHandler(handleCloseSerial));
-  app.post("/api/v1/projects/:projectId/device/serial/session/:sessionId/write", withErrorHandler(handleWriteSerial));
-  app.get("/api/v1/projects/:projectId/device/serial/session/:sessionId/events", withErrorHandler(handleSerialStream));
-  app.get("/api/v1/projects/:projectId/events", withErrorHandler(handleEvents));
+  app.post("/api/v1/projects", route(handleCreate));
+  app.get("/api/v1/projects", route(handleList));
+  app.get("/api/v1/projects/:id", route(handleGet));
+  app.post("/api/v1/projects/:id/archive-token", route(handleArchiveToken));
+  app.post("/api/v1/projects/:id/archive", route(handleArchive));
+  app.get("/api/v1/projects/:projectId/artifacts", route(handleListArtifacts));
+  app.post("/api/v1/projects/:projectId/artifacts", route(handleEnsureArtifact));
+  app.post("/api/v1/artifacts/:artifactId/versions", route(handleCommitVersion));
+  app.get("/api/v1/artifacts/:artifactId/versions", route(handleListVersions));
+  app.get("/api/v1/versions/:versionId", route(handleGetVersion));
+  app.post("/api/v1/versions/:versionId/validations", route(handleValidateWiring));
+  app.get("/api/v1/versions/:versionId/validations", route(handleLatestValidation));
+  app.post("/api/v1/projects/:projectId/commands", route(handleCommands));
+  app.get("/api/v1/projects/:projectId/tasks", route(handleListTasks));
+  app.get("/api/v1/projects/:projectId/proposals", route(handleListProposals));
+  app.post("/api/v1/projects/:projectId/requirements/commit", route(handleCommitRequirements));
+  app.post("/api/v1/proposals/:proposalId/decision", route(handleResolveProposal));
+  app.post("/api/v1/commands/:taskId/clarification", route(handleClarification));
+  app.post("/api/v1/commands/:taskId/cancel", route(handleCancel));
+  app.get("/api/v1/commands/:taskId", route(handleGetTask));
+  app.get("/api/v1/projects/:projectId/stale-marks", route(handleStaleMarks));
+  app.post("/api/v1/projects/:projectId/builds", route(handleRunBuild));
+  app.get("/api/v1/builds/:buildId", route(handleGetBuild));
+  app.get("/api/v1/projects/:projectId/readiness-report", route(handleReadinessReport));
+  app.get("/api/v1/projects/:projectId/delivery-report", route(handleDeliveryReport));
+  app.post("/api/v1/builds/:buildId/diagnose", route(handleDiagnoseBuild));
+  app.post("/api/v1/builds/:buildId/cancel", route(handleCancelBuild));
+  app.get("/api/v1/versions/:versionId/builds", route(handleListBuilds));
+  app.get("/api/v1/toolchain", route(handleToolchain));
+  app.post("/api/v1/device/detect", route(handleDetectDevice));
+  app.get("/api/v1/projects/:projectId/device-state", route(handleDeviceState));
+  app.get("/api/v1/projects/:projectId/physical-acceptance", route(handleLatestPhysicalAcceptance));
+  app.post("/api/v1/projects/:projectId/physical-acceptance", route(handlePhysicalAcceptance));
+  app.get("/api/v1/projects/:projectId/bom", route(handleGetBom));
+  app.get("/api/v1/projects/:projectId/bom/export", route(handleBomExport));
+  app.post("/api/v1/projects/:projectId/bom/items", route(handleCreateBomItem));
+  app.post("/api/v1/projects/:projectId/bom/items/:itemId/price-observations", route(handlePriceObservation));
+  app.post("/api/v1/device/flash-token", route(handleFlashToken));
+  app.post("/api/v1/device/flash", route(handleFlash));
+  app.post("/api/v1/device/disconnect", route(handleDisconnect));
+  app.post("/api/v1/projects/:projectId/device/serial/session", route(handleOpenSerial));
+  app.get("/api/v1/projects/:projectId/device/serial/session/:sessionId", route(handleSerialState));
+  app.delete("/api/v1/projects/:projectId/device/serial/session/:sessionId", route(handleCloseSerial));
+  app.post("/api/v1/projects/:projectId/device/serial/session/:sessionId/write", route(handleWriteSerial));
+  app.get("/api/v1/projects/:projectId/device/serial/session/:sessionId/events", route(handleSerialStream));
+  app.get("/api/v1/projects/:projectId/events", route(handleEvents));
+
+  // ---------- 诊断切片：客户端错误上报 + 运营者诊断读取 ----------
+  const clientReportHits = new Map<string, { count: number; resetAt: number }>();
+  const CLIENT_REPORT_LIMIT = 60;
+  const CLIENT_REPORT_WINDOW_MS = 10 * 60 * 1000;
+  const asBoundedString = (value: unknown, max: number): string | undefined => {
+    if (typeof value !== "string" || !value.trim()) return undefined;
+    return value.length > max ? value.slice(0, max) : value;
+  };
+  const handleClientErrorReport = async (req: Request, res: Response) => {
+    if (!deps.eventLog) throw new ApiError(503, "resource_capacity_exceeded", "Diagnostics storage is not available");
+    const ip = (req.header("x-forwarded-for")?.split(",", 1)[0]?.trim() || req.ip || "unknown");
+    const nowMs = Date.now();
+    const hit = clientReportHits.get(ip);
+    if (!hit || hit.resetAt <= nowMs) {
+      clientReportHits.set(ip, { count: 1, resetAt: nowMs + CLIENT_REPORT_WINDOW_MS });
+    } else {
+      hit.count += 1;
+      if (hit.count > CLIENT_REPORT_LIMIT) {
+        throw new ApiError(429, "rate_limited", "Too many client error reports from this address");
+      }
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const message = asBoundedString(body.message, 2000);
+    if (!message) throw new ApiError(400, "invalid_content", "message is required");
+    const extraRaw = body.extra && typeof body.extra === "object" && !Array.isArray(body.extra) ? body.extra : undefined;
+    const extra = extraRaw && JSON.stringify(extraRaw).length <= 4000 ? (extraRaw as Record<string, unknown>) : undefined;
+    deps.eventLog.append({
+      level: "error",
+      source: "client",
+      type: "client.error",
+      correlationId: asBoundedString(body.sessionId, 64) ?? null,
+      data: {
+        message,
+        ...(asBoundedString(body.stack, 16000) ? { stack: asBoundedString(body.stack, 16000) } : {}),
+        ...(asBoundedString(body.url, 500) ? { url: asBoundedString(body.url, 500) } : {}),
+        ...(asBoundedString(body.userAgent, 200) ? { userAgent: asBoundedString(body.userAgent, 200) } : {}),
+        ...(asBoundedString(body.appVersion, 64) ? { appVersion: asBoundedString(body.appVersion, 64) } : {}),
+        ...(extra ? { extra } : {}),
+      },
+    });
+    res.status(202).json({ status: "accepted" });
+  };
+  const requireOperator = (req: Request): void => {
+    if (!hasOperatorBasicCredentials(req, deps.basicAuth)) {
+      throw new ApiError(403, "forbidden", "Operator credentials required");
+    }
+    if (!deps.eventLog) throw new ApiError(503, "resource_capacity_exceeded", "Diagnostics storage is not available");
+  };
+  const handleDiagnosticsEvents = async (req: Request, res: Response) => {
+    requireOperator(req);
+    const level = req.query.level === "info" || req.query.level === "warn" || req.query.level === "error" ? req.query.level : undefined;
+    const source = req.query.source === "server" || req.query.source === "client" ? req.query.source : undefined;
+    const type = asBoundedString(req.query.type, 100);
+    const projectId = asBoundedString(req.query.projectId, 64);
+    const limitRaw = typeof req.query.limit === "string" && /^\d+$/.test(req.query.limit) ? Number(req.query.limit) : undefined;
+    res.json({ events: deps.eventLog!.list({ level, source, type, projectId, limit: limitRaw }) });
+  };
+  const handleDiagnosticsSummary = async (req: Request, res: Response) => {
+    requireOperator(req);
+    res.json(deps.eventLog!.summary());
+  };
+  app.post("/api/v1/diagnostics/client-errors", route(handleClientErrorReport));
+  app.get("/api/v1/diagnostics/events", route(handleDiagnosticsEvents));
+  app.get("/api/v1/diagnostics/summary", route(handleDiagnosticsSummary));
+
 
   app.use("/api", (_req, res) => {
     res.status(404).json({ error: { code: "not_found", message: "API route not found" } });
@@ -1121,7 +1219,7 @@ export function createApp(deps: AppDeps): HttpApp {
 
   // Keep every API failure JSON-shaped, including express.json() parser
   // failures and handlers that are not wrapped by a route-specific adapter.
-  app.use(apiErrorBoundary());
+  app.use(apiErrorBoundary(httpObservers));
 
   app.closeSseStreams = closeSseStreams;
   return app;

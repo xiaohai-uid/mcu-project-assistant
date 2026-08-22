@@ -1,6 +1,8 @@
 // adapters/http/error.ts — 错误模型（复用旧工程 ApiError/withErrorHandler 模式；implementation-spec §11）
 import type { ErrorRequestHandler, NextFunction, Request, Response } from "express";
 import { toSafeError } from "@/src/shared-contracts/errors";
+import type { Logger } from "@/src/infrastructure/logger";
+import type { EventLogPort } from "@/src/adapters/persistence/sqlite/event-log-store";
 
 export type ErrorCode =
   | "invalid_name"
@@ -75,6 +77,8 @@ export type ErrorCode =
   | "idempotency_record_corrupt"
   | "production_state_in_use"
   | "server_draining"
+  | "forbidden"
+  | "rate_limited"
   | "internal";
 
 export class ApiError extends Error {
@@ -89,7 +93,13 @@ export class ApiError extends Error {
   }
 }
 
-export function apiErrorBoundary(): ErrorRequestHandler {
+/** 错误处理的可选观测出口：结构化日志 + event_log 持久化（诊断切片）。 */
+export interface HttpErrorObservers {
+  logger?: Logger;
+  eventLog?: EventLogPort;
+}
+
+export function apiErrorBoundary(observers?: HttpErrorObservers): ErrorRequestHandler {
   return (err: unknown, req: Request, res: Response, next: NextFunction) => {
     if (res.headersSent) {
       next(err);
@@ -106,7 +116,15 @@ export function apiErrorBoundary(): ErrorRequestHandler {
     }
     if (req.path.startsWith("/api/")) {
       const safe = toSafeError(err);
-      console.error("Unhandled API error", { code: safe.code });
+      const requestId = res.getHeader("x-request-id");
+      observers?.logger?.error("Unhandled API error", { code: safe.code, path: req.path, method: req.method, requestId });
+      observers?.eventLog?.append({
+        level: "error",
+        source: "server",
+        type: "api.error",
+        correlationId: typeof requestId === "string" ? requestId : null,
+        data: { code: safe.code, path: req.path, method: req.method },
+      });
       res.status(500).json({ error: safe });
       return;
     }
@@ -116,17 +134,41 @@ export function apiErrorBoundary(): ErrorRequestHandler {
 
 export function withErrorHandler(
   handler: (req: Request, res: Response) => Promise<unknown> | unknown,
+  observers?: HttpErrorObservers,
 ): (req: Request, res: Response, next: NextFunction) => void {
   return (req, res, next) => {
     Promise.resolve(handler(req, res)).catch((err) => {
+      const respond = (status: number, payload: Record<string, unknown>): void => {
+        res.status(status).json(payload);
+      };
       if (err instanceof ApiError) {
         const safe = toSafeError(err);
         const details = safe.code === "outdated_proposal" && err.details && typeof err.details === "object" ? err.details : undefined;
-        res.status(err.status).json({ error: { ...safe, ...(details ? { details } : {}) } });
+        if (err.status >= 500) {
+          const requestId = res.getHeader("x-request-id");
+          observers?.logger?.warn("API error response", { code: safe.code, status: err.status, path: req.path, method: req.method, requestId });
+          observers?.eventLog?.append({
+            level: "warn",
+            source: "server",
+            type: "api.error",
+            correlationId: typeof requestId === "string" ? requestId : null,
+            data: { code: safe.code, status: err.status, path: req.path, method: req.method },
+          });
+        }
+        respond(err.status, { error: { ...safe, ...(details ? { details } : {}) } });
         return;
       }
-      console.error("Unhandled API error", { code: "internal" });
-      res.status(500).json({ error: toSafeError(err) });
+      const safe = toSafeError(err);
+      const requestId = res.getHeader("x-request-id");
+      observers?.logger?.error("Unhandled API error", { code: safe.code, path: req.path, method: req.method, requestId });
+      observers?.eventLog?.append({
+        level: "error",
+        source: "server",
+        type: "api.error",
+        correlationId: typeof requestId === "string" ? requestId : null,
+        data: { code: safe.code, path: req.path, method: req.method },
+      });
+      respond(500, { error: safe });
     });
     void next;
   };

@@ -18,6 +18,7 @@ export interface AppConfig {
   buildTimeoutMs: number;
   publicMode: boolean;
   basicAuth: BasicAuthConfig | null;
+  logLevel: "debug" | "info" | "warn" | "error";
 }
 
 export interface StorageConfig {
@@ -66,6 +67,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot
     throw new Error('MCU_DEVICE_PROVIDER must be explicitly set to "companion" or "physical"; refusing an implicit device fallback');
   }
 
+  const rawLogLevel = env.MCU_LOG_LEVEL?.trim().toLowerCase() || "info";
+  if (rawLogLevel !== "debug" && rawLogLevel !== "info" && rawLogLevel !== "warn" && rawLogLevel !== "error") {
+    throw new Error('MCU_LOG_LEVEL must be one of "debug", "info", "warn", "error"');
+  }
+
   return {
     host, // M1 local single-user; loopback by default (Security Spec §5)
     port,
@@ -77,6 +83,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, applicationRoot
     buildTimeoutMs,
     publicMode,
     basicAuth,
+    logLevel: rawLogLevel,
   };
 }
 

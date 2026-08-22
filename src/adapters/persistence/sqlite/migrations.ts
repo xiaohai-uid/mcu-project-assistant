@@ -274,6 +274,24 @@ CREATE TABLE price_observations (
 CREATE INDEX idx_price_observations_item ON price_observations(bom_item_id, observed_at);
 `,
   },
+  {
+    version: 14,
+    name: "create_event_log",
+    sql: `
+CREATE TABLE event_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL,
+  level TEXT NOT NULL CHECK (level IN ('info','warn','error')),
+  source TEXT NOT NULL CHECK (source IN ('server','client')),
+  type TEXT NOT NULL,
+  project_id TEXT NULL,
+  correlation_id TEXT NULL,
+  data TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX idx_event_log_ts ON event_log(ts);
+CREATE INDEX idx_event_log_type ON event_log(type, ts);
+`,
+  },
 ];
 
 export function migrate(db: SqliteDb): void {

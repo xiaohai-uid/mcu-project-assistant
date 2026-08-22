@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createApp } from "@/src/adapters/http/app";
 import { createWorkspaceFilesContent } from "@/src/adapters/artifact-content/workspace-files";
 import { createSseEvents } from "@/src/adapters/events/sse";
+import { createPersistingEvents } from "@/src/adapters/events/persisting";
 import { createInProcessTasks } from "@/src/adapters/task/in-process";
 import { createEsp32ArduinoCompiler } from "@/src/adapters/compiler/esp32-arduino";
 import { createCompanionLocalDevice } from "@/src/adapters/device/companion-local";
@@ -13,6 +14,8 @@ import { createPhysicalArduinoDevice } from "@/src/adapters/device/physical-ardu
 import { openDatabase } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
+import { createEventLogStore } from "@/src/adapters/persistence/sqlite/event-log-store";
+import { createLogger } from "./logger";
 import { createAiProvider } from "./ai-provider";
 import { loadConfig } from "./config";
 import { toSafeError } from "@/src/shared-contracts/errors";
@@ -65,8 +68,11 @@ async function startServer(): Promise<void> {
   try {
     db = openDatabase(config.dbPath);
     migrate(db);
+    const logger = createLogger(config.logLevel, { app: "mcu-project-assistant" });
+    const eventLog = createEventLogStore(db);
     const persistence = createProjectStore(db);
-    const events = createSseEvents();
+    // 事件先持久化（飞轮底座/诊断），再 SSE 扇出给订阅者
+    const events = createPersistingEvents(createSseEvents(), eventLog);
     const ai = createAiProvider();
     const arduinoCliArgsPrefix = config.arduinoCliConfigPath
       ? ["--config-file", config.arduinoCliConfigPath]
@@ -95,6 +101,8 @@ async function startServer(): Promise<void> {
       shutdown: shutdownState,
       publicMode: config.publicMode,
       basicAuth: config.basicAuth,
+      eventLog,
+      logger,
     });
 
     // Recovery claims/schedules before listen; long executions continue after HTTP is exposed.
