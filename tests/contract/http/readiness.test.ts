@@ -13,7 +13,7 @@ import { createCompanionLocalDevice } from "@/src/adapters/device/companion-loca
 import { openDatabase, type SqliteDb } from "@/src/adapters/persistence/sqlite/connection";
 import { migrate } from "@/src/adapters/persistence/sqlite/migrations";
 import { createProjectStore } from "@/src/adapters/persistence/sqlite/project-store";
-import type { CommercialReadinessReportDto, DeliveryReportDto } from "@/src/shared-contracts/types";
+import type { AcceptancePolicyReportDto, DeliveryReportDto } from "@/src/shared-contracts/types";
 
 let dir: string;
 let db: SqliteDb;
@@ -48,7 +48,7 @@ describe("commercial readiness report surface", () => {
     const project = await request(app).post("/api/v1/projects").send({ name: "Readiness" });
     const report = await request(app).get(`/api/v1/projects/${(project.body as { id: string }).id}/readiness-report`);
     expect(report.status).toBe(200);
-    const body = report.body as CommercialReadinessReportDto;
+    const body = report.body as AcceptancePolicyReportDto;
     expect(body.gates.map((gate) => gate.id)).toEqual(["local-ready", "simulation-ready", "physical-accepted", "paid-release-ready"]);
     expect(body.gates.some((gate) => gate.status === "ready")).toBe(false);
     expect(body.conclusion.text).not.toMatch(/%/);

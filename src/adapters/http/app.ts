@@ -93,7 +93,7 @@ import {
   runBuild as runBuildCapability,
   VersionNotFoundError as BuildVersionNotFoundError,
 } from "@/src/application/capabilities/build";
-import { getCommercialReadinessReport, getDeliveryReport, ReadinessProjectNotFoundError } from "@/src/application/capabilities/readiness";
+import { getAcceptancePolicyReport, getDeliveryReport, ReadinessProjectNotFoundError } from "@/src/application/capabilities/readiness";
 import {
   BuildNotFailedError,
   BuildNotFoundError as DiagnosisBuildNotFoundError,
@@ -559,7 +559,9 @@ export function createApp(deps: AppDeps): HttpApp {
       return;
     }
 
-    throw new ApiError(400, "invalid_capability", "Unknown capability");
+    // 权限守卫已拦截未知 capability（404 unknown_capability）；能走到这里说明
+    // 权限表有项但缺命令分支——表/分支漂移，按同一词汇报 404 而非悬挂响应。
+    throw new ApiError(404, "unknown_capability", "Capability registered without a command branch");
   };
 
   const handleClarification = async (req: Request, res: Response) => {
@@ -745,7 +747,7 @@ export function createApp(deps: AppDeps): HttpApp {
 
   const handleReadinessReport = async (req: Request, res: Response) => {
     try {
-      res.json(await getCommercialReadinessReport({ projectId: req.params.projectId as string }, readinessDeps));
+      res.json(await getAcceptancePolicyReport({ projectId: req.params.projectId as string }, readinessDeps));
     } catch (err) {
       if (err instanceof ReadinessProjectNotFoundError) throw new ApiError(404, "not_found", err.message);
       throw err;

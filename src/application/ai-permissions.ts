@@ -3,7 +3,9 @@
 // 本表是唯一事实源：HTTP 命令面用它做 fail-closed 强制校验，
 // 设置页用它渲染用户可见的信任界面，测试用它断言边界不被悄悄突破。
 
-export type AiPermissionTier = "auto-readonly" | "proposal-required" | "forbidden";
+import type { AiPermissionTier } from "@/src/shared-contracts/types";
+
+export type { AiPermissionTier };
 
 export interface AiPermissionEntry {
   capability: string;

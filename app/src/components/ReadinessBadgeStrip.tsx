@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import type { ReadinessGateDto } from "@/src/shared-contracts/types";
 import { api as clientApi } from "../api/client";
 import { t } from "../lib/i18n";
+import { SEMANTIC_TONE } from "../lib/tone";
 import type { Language } from "../types";
 
 /**
@@ -13,11 +14,12 @@ import type { Language } from "../types";
 
 const TRI_STATE_IDS = ["local-ready", "simulation-ready", "physical-accepted"] as const;
 
+// 门状态 → 语义色调（共享表见 lib/tone）
 const TONE: Record<ReadinessGateDto["status"], string> = {
-  ready: "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400",
-  pending: "bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400",
-  blocked: "bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400",
-  unavailable: "bg-slate-500/10 border-slate-500/20 text-slate-600 dark:text-slate-400",
+  ready: SEMANTIC_TONE.positive,
+  pending: SEMANTIC_TONE.pending,
+  blocked: SEMANTIC_TONE.negative,
+  unavailable: SEMANTIC_TONE.inactive,
 };
 
 const GATE_LABEL_KEY: Record<(typeof TRI_STATE_IDS)[number], "deliveryGateLocal" | "deliveryGateSimulation" | "deliveryGatePhysical"> = {

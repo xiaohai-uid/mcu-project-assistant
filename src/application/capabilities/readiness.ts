@@ -2,7 +2,7 @@ import type { ArtifactContentPort } from "@/src/ports/artifact-content";
 import type { PersistencePort } from "@/src/ports/persistence";
 import { getProjectBom } from "@/src/application/capabilities/bom";
 import { deriveDeliveryReport } from "@/src/domain/services/delivery-report";
-import type { CommercialReadinessReportDto, DeliveryBoardIdentityDto, DeliveryReportDto, DeviceInfoDto } from "@/src/shared-contracts/types";
+import type { AcceptancePolicyReportDto, DeliveryBoardIdentityDto, DeliveryReportDto, DeviceInfoDto } from "@/src/shared-contracts/types";
 import { deriveAcceptancePolicy } from "@/src/domain/services/acceptance-policy";
 
 export class ReadinessProjectNotFoundError extends Error {
@@ -82,10 +82,10 @@ function deviceTruth(raw: string | null): DeviceInfoDto["truth"] | null {
   }
 }
 
-export async function getCommercialReadinessReport(
+export async function getAcceptancePolicyReport(
   input: { projectId: string },
   deps: ReadinessCapabilityDeps,
-): Promise<CommercialReadinessReportDto> {
+): Promise<AcceptancePolicyReportDto> {
   const project = await deps.persistence.getProject(input.projectId);
   if (!project) throw new ReadinessProjectNotFoundError();
   const now = deps.now ?? (() => new Date());

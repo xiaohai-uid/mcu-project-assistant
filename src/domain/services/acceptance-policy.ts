@@ -5,7 +5,7 @@ import {
   ESP32_S3_REFERENCE_KIT_ID,
 } from "@/src/domain/services/build-profile";
 import { deriveLocalReady } from "@/src/domain/services/build-readiness";
-import type { DeviceTruthDto, ValidationRecordDto, CommercialReadinessReportDto, PhysicalAcceptanceRecordDto, ReadinessEvidenceDto, ReadinessGateDto } from "@/src/shared-contracts/types";
+import type { DeviceTruthDto, ValidationRecordDto, AcceptancePolicyReportDto, PhysicalAcceptanceRecordDto, ReadinessEvidenceDto, ReadinessGateDto } from "@/src/shared-contracts/types";
 
 export interface AcceptancePolicyInput {
   projectId: string;
@@ -125,7 +125,7 @@ function localGate(input: AcceptancePolicyInput): ReadinessGateDto {
   return gate("local-ready", "blocked", buildReadiness.reasons.length ? buildReadiness.reasons.join(", ") : "The saved build is not local-ready.", "Resolve the saved build blockers and run the build again.", evidenceRefs);
 }
 
-export function deriveAcceptancePolicy(input: AcceptancePolicyInput): CommercialReadinessReportDto {
+export function deriveAcceptancePolicy(input: AcceptancePolicyInput): AcceptancePolicyReportDto {
   const local = localGate(input);
   const simulation = simulationGate(input.simulation, input.generatedAt);
   const physical = physicalGate(input.physical, input.physicalAcceptance ?? null, input.generatedAt, input.build);
@@ -138,7 +138,7 @@ export function deriveAcceptancePolicy(input: AcceptancePolicyInput): Commercial
     [...local.evidence, ...physical.evidence],
   );
   const gates = [local, simulation, physical, paid];
-  const conclusionStatus: CommercialReadinessReportDto["conclusion"]["status"] = paidReady
+  const conclusionStatus: AcceptancePolicyReportDto["conclusion"]["status"] = paidReady
     ? "ready"
     : local.status === "blocked" || physical.status === "blocked"
       ? "blocked"

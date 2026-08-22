@@ -298,7 +298,7 @@ export interface ReadinessGateDto {
   evidence: ReadinessEvidenceDto[];
 }
 
-export interface CommercialReadinessReportDto {
+export interface AcceptancePolicyReportDto {
   projectId: string;
   generatedAt: string;
   conclusion: {
@@ -336,9 +336,11 @@ export interface DeliveryRiskDto {
   evidence: ReadinessEvidenceDto[];
 }
 
+export type AiPermissionTier = "auto-readonly" | "proposal-required" | "forbidden";
+
 export interface AiPermissionEntryDto {
   capability: string;
-  tier: "auto-readonly" | "proposal-required" | "forbidden";
+  tier: AiPermissionTier;
   note: string;
 }
 
@@ -347,7 +349,7 @@ export interface AiPermissionsDto {
   forbidden: AiPermissionEntryDto[];
 }
 
-export interface DeliveryReportDto extends CommercialReadinessReportDto {
+export interface DeliveryReportDto extends AcceptancePolicyReportDto {
   project: { name: string };
   hardware: {
     versionId: string | null;

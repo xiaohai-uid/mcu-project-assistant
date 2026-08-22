@@ -314,14 +314,22 @@ const RP2040: PlatformDefinition = {
   reason: "High PIO flexibility, but lacks native Wi-Fi/BLE radio hardware.",
 };
 
-// ── V1 已核验来源（官方一手文档，抓取核对于 2026-08-22）──────────────────────────
-// 注意顺序：常量定义在 CATALOG 之后仅供 STM32 记录引用（TDZ 由 hoisting 规则规避——
-// 实际上 const 不提升，故这两个常量必须移到 STM32F401RE 定义之前）。见下方修正。
+// ── V1 已核验来源（官方一手文档，抓取核对于 2026-08-22）。
+// 常量必须先于引用它们的 STM32F401RE 记录定义（const 无提升）。
 
 const STM32_MCU_PAGE_SOURCE: PlatformSource = {
   owner: "STMicroelectronics",
   url: "https://www.st.com/en/microcontrollers-microprocessors/stm32f401re.html",
   title: "STM32F401RE — Arm Cortex-M4 with DSP and FPU, up to 512 Kbytes of Flash memory, 84 MHz CPU",
+  accessedAt: "2026-08-22",
+  confidence: "official-direct",
+};
+
+const STM32_BOARDS_TXT_SOURCE: PlatformSource = {
+  owner: "STMicroelectronics (stm32duino)",
+  url: "https://raw.githubusercontent.com/stm32duino/Arduino_Core_STM32/main/boards.txt",
+  title: "Arduino_Core_STM32 boards.txt — NUCLEO_F401RE board definition (build.mcu=cortex-m4, maximum_size=524288)",
+  revision: "main @ 2026-08-22",
   accessedAt: "2026-08-22",
   confidence: "official-direct",
 };
@@ -345,22 +353,30 @@ const STM32_F401RE_FACTS: PlatformFact[] = [
     key: "flash",
     value: "512",
     unit: "KB",
-    condition: "官方页表述为 F401 线 'up to 512 Kbytes'；RE 后缀按 ST 命名法对应 512KB 容量档",
+    condition: "官方构建配置 upload.maximum_size=524288 B（NUCLEO_F401RE）",
     valueClass: "stated",
-    source: STM32_MCU_PAGE_SOURCE,
+    source: STM32_BOARDS_TXT_SOURCE,
   },
   {
     key: "sram",
     value: "96",
     unit: "KB",
-    condition: "官方页表述为 'up to 96 Kbytes of SRAM'",
+    condition: "官方构建配置 upload.maximum_data_size=98304 B（NUCLEO_F401RE）",
     valueClass: "stated",
-    source: STM32_MCU_PAGE_SOURCE,
+    source: STM32_BOARDS_TXT_SOURCE,
+  },
+  {
+    key: "arduino-core-board",
+    value: "stm32:stm32 · Nucleo_64 · pnum=NUCLEO_F401RE · build.mcu=cortex-m4",
+    condition: "官方 Arduino 核心仓库 boards.txt 板型定义",
+    valueClass: "stated",
+    source: STM32_BOARDS_TXT_SOURCE,
   },
   {
     key: "gpio",
-    value: "78 fast I/Os",
-    condition: "芯片级数字；Nucleo-64 板仅经 Arduino UNO R3 + Morpho 排针引出子集",
+    value: "78",
+    unit: "fast I/Os",
+    condition: "芯片级数字（官方页原文 'Up to 78 fast I/Os'）；Nucleo-64 板仅经排针引出子集",
     valueClass: "stated",
     source: STM32_MCU_PAGE_SOURCE,
   },
@@ -432,7 +448,8 @@ const STM32F401RE: PlatformDefinition = {
     regulated5vAvailable: false,
     regulated3v3Available: true,
   },
-  toolchain: { type: "arduino_cli", fqbn: "stm32duino:STM32F1:nucleo_f401re", core: "stm32duino:STM32F1" },
+  // 官方 boards.txt 核对：板 Nucleo_64 + pnum NUCLEO_F401RE，build.mcu=cortex-m4（F4 家族）
+  toolchain: { type: "arduino_cli", fqbn: "stm32:stm32:Nucleo_64:pnum=NUCLEO_F401RE", core: "stm32:stm32" },
   codegenProfile: "arduino_stm32",
   // 已核验来源（2026-08-22 经官方 st.com 页面抓取核对；见 docs/audit/2026-08-22-spec-compliance-audit.md V1）
   objectLevel: "board",

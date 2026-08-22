@@ -5,11 +5,13 @@ import { useApp } from "../state/AppContext";
 import { StateLab } from "./StateLab";
 import { api } from "../api/client";
 import type { AiPermissionsDto } from "@/src/shared-contracts/types";
+import { SEMANTIC_TONE } from "../lib/tone";
 
+// 权限层级 → 语义色调（共享表见 lib/tone）
 const TIER_TONE: Record<AiPermissionsDto["permissions"][number]["tier"], string> = {
-  "auto-readonly": "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400",
-  "proposal-required": "bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400",
-  forbidden: "bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400",
+  "auto-readonly": SEMANTIC_TONE.positive,
+  "proposal-required": SEMANTIC_TONE.pending,
+  forbidden: SEMANTIC_TONE.negative,
 };
 
 const TIER_LABEL: Record<AiPermissionsDto["permissions"][number]["tier"], "tierAutoReadonly" | "tierProposalRequired" | "tierForbidden"> = {
