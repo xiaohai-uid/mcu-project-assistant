@@ -37,12 +37,12 @@ labels: [wayfinder:map, mcu, commercial]
 ## Published vertical tickets
 
 - `issues/01-reference-kit-provenance-card.md` resolved: exact board/module identity, official sources, persisted snapshot, and pending physical acceptance.
-- `issues/02-exact-components-and-wiring-constraints.md` next: exact component identities and safe wiring constraints.
-- `issues/03-reproducible-build-local-ready.md` next: reproducible local build and artifact evidence.
-- `issues/04-unified-commercial-readiness-report.md` waits on 02 and 03.
-- `issues/05-physical-upload-and-serial-acceptance.md` waits on 03 and 04.
-- `issues/06-lcsc-price-observations-and-bom.md` waits on 02.
-- `issues/07-commercial-golden-journey-and-delivery-report.md` waits on 04, 05, and 06.
+- `issues/02-exact-components-and-wiring-constraints.md` resolved: exact component identities and safe wiring constraints.
+- `issues/03-reproducible-build-local-ready.md` resolved: reproducible local build and artifact evidence.
+- `issues/04-unified-commercial-readiness-report.md` resolved (2026-08-22 audit sync).
+- `issues/05-physical-upload-and-serial-acceptance.md` resolved (2026-08-22 audit sync).
+- `issues/06-lcsc-price-observations-and-bom.md` resolved (2026-08-22 audit sync).
+- `issues/07-commercial-golden-journey-and-delivery-report.md` resolved (2026-08-22 audit sync).
 
 ## Not yet specified
 

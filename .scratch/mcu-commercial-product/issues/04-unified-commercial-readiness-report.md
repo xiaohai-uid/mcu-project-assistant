@@ -14,7 +14,7 @@
 
 **Resolution:**
 
-- Added `deriveCommercialReadiness` as the pure four-gate state derivation: `local-ready`, `simulation-ready`, `physical-accepted`, and `paid-release-ready`.
+- Added `deriveCommercialReadiness` as the pure four-gate state derivation (renamed to `deriveAcceptancePolicy` on 2026-08-22 per docs/rebuild/2026-08-22-application-architecture-review.md — business-model vocabulary does not belong in the domain layer; behavior unchanged): `local-ready`, `simulation-ready`, `physical-accepted`, and `paid-release-ready`.
 - Added `GET /api/v1/projects/:projectId/readiness-report`, which reads current hardware identity, Pin Map validation, latest firmware BuildRecord, and persisted device truth.
 - Added the primary application's Delivery route with an A-style handoff conclusion, next action, per-gate status, evidence reference, observation time, and reason.
 - Simulation evidence remains optional and separate; companion or missing evidence never becomes physical acceptance, and paid release requires both local and physical gates.
