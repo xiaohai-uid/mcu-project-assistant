@@ -13,6 +13,7 @@ import { BomView } from "./components/BomView";
 import { CompanionView } from "./components/CompanionView";
 import { SettingsView } from "./components/SettingsView";
 import { StaleBanner, staleKindsFor } from "./components/ui";
+import { ReadinessGatesStrip } from "./components/ReadinessBadgeStrip";
 import { StateLab } from "./components/StateLab";
 import { AuthGate } from "./components/AuthGate";
 import { AppProvider, useApp } from "./state/AppContext";
@@ -32,6 +33,12 @@ function Workspace() {
       {!commercialPrototypeEnabled && <SideNavBar />}
 
       <main className={`flex-1 min-w-0 ${commercialPrototypeEnabled ? "" : "ml-64 mr-copilot-width transition-all"}`}>
+        {/* R2：全局三态就绪徽章（工作区任意视图可见） */}
+        {!commercialPrototypeEnabled && (
+          <div className="px-6 pt-4">
+            <ReadinessGatesStrip projectId={state.project?.id ?? null} lang={lang} />
+          </div>
+        )}
         {/* 全局 Stale 提示（工作区任意视图） */}
         {!commercialPrototypeEnabled && staleKinds.length > 0 && (
           <div className="px-6 pt-4">

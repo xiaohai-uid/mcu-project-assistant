@@ -14,6 +14,7 @@ import {
   getProject as getProjectCapability,
   listProjects as listProjectsCapability,
 } from "@/src/application/capabilities/projects";
+import { AI_FORBIDDEN_OPERATIONS, AI_PERMISSION_TABLE, aiPermissionFor } from "@/src/application/ai-permissions";
 import {
   ARTIFACT_KINDS,
   ArtifactNotFoundError,
@@ -457,6 +458,13 @@ export function createApp(deps: AppDeps): HttpApp {
     const projectId = req.params.projectId as string;
     const project = await getProjectCapability({ id: projectId }, capDeps);
     if (!project) throw new ApiError(404, "not_found", "Project not found");
+
+    // R4：AI 权限三级表 fail-closed 强制——未登记拒绝、forbidden 拒绝、其余按既有提案路径放行。
+    const tier = aiPermissionFor(String(capability ?? ""));
+    if (tier === null) throw new ApiError(404, "unknown_capability", `Unknown command capability: ${String(capability)}`);
+    if (tier === "forbidden") {
+      throw new ApiError(403, "capability_forbidden", `Capability is not reachable via the AI command surface: ${String(capability)}`);
+    }
 
     if (capability === "analyze_requirement") {
       const description = typeof payload?.description === "string" ? payload.description : "";
@@ -1116,6 +1124,9 @@ export function createApp(deps: AppDeps): HttpApp {
   app.post("/api/v1/versions/:versionId/validations", route(handleValidateWiring));
   app.get("/api/v1/versions/:versionId/validations", route(handleLatestValidation));
   app.post("/api/v1/projects/:projectId/commands", route(handleCommands));
+  app.get("/api/v1/ai/permissions", route(async (_req: Request, res: Response) => {
+    res.json({ permissions: AI_PERMISSION_TABLE, forbidden: AI_FORBIDDEN_OPERATIONS });
+  }));
   app.get("/api/v1/projects/:projectId/tasks", route(handleListTasks));
   app.get("/api/v1/projects/:projectId/proposals", route(handleListProposals));
   app.post("/api/v1/projects/:projectId/requirements/commit", route(handleCommitRequirements));

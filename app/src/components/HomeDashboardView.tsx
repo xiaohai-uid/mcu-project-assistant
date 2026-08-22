@@ -4,39 +4,15 @@ import { useApp } from "../state/AppContext";
 import { EmptyState, InfoBanner } from "./ui";
 import { TEMPLATES } from "../mock/engine";
 import { api, type ProjectDto } from "../api/client";
+import { ReadinessGatesStrip } from "./ReadinessBadgeStrip";
 
-interface ProjectCard {
-  id: string;
-  title: string;
-  version: string;
-  status: "Stale" | "Validated" | "Draft";
-  target: string;
-  rtosOrFramework: string;
-  frameworkType: "RTOS" | "Framework";
-  lastEdit: string;
-  size: string;
-  icon: string;
-}
-
-function toCard(p: ProjectDto): ProjectCard {
-  return {
-    id: p.id,
-    title: p.name,
-    version: "v0.1.0-draft",
-    status: "Draft",
-    target: "—",
-    rtosOrFramework: "—",
-    frameworkType: "Framework",
-    lastEdit: new Date(p.createdAt).toLocaleString(),
-    size: "—",
-    icon: "developer_board",
-  };
-}
+// R3（应用架构评审 2026-08-22）：项目卡只展示真实存在的字段（ProjectDto），
+// 就绪态来自交付门禁报告；不再伪造 version/status/target/size 占位数据。
 
 export const HomeDashboardView: React.FC = () => {
   const { state, createProject, openProject, archiveProject } = useApp();
   const { lang } = state;
-  const [projects, setProjects] = useState<ProjectCard[]>([]);
+  const [projects, setProjects] = useState<ProjectDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -47,7 +23,7 @@ export const HomeDashboardView: React.FC = () => {
   const refresh = useCallback(async () => {
     try {
       const list = await api.listProjects();
-      setProjects(list.map(toCard));
+      setProjects(list);
       setLoadError(null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Failed to load projects");
@@ -178,43 +154,28 @@ export const HomeDashboardView: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {projects.map((proj) => {
-              const statusKey =
-                proj.status === "Validated" ? "statusValidated" : proj.status === "Stale" ? "statusStale" : "statusDraft";
-              const statusColor =
-                proj.status === "Validated" ? "bg-emerald-500" : proj.status === "Stale" ? "bg-rose-500" : "bg-[var(--text-muted)]";
               return (
                 <div key={proj.id} className="mac-card p-4 flex flex-col h-full hover:border-[var(--text-secondary)]/30 transition-all group">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 bg-[#007aff]/10 text-[#007aff] dark:text-[#0a84ff] rounded-md flex items-center justify-center">
-                        <span className="material-symbols-outlined text-[17px]">{proj.icon}</span>
+                  <div className="flex justify-between items-start mb-3 gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 bg-[#007aff]/10 text-[#007aff] dark:text-[#0a84ff] rounded-md flex items-center justify-center shrink-0">
+                        <span className="material-symbols-outlined text-[17px]">developer_board</span>
                       </div>
-                      <div>
-                        <h3 className="text-xs font-semibold text-[var(--text-primary)]">{proj.title}</h3>
-                        <p className="font-mono text-[11px] text-[var(--text-secondary)]">{proj.version}</p>
+                      <div className="min-w-0">
+                        <h3 className="text-xs font-semibold text-[var(--text-primary)] truncate">{proj.name}</h3>
+                        <p className="font-mono text-[11px] text-[var(--text-secondary)]">{new Date(proj.createdAt).toLocaleString()}</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] text-[11px] font-mono">
-                      <span className={`w-1.5 h-1.5 rounded-full ${statusColor}`}></span>
-                      <span className="font-mono text-[11px] text-[var(--text-primary)]">{t(lang, statusKey as never)}</span>
-                    </div>
+                    {proj.archivedAt && (
+                      <span className="shrink-0 px-2 py-0.5 rounded bg-[var(--control-bg)] border border-[var(--panel-border-subtle)] text-[10px] font-mono text-[var(--text-secondary)]">
+                        {t(lang, "projectArchived")}
+                      </span>
+                    )}
                   </div>
 
-                  <div className="flex-1">
-                    <div className="grid grid-cols-2 gap-y-1 font-mono text-[11px] text-[var(--text-secondary)] bg-[var(--control-bg)] p-2 rounded-md border border-[var(--panel-border-subtle)]">
-                      <div>
-                        {t(lang, "projectTarget")}: <span className="text-[var(--text-primary)] font-semibold">{proj.target}</span>
-                      </div>
-                      <div>
-                        {t(lang, "projectFramework")}: <span className="text-[var(--text-primary)] font-semibold">{proj.rtosOrFramework}</span>
-                      </div>
-                      <div>
-                        {t(lang, "projectLastEdit")}: <span className="text-[var(--text-primary)]">{proj.lastEdit}</span>
-                      </div>
-                      <div>
-                        {t(lang, "projectSize")}: <span className="text-[var(--text-primary)]">{proj.size}</span>
-                      </div>
-                    </div>
+                  {/* R2：每卡三态就绪徽章（真实门禁数据，无数据则不显示） */}
+                  <div className="flex-1 flex items-start">
+                    <ReadinessGatesStrip projectId={proj.id} lang={lang} />
                   </div>
 
                   <div className="mt-3 pt-2.5 border-t border-[var(--panel-border-subtle)] flex justify-end gap-2">

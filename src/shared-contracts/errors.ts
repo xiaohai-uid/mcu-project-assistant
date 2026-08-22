@@ -131,6 +131,7 @@ const CODE_ALIASES: Record<string, string> = {
 const KNOWN_CODES = new Set([
   ...Object.keys(SAFE_MESSAGES),
   "invalid_name", "invalid_kind", "invalid_content", "invalid_description", "invalid_capability", "invalid_mcu",
+  "unknown_capability", "capability_forbidden",
   "invalid_round", "invalid_analysis_state", "outdated_proposal", "invalid_decision", "no_accepted_proposals",
   "no_hardware_selected", "no_pin_map", "no_stale", "blocking_stale", "invalid_build_state", "build_not_failed",
   "confirmation_missing", "confirmation_invalid", "confirmation_expired", "token_reused", "device_mismatch",

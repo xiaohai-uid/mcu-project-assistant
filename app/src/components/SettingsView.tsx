@@ -1,7 +1,56 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { t } from "../lib/i18n";
+import type { Language } from "../types";
 import { useApp } from "../state/AppContext";
 import { StateLab } from "./StateLab";
+import { api } from "../api/client";
+import type { AiPermissionsDto } from "@/src/shared-contracts/types";
+
+const TIER_TONE: Record<AiPermissionsDto["permissions"][number]["tier"], string> = {
+  "auto-readonly": "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400",
+  "proposal-required": "bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400",
+  forbidden: "bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400",
+};
+
+const TIER_LABEL: Record<AiPermissionsDto["permissions"][number]["tier"], "tierAutoReadonly" | "tierProposalRequired" | "tierForbidden"> = {
+  "auto-readonly": "tierAutoReadonly",
+  "proposal-required": "tierProposalRequired",
+  forbidden: "tierForbidden",
+};
+
+/** R4：AI 权限三级表的用户可见渲染——信任界面即测试断言的同源数据。 */
+const AiTrustBoundaryCard: React.FC<{ lang: Language }> = ({ lang }) => {
+  const [data, setData] = useState<AiPermissionsDto | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    api.getAiPermissions(controller.signal).then(setData).catch(() => setData(null));
+    return () => controller.abort();
+  }, []);
+  if (!data) return null;
+  const rows = [...data.permissions, ...data.forbidden];
+  return (
+    <div className="mac-card overflow-hidden">
+      <div className="px-3.5 py-2.5 border-b border-[var(--panel-border-subtle)] bg-[var(--control-bg)]">
+        <h3 className="text-xs font-semibold text-[var(--text-primary)] flex items-center gap-1.5">
+          <span className="material-symbols-outlined text-[#007aff] dark:text-[#0a84ff] text-sm">verified_user</span>
+          <span>{t(lang, "aiTrustTitle")}</span>
+        </h3>
+        <p className="text-[11px] text-[var(--text-secondary)] mt-0.5 leading-relaxed">{t(lang, "aiTrustDesc")}</p>
+      </div>
+      <div className="flex flex-col">
+        {rows.map((entry) => (
+          <div key={entry.capability} className="px-3.5 py-2 flex items-center gap-2.5 border-b border-[var(--panel-border-subtle)] last:border-b-0">
+            <span className={`shrink-0 inline-flex items-center border rounded px-1.5 py-0.5 text-[10px] font-medium ${TIER_TONE[entry.tier]}`}>
+              {t(lang, TIER_LABEL[entry.tier])}
+            </span>
+            <code className="text-[11px] font-mono text-[var(--text-primary)] shrink-0">{entry.capability}</code>
+            <span className="text-[11px] text-[var(--text-secondary)] truncate">{entry.note}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 type SettingsTab = "General" | "Appearance" | "Language" | "AI Provider" | "Local Companion" | "Advanced";
 
@@ -190,6 +239,9 @@ export const SettingsView: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* R4：AI 信任边界（独立于标签页的全局信任面） */}
+      <AiTrustBoundaryCard lang={lang} />
     </div>
   );
 };

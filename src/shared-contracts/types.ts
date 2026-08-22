@@ -336,6 +336,17 @@ export interface DeliveryRiskDto {
   evidence: ReadinessEvidenceDto[];
 }
 
+export interface AiPermissionEntryDto {
+  capability: string;
+  tier: "auto-readonly" | "proposal-required" | "forbidden";
+  note: string;
+}
+
+export interface AiPermissionsDto {
+  permissions: AiPermissionEntryDto[];
+  forbidden: AiPermissionEntryDto[];
+}
+
 export interface DeliveryReportDto extends CommercialReadinessReportDto {
   project: { name: string };
   hardware: {

@@ -121,13 +121,13 @@ describe("S3A commands surface", () => {
     expect(res.status).toBe(404);
   });
 
-  it("未知 capability → 400 invalid_capability", async () => {
+  it("未知 capability → 404 unknown_capability（R4 fail-closed 权限表强制）", async () => {
     const p = await createProject();
     const res = await request(app)
       .post(`/api/v1/projects/${p.id}/commands`)
       .send({ capability: "teleport", payload: {} });
-    expect(res.status).toBe(400);
-    expect(res.body.error?.code).toBe("invalid_capability");
+    expect(res.status).toBe(404);
+    expect(res.body.error?.code).toBe("unknown_capability");
   });
 
   it("POST /commands/:taskId/cancel → 202；任务终态 cancelled", async () => {

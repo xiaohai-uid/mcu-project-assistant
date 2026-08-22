@@ -19,6 +19,8 @@ export type ErrorCode =
   | "invalid_idempotency_key"
   | "idempotency_conflict"
   | "invalid_capability"
+  | "unknown_capability"
+  | "capability_forbidden"
   | "invalid_mcu"
   | "invalid_round"
   | "invalid_analysis_state"
