@@ -150,7 +150,27 @@ describe("recommend_mcu（application-contract 2.6；knowledge 求值）", () =>
     );
     // V1 审计：无官方来源的平台不得进入首发候选矩阵（spec 实现决策）
     expect(result.candidates.map((c) => c.id)).toEqual(["ESP32-S3", "STM32F401RE"]);
-    expect(result.candidates.every((c) => typeof c.sourceUrl === "string")).toBe(true);
+    expect(result.candidates.every((c) => typeof c.source?.url === "string")).toBe(true);
+  });
+
+  it("US25 追踪完整：每条候选携带 missingFacts 枚举，且来源折叠为单一 source 对象", async () => {
+    const d = deps();
+    const { project } = await seedRequirements(d.persistence, d.content, { capabilities: [] });
+    const result = await recommendMcu({ projectId: project.id }, { persistence: d.persistence, content: d.content });
+    for (const candidate of result.candidates) {
+      expect(Array.isArray(candidate.missingFacts)).toBe(true);
+      expect(candidate.missingFacts.length).toBeGreaterThan(0);
+    }
+    const s3 = result.candidates.find((candidate) => candidate.id === "ESP32-S3");
+    const f401 = result.candidates.find((candidate) => candidate.id === "STM32F401RE");
+    // ESP32-S3 套件已钉死但实体验收 pending——缺的是物理证据
+    expect(s3?.missingFacts.some((f) => /physical acceptance/i.test(f))).toBe(true);
+    // STM32F401RE 有来源有事实但没钉 Reference Kit——缺的是可购买板卡身份
+    expect(f401?.missingFacts.some((f) => /Reference Kit/i.test(f))).toBe(true);
+    // B4 数据团合并：sourceUrl/sourceTitle 平铺对不再存在
+    expect(s3 && !("sourceUrl" in s3) && !("sourceTitle" in s3)).toBe(true);
+    expect(typeof s3?.source?.url).toBe("string");
+    expect(typeof s3?.source?.title).toBe("string");
   });
 
   it("推荐结果带精确参考套件身份和来源，而不是只有 ESP32-S3 家族名", async () => {

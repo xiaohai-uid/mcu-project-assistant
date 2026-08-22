@@ -82,12 +82,15 @@ describe("S4 commands surface", () => {
       .post(`/api/v1/projects/${p.id}/commands`)
       .send({ capability: "recommend_mcu", payload: {} });
     expect(res.status).toBe(200);
-    const body = res.body as { candidates: Array<{ id: string; tier: string }>; peripherals: unknown[] };
+    const body = res.body as { candidates: Array<{ id: string; tier: string; missingFacts: string[]; source?: { url: string; title: string } }>; peripherals: unknown[] };
     // V1 审计后候选矩阵仅含已核验平台（RP2040 因 raspberrypi.com 不可达挂起）
     expect(body.candidates.map((c) => c.id)).toEqual(["ESP32-S3", "STM32F401RE"]);
     expect(body.candidates[0]?.tier).toBe("recommended");
     expect(body.candidates[1]?.tier).toBe("industrial");
     expect(body.peripherals.length).toBeGreaterThan(0);
+    // issues/08：追踪完整——每条候选曝露 missingFacts 枚举与折叠后的 source 对象
+    expect(body.candidates.every((c) => c.missingFacts.length > 0)).toBe(true);
+    expect(body.candidates.every((c) => typeof c.source?.url === "string")).toBe(true);
   });
 
   it("select_mcu 首选 → Hardware v1；更换 → v2 + changed=true；同 MCU → 幂等", async () => {

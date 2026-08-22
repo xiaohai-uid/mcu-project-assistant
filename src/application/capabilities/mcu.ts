@@ -44,9 +44,10 @@ export interface McuCandidate {
   ioMatrix: string;
   reason: string;
   constraints: string[];
-  /** V1 审计：候选规格声明的官方来源（无来源平台不得进入候选矩阵） */
-  sourceUrl?: string;
-  sourceTitle?: string;
+  /** V1 审计：候选规格声明的官方来源（无来源平台不得进入候选矩阵）；issues/08 B4 数据团合并为单一对象 */
+  source?: { url: string; title: string };
+  /** issues/08 US25 追踪完整：仍缺的事实枚举——每条指明什么证据会改变推荐结果 */
+  missingFacts: string[];
   referenceKit?: ReferenceKitDefinition;
 }
 
@@ -81,9 +82,30 @@ function toCandidate(p: PlatformDefinition): McuCandidate {
     ioMatrix: p.ioMatrix ?? `${p.pins.digital.length} GPIOs`,
     reason: p.reason ?? "",
     constraints: [...(p.constraints ?? [])],
-    ...(p.source ? { sourceUrl: p.source.url, sourceTitle: p.source.title } : {}),
+    ...(p.source ? { source: { url: p.source.url, title: p.source.title } } : {}),
+    missingFacts: deriveMissingFacts(p),
     ...(p.referenceKit ? { referenceKit: p.referenceKit } : {}),
   };
+}
+
+/**
+ * issues/08（US25 追踪完整）：从 knowledge 结构推导仍缺的事实——每条指明什么证据
+ * 会改变推荐结果。规则读字段缺席而非静态文本，新增平台自动获得诚实的缺口枚举。
+ */
+function deriveMissingFacts(p: PlatformDefinition): string[] {
+  const missing: string[] = [];
+  if (!p.source) {
+    missing.push("No verified official source for core specifications — a datasheet citation would qualify this platform for the candidate matrix.");
+  }
+  if (!p.facts?.length && !p.referenceKit?.facts.length) {
+    missing.push("No sourced fact records behind the displayed specs — per-key object-level provenance would make every value auditable.");
+  }
+  if (!p.referenceKit) {
+    missing.push("No exact purchasable Reference Kit pinned — pinning board/module identity would make this candidate commercially actionable.");
+  } else if (p.referenceKit.physicalAcceptance.status !== "accepted") {
+    missing.push(`Physical acceptance pending — ${p.referenceKit.physicalAcceptance.reason} Capturing USB enumeration, upload, and serial-boot evidence would move this kit from local-ready toward physical-accepted.`);
+  }
+  return missing;
 }
 
 /** 需求能力标题 → 组件能力（外设推导映射；Golden Journey 固定需求集） */

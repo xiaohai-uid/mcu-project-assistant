@@ -105,10 +105,12 @@ describe("S4 Golden Journey — MCU Recommendation + Selection end-to-end（真�
       body: JSON.stringify({ capability: "recommend_mcu", payload: {} }),
     });
     expect(rec.status).toBe(200);
-    const recBody = (await rec.json()) as { candidates: Array<{ id: string; tier: string; constraints: string[]; sourceUrl?: string }> };
+    const recBody = (await rec.json()) as { candidates: Array<{ id: string; tier: string; constraints: string[]; missingFacts: string[]; source?: { url: string; title: string } }> };
     // V1 审计后候选矩阵仅含已核验平台
     expect(recBody.candidates.map((c) => c.id)).toEqual(["ESP32-S3", "STM32F401RE"]);
-    expect(recBody.candidates.every((c) => typeof c.sourceUrl === "string")).toBe(true);
+    expect(recBody.candidates.every((c) => typeof c.source?.url === "string")).toBe(true);
+    // issues/08：追踪完整——HTTP 曝露每条候选仍缺的事实枚举
+    expect(recBody.candidates.every((c) => c.missingFacts.length > 0)).toBe(true);
     expect(recBody.candidates[0]?.constraints).toEqual([]);
     expect(recBody.candidates[1]?.constraints.some((c) => /Wi-Fi/i.test(c))).toBe(true);
 

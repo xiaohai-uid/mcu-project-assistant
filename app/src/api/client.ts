@@ -359,8 +359,8 @@ export interface McuCandidateDto {
   ioMatrix: string;
   reason: string;
   constraints: string[];
-  sourceUrl?: string;
-  sourceTitle?: string;
+  source?: { url: string; title: string };
+  missingFacts: string[];
   referenceKit?: ReferenceKitDefinition;
 }
 

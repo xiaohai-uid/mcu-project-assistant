@@ -120,10 +120,10 @@ export const HardwareSelectionView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* V1 审计：候选规格的官方来源（无来源平台不得进入候选矩阵） */}
-                {mcu.sourceUrl && (
-                  <a className="mb-2 inline-block text-[10px] text-[#007aff] dark:text-[#0a84ff] hover:underline" href={mcu.sourceUrl} target="_blank" rel="noreferrer" title={mcu.sourceTitle}>
-                    来源：{mcu.sourceTitle} ↗
+                {/* V1 审计：候选规格的官方来源（无来源平台不得进入候选矩阵）；issues/08 B4 折叠为单一 source 对象 */}
+                {mcu.source && (
+                  <a className="mb-2 inline-block text-[10px] text-[#007aff] dark:text-[#0a84ff] hover:underline" href={mcu.source.url} target="_blank" rel="noreferrer" title={mcu.source.title}>
+                    来源：{mcu.source.title} ↗
                   </a>
                 )}
 
@@ -161,6 +161,18 @@ export const HardwareSelectionView: React.FC = () => {
                 )}
                 {mcu.constraints?.length === 0 && (
                   <span className="text-[10px] font-mono text-emerald-500 mb-1.5 block">✓ {t(lang, "hwConstraintOk")}</span>
+                )}
+
+                {/* issues/08 US25：仍缺事实——与琥珀色约束警告视觉分离（信息蓝），每条指明什么证据会改变推荐 */}
+                {mcu.missingFacts.length > 0 && (
+                  <div className="mb-1.5 flex flex-col gap-1">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-[#007aff] dark:text-[#0a84ff]">仍缺事实</span>
+                    {mcu.missingFacts.map((f, i) => (
+                      <span key={i} className="text-[11px] font-mono text-[var(--text-secondary)]">
+                        ⊘ {f}
+                      </span>
+                    ))}
+                  </div>
                 )}
 
                 <p className="text-[11px] text-[var(--text-secondary)] italic">

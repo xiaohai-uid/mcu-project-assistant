@@ -43,7 +43,7 @@ labels: [wayfinder:map, mcu, commercial]
 - `issues/05-physical-upload-and-serial-acceptance.md` resolved (2026-08-22 audit sync).
 - `issues/06-lcsc-price-observations-and-bom.md` resolved (2026-08-22 audit sync).
 - `issues/07-commercial-golden-journey-and-delivery-report.md` resolved (2026-08-22 audit sync).
-- `issues/08-recommendation-missing-facts-trace.md` open: US25 missing-facts half of the recommendation trace.
+- `issues/08-recommendation-missing-facts-trace.md` resolved (2026-08-23): derived per-candidate `missingFacts` enumeration (source/facts/Reference Kit/physical-acceptance gaps) exposed through HTTP and rendered as a distinct 仍缺事实 list; `sourceUrl`+`sourceTitle` folded into a single `source` object end to end.
 - `issues/09-global-tri-state-badges-and-companion-propagation.md` open: widen R2 badges, close action→state loop.
 - `issues/10-middleware-level-ai-permission-enforcement.md` open: enforce AI tiers at the routing layer.
 - `issues/11-platform-neutral-storage-examples.md` resolved (2026-08-22): canonical `/absolute/…` examples valid under both POSIX and win32 semantics; test asserts dual-semantics absoluteness.
