@@ -3,6 +3,7 @@
 Status: ready-for-agent
 Gate: S1（功能本身）→ 随发布走 S3（S2 连续 3 次黄金路径 + 候选 smoke + 生产 smoke + 回滚就绪）
 OVERRIDE: 2026-08-21 用户当次明确指令"加日志功能后发布到客群；要有数据飞轮"——卫星轨道临时解冻本单项，记入当日日志。
+REVISION: 2026-08-22 code-review 发现 `proposal.decided` 为新增领域事件、与"零新领域采集"冲突；经用户裁决**保留**——该事件正是 MUST 采集项"提案接受/拒绝"的落点，直接服务数据飞轮目标。范围条款修订为：零新增采集，`proposal.decided` 除外。
 
 ## 用户结果
 
