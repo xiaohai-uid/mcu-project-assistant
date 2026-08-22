@@ -34,6 +34,7 @@ import {
 } from "../mock/engine";
 import { format, getInitialLanguage, getInitialTheme } from "../lib/i18n";
 import { api as clientApi, ApiError, toAppError, type AppError } from "../api/client";
+import { refreshDeliveryGates } from "./deliveryReport";
 import { subscribeProjectEvents } from "../api/sse";
 import { createReconnectHydrationRetry } from "./reconnect-hydration";
 import type { AnalysisCapabilityDto, McuCandidateDto, PeripheralDto } from "../api/client";
@@ -818,6 +819,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               dispatch({ type: "COMPANION_STAGE", stage: "idle" });
               dispatch({ type: "COMPANION_TELEMETRY", flashProgress: 100 });
               dispatch({ type: "ARTIFACT", kind: "debug", status: "validated", version: (s.artifacts.debug.version || 0) + 1 });
+              // issues/09：动作→门禁传播——烧录完成后原地刷新交付门禁（物理证据变化即时可见）。
+              void refreshDeliveryGates(projectId);
               pushCopilot({
                 sender: "copilot",
                 text: truth?.executionReality === "companion"
@@ -1003,6 +1006,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     serialSessionRef.current = null;
     if (active) {
       try { await clientApi.closeSerial(active.projectId, active.sessionId); } catch { /* already closed or server restarted */ }
+      // issues/09：动作→门禁传播——会话关闭后原地刷新交付门禁。
+      void refreshDeliveryGates(active.projectId);
     }
     dispatch({ type: "RUNTIME", patch: { serialStage: "disconnected", serialSession: null } });
     dispatch({ type: "COMPANION_TELEMETRY", moisture: null, temperature: null, pumpActive: false });
@@ -1696,6 +1701,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const device = await clientApi.detectDevice();
         dispatch({ type: "RUNTIME", patch: { deviceStage: "detected", deviceId: device.id, deviceTruth: device.truth, serialStage: "disconnected", serialSession: null } });
         dispatch({ type: "COMPANION_STAGE", stage: "idle" });
+        // issues/09：动作→门禁传播——检测完成后原地刷新交付门禁（免整页刷新）。
+        if (s.project?.id) void refreshDeliveryGates(s.project.id);
           pushCopilot({
             sender: "copilot",
             text: device.truth.executionReality === "companion"
@@ -1707,7 +1714,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         pushSystem(err instanceof ApiError ? `Detect failed: ${err.code}` : "Detect failed");
       }
     })();
-  }, [closeSerial, pushCopilot, pushSystem]);
+  }, [closeSerial, pushCopilot, pushSystem, s.project?.id]);
 
   const openSerial = useCallback(() => {
     const projectId = s.project?.id;
@@ -1722,6 +1729,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         dispatch({ type: "RUNTIME", patch: { serialStage: "connected", serialSession: serial } });
         dispatch({ type: "COMPANION_STAGE", stage: "serial" });
         serialRef.current.close = subscribeSerialStream(projectId, serial.sessionId);
+        // issues/09：动作→门禁传播——串口接入后原地刷新交付门禁。
+        void refreshDeliveryGates(projectId);
       } catch (err) {
         dispatch({ type: "RUNTIME", patch: { serialStage: "error", serialSession: null } });
         pushSystem(err instanceof ApiError ? `Serial open failed: ${err.code}` : "Serial open failed");

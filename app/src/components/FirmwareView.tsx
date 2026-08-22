@@ -2,10 +2,11 @@ import React, { useState } from "react";
 import { t } from "../lib/i18n";
 import { useApp } from "../state/AppContext";
 import { InfoBanner, StreamingDots } from "./ui";
+import { ReadinessGatesStrip } from "./ReadinessBadgeStrip";
 
 export const FirmwareView: React.FC = () => {
   const { state, generateFirmware, acceptFirmwareProposal, rejectFirmwareProposal } = useApp();
-  const { lang, firmware, artifacts } = state;
+  const { lang, project, firmware, artifacts } = state;
   const [copied, setCopied] = useState(false);
 
   const fw = firmware;
@@ -36,6 +37,7 @@ export const FirmwareView: React.FC = () => {
                 {t(lang, "firmwareVersion").replace("{version}", String(fw.version))}
               </span>
             ) : null}
+            <ReadinessGatesStrip projectId={project?.id} lang={lang} />
           </div>
           <h1 className="text-sm font-semibold text-[var(--text-primary)]">{t(lang, "frameworkLabel")}</h1>
           <p className="text-xs text-[var(--text-secondary)]">

@@ -3,6 +3,8 @@ import type { BomItemWithObservationsDto } from "@/src/shared-contracts/types";
 import { api as clientApi } from "../api/client";
 import { t } from "../lib/i18n";
 import { useApp } from "../state/AppContext";
+import { useDeliveryGates } from "../state/deliveryReport";
+import { ReadinessBadge, ReadinessGatesStrip } from "./ReadinessBadgeStrip";
 import { InfoBanner } from "./ui";
 
 export const BomView: React.FC = () => {
@@ -94,6 +96,8 @@ export const BomView: React.FC = () => {
   };
 
   const selected = items.find((item) => item.id === selectedItemId) ?? items[0] ?? null;
+  // issues/09：BOM 行的相关门禁 = local-ready（采购身份喂给本地构建；经共享 seam，不自造状态）。
+  const localReadyGate = useDeliveryGates(project?.id).find((g) => g.id === "local-ready") ?? null;
   const componentOptions = Array.from(new Set([
     ...items.filter((item) => !item.componentId.startsWith("board:")).map((item) => item.componentId),
     "sensor.soil_moisture",
@@ -110,9 +114,12 @@ export const BomView: React.FC = () => {
           <h1 className="text-sm font-semibold text-[var(--text-primary)]">{t(lang, "bomTitle")}</h1>
           <p className="text-xs text-[var(--text-secondary)]">{t(lang, "bomSubtitle")}</p>
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => void download("csv")} disabled={!project || loading} className="px-3 py-1.5 mac-button-secondary rounded-md text-xs disabled:opacity-40">{t(lang, "bomExportCsv")}</button>
-          <button onClick={() => void download("markdown")} disabled={!project || loading} className="px-3 py-1.5 mac-button-primary rounded-md text-xs disabled:opacity-40">{t(lang, "bomExportMarkdown")}</button>
+        <div className="flex items-center gap-3">
+          <ReadinessGatesStrip projectId={project?.id} lang={lang} />
+          <div className="flex gap-2">
+            <button onClick={() => void download("csv")} disabled={!project || loading} className="px-3 py-1.5 mac-button-secondary rounded-md text-xs disabled:opacity-40">{t(lang, "bomExportCsv")}</button>
+            <button onClick={() => void download("markdown")} disabled={!project || loading} className="px-3 py-1.5 mac-button-primary rounded-md text-xs disabled:opacity-40">{t(lang, "bomExportMarkdown")}</button>
+          </div>
         </div>
       </header>
 
@@ -125,7 +132,10 @@ export const BomView: React.FC = () => {
           {items.map((item) => <div key={item.id} className="p-4 flex flex-col gap-3">
             <div className="flex items-start justify-between gap-3">
               <div><div className="text-sm font-semibold text-[var(--text-primary)]">{item.displayName}</div><div className="text-[10px] font-mono text-[var(--text-muted)] mt-1">{item.componentId} · {item.sourceKind}</div></div>
-              <span className={`px-2 py-1 rounded border text-[10px] font-mono ${item.identityStatus === "exact" ? "text-emerald-600 border-emerald-500/20 bg-emerald-500/5" : "text-amber-600 border-amber-500/20 bg-amber-500/5"}`}>{item.identityStatus}</span>
+              <div className="flex items-center gap-2">
+                {localReadyGate && <ReadinessBadge gate={localReadyGate} lang={lang} />}
+                <span className={`px-2 py-1 rounded border text-[10px] font-mono ${item.identityStatus === "exact" ? "text-emerald-600 border-emerald-500/20 bg-emerald-500/5" : "text-amber-600 border-amber-500/20 bg-amber-500/5"}`}>{item.identityStatus}</span>
+              </div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
               <div><span className="text-[var(--text-muted)]">{t(lang, "bomManufacturer")}</span><div className="font-mono text-[var(--text-primary)]">{item.manufacturer ?? "—"}</div></div>

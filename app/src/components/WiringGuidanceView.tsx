@@ -3,6 +3,7 @@ import { t } from "../lib/i18n";
 import { useApp } from "../state/AppContext";
 import { api as clientApi } from "../api/client";
 import { InfoBanner, PinEditor, StreamingDots } from "./ui";
+import { ReadinessGatesStrip } from "./ReadinessBadgeStrip";
 
 export const WiringGuidanceView: React.FC = () => {
   const { state, verifyRules, generateFirmware, editPin, setSidebar, refreshPinmapVersions } = useApp();
@@ -68,6 +69,7 @@ export const WiringGuidanceView: React.FC = () => {
                 {t(lang, "rulesNotVerified")}
               </span>
             )}
+            <ReadinessGatesStrip projectId={project?.id} lang={lang} />
             {artifacts.pinmap.version > 0 && (
               <span className="px-2 py-0.5 rounded bg-[#007aff]/10 border border-[#007aff]/20 text-[#007aff] dark:text-[#0a84ff] text-[11px] font-mono font-semibold">
                 v{artifacts.pinmap.version}

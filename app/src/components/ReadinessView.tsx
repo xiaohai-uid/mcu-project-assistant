@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useState } from "react";
-import type { DeliveryReportDto, ReadinessGateDto } from "@/src/shared-contracts/types";
+import React, { useCallback, useState } from "react";
+import type { ReadinessGateDto } from "@/src/shared-contracts/types";
 import { api as clientApi } from "../api/client";
 import { t } from "../lib/i18n";
 import { useApp } from "../state/AppContext";
+import { useDeliveryReport } from "../state/deliveryReport";
+import { ReadinessBadge } from "./ReadinessBadgeStrip";
 import { InfoBanner } from "./ui";
 
 const gateTitleKey: Record<ReadinessGateDto["id"], "deliveryGateLocal" | "deliveryGateSimulation" | "deliveryGatePhysical" | "deliveryGatePaid"> = {
@@ -31,28 +33,12 @@ function statusLabel(lang: "en" | "zh", status: ReadinessGateDto["status"]): str
 export const ReadinessView: React.FC = () => {
   const { state } = useApp();
   const { lang, project } = state;
-  const [report, setReport] = useState<DeliveryReportDto | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(false);
+  // issues/09：报告读取走共享 seam（与所有徽章表面同一份缓存/在途请求）；
+  // 录入验收后 refresh() 原地传播到全部已挂载徽章。
+  const { report, loading, error, refresh } = useDeliveryReport(project?.id);
   const [serialObservation, setSerialObservation] = useState("");
   const [submittingAcceptance, setSubmittingAcceptance] = useState(false);
   const [acceptanceMessage, setAcceptanceMessage] = useState<string | null>(null);
-
-  const refresh = useCallback(async (signal?: AbortSignal) => {
-    if (!project?.id) {
-      setReport(null);
-      return;
-    }
-    setLoading(true);
-    setError(false);
-    try {
-      setReport(await clientApi.getDeliveryReport(project.id, signal));
-    } catch {
-      if (!signal?.aborted) setError(true);
-    } finally {
-      if (!signal?.aborted) setLoading(false);
-    }
-  }, [project?.id]);
 
   const submitAcceptance = useCallback(async () => {
     if (!project?.id || !state.build.buildId) return;
@@ -79,17 +65,15 @@ export const ReadinessView: React.FC = () => {
     }
   }, [lang, project?.id, refresh, serialObservation, state.build.buildId]);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    void refresh(controller.signal);
-    return () => controller.abort();
-  }, [refresh]);
-
   const conclusionTone = report?.conclusion.status === "ready"
     ? "border-emerald-500/25 bg-emerald-500/5"
     : report?.conclusion.status === "blocked"
       ? "border-rose-500/25 bg-rose-500/5"
       : "border-amber-500/25 bg-amber-500/5";
+
+  // issues/09：分区徽章 = 该分区证据对应的那一枚门禁（同一份 gates，不另造状态）。
+  const sectionGate = (id: ReadinessGateDto["id"]): ReadinessGateDto | null =>
+    report?.gates.find((g) => g.id === id) ?? null;
 
   return (
     <div className="flex-1 px-6 py-6 max-w-[1100px] mx-auto flex flex-col gap-5 pb-20">
@@ -130,8 +114,11 @@ export const ReadinessView: React.FC = () => {
           </section>
 
           <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            <article className="mac-card p-4">
-              <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">APPROVED HARDWARE</div>
+            <article className="mac-card p-4" data-testid="readiness-section-hardware" data-gate="physical-accepted">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">APPROVED HARDWARE</div>
+                {sectionGate("physical-accepted") && <ReadinessBadge gate={sectionGate("physical-accepted")!} lang={lang} />}
+              </div>
               <h2 className="text-sm font-semibold text-[var(--text-primary)] mt-1">{report.hardware.identity?.boardModel ?? "Identity not approved"}</h2>
               <div className="text-xs text-[var(--text-secondary)] mt-2">
                 {report.hardware.identity ? `${report.hardware.identity.moduleModel} · ${report.hardware.identity.boardRevision}` : "The current hardware artifact has no complete Reference Kit identity."}
@@ -139,8 +126,11 @@ export const ReadinessView: React.FC = () => {
               <div className="text-[10px] font-mono text-[var(--text-muted)] mt-3 break-all">{report.hardware.identity?.referenceKitId ?? "—"}</div>
               {report.hardware.identity?.source && <a className="text-[11px] text-[#007aff] mt-2 inline-block break-all" href={report.hardware.identity.source.url} target="_blank" rel="noreferrer">{report.hardware.identity.source.title}</a>}
             </article>
-            <article className="mac-card p-4">
-              <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">BUILD ARTIFACT</div>
+            <article className="mac-card p-4" data-testid="readiness-section-build" data-gate="local-ready">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">BUILD ARTIFACT</div>
+                {sectionGate("local-ready") && <ReadinessBadge gate={sectionGate("local-ready")!} lang={lang} />}
+              </div>
               <h2 className="text-sm font-semibold text-[var(--text-primary)] mt-1">{report.build?.id ?? "No build record"}</h2>
               <div className="text-xs text-[var(--text-secondary)] mt-2">{report.build ? `${report.build.target} · ${report.build.toolchainCoreVersion ?? "core unknown"} · ${report.build.toolchainEvidence}` : "Run the pinned build to create delivery evidence."}</div>
               <div className="text-[10px] font-mono text-[var(--text-muted)] mt-3 break-all">{report.build?.outputs.find((output) => output.kind === "bin")?.sha256 ?? "SHA-256 unavailable"}</div>
@@ -173,8 +163,11 @@ export const ReadinessView: React.FC = () => {
                 {report.bom.items.map((item) => <div key={item.id} className="text-[11px] text-[var(--text-secondary)]"><span className="text-[var(--text-primary)]">{item.displayName}</span> · {item.priceObservations.length ? item.priceObservations.map((observation) => observation.observedAt).join(", ") : "no dated observation"}</div>)}
               </div>
             </article>
-            <article className="mac-card p-4">
-              <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">OPTIONAL SIMULATION</div>
+            <article className="mac-card p-4" data-testid="readiness-section-simulation" data-gate="simulation-ready">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">OPTIONAL SIMULATION</div>
+                {sectionGate("simulation-ready") && <ReadinessBadge gate={sectionGate("simulation-ready")!} lang={lang} />}
+              </div>
               <h2 className="text-sm font-semibold text-[var(--text-primary)] mt-1">{report.simulation.status}</h2>
               <p className="text-xs text-[var(--text-secondary)] mt-2">{report.simulation.reason ?? "Simulation evidence is available."} Local readiness does not depend on this optional gate.</p>
             </article>
@@ -187,10 +180,13 @@ export const ReadinessView: React.FC = () => {
             </div>
           </section>
 
-          <section className="mac-card p-4">
+          <section className="mac-card p-4" data-testid="readiness-section-physical" data-gate="physical-accepted">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">PHYSICAL ACCEPTANCE / SERIAL</div>
+                <div className="flex items-center gap-2">
+                  <div className="text-[10px] font-mono uppercase tracking-wide text-[var(--text-muted)]">PHYSICAL ACCEPTANCE / SERIAL</div>
+                  {sectionGate("physical-accepted") && <ReadinessBadge gate={sectionGate("physical-accepted")!} lang={lang} />}
+                </div>
                 <h2 className="text-sm font-semibold text-[var(--text-primary)] mt-1">{t(lang, "deliverySerialLabel")}</h2>
               </div>
               <button
