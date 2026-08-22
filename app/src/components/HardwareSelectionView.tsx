@@ -120,6 +120,13 @@ export const HardwareSelectionView: React.FC = () => {
                   </div>
                 </div>
 
+                {/* V1 审计：候选规格的官方来源（无来源平台不得进入候选矩阵） */}
+                {mcu.sourceUrl && (
+                  <a className="mb-2 inline-block text-[10px] text-[#007aff] dark:text-[#0a84ff] hover:underline" href={mcu.sourceUrl} target="_blank" rel="noreferrer" title={mcu.sourceTitle}>
+                    来源：{mcu.sourceTitle} ↗
+                  </a>
+                )}
+
                 {mcu.referenceKit && (
                   <div className="mb-2 p-3 rounded-md bg-[#007aff]/5 border border-[#007aff]/20">
                     <div className="flex items-center justify-between gap-2 mb-2">

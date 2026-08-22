@@ -133,6 +133,8 @@ export interface McuCandidate {
   flash: string;
   reason: string;
   constraints?: string[]; // 对照需求的约束警告
+  sourceUrl?: string; // V1 审计：候选规格的官方来源
+  sourceTitle?: string;
   referenceKit?: ReferenceKitDefinition;
 }
 

@@ -139,7 +139,7 @@ function deps() {
 }
 
 describe("recommend_mcu（application-contract 2.6；knowledge 求值）", () => {
-  it("候选矩阵：3 类（推荐 ESP32-S3 / 备选 RP2040 / 工业级 STM32F401RE）", async () => {
+  it("候选矩阵：仅含已核验来源平台（推荐 ESP32-S3 / 工业级 STM32F401RE；RP2040 因未核验挂起）", async () => {
     const d = deps();
     const { project } = await seedRequirements(d.persistence, d.content, {
       capabilities: [{ id: "req-1", title: "Soil moisture monitoring", status: "complete" }],
@@ -148,7 +148,9 @@ describe("recommend_mcu（application-contract 2.6；knowledge 求值）", () =>
       { projectId: project.id },
       { persistence: d.persistence, content: d.content },
     );
-    expect(result.candidates.map((c) => c.id)).toEqual(["ESP32-S3", "RP2040", "STM32F401RE"]);
+    // V1 审计：无官方来源的平台不得进入首发候选矩阵（spec 实现决策）
+    expect(result.candidates.map((c) => c.id)).toEqual(["ESP32-S3", "STM32F401RE"]);
+    expect(result.candidates.every((c) => typeof c.sourceUrl === "string")).toBe(true);
   });
 
   it("推荐结果带精确参考套件身份和来源，而不是只有 ESP32-S3 家族名", async () => {
@@ -171,9 +173,8 @@ describe("recommend_mcu（application-contract 2.6；knowledge 求值）", () =>
       acceptedTitles: ["Wireless Connectivity"],
     });
     const result = await recommendMcu({ projectId: project.id }, { persistence: d.persistence, content: d.content });
-    const rp2040 = result.candidates.find((c) => c.id === "RP2040")!;
+    // RP2040 已因未核验挂起出矩阵；无线缺口警告由 STM32 承载
     const stm32 = result.candidates.find((c) => c.id === "STM32F401RE")!;
-    expect(rp2040.constraints.some((c) => /Wi-Fi/i.test(c))).toBe(true);
     expect(stm32.constraints.some((c) => /Wi-Fi/i.test(c))).toBe(true);
     const s3 = result.candidates.find((c) => c.id === "ESP32-S3")!;
     expect(s3.constraints).toEqual([]);

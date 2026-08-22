@@ -68,3 +68,31 @@ spec Problem Statement 自认 *"知识目录仍有静态参数混用和缺少来
 ## 五、结论一句话
 
 **该做的都做了，且没撒谎；但首发候选矩阵里还坐着两位没有身份证的客人（RP2040/STM32），规格明文不允许他们上桌。**
+
+---
+
+## 六、V1 修复执行记录（同日追加，用户选定方案 C：补齐来源核对后保留）
+
+执行结果按可核验性分流：
+
+### STM32F401RE — 已核验并保留 ✅
+- 经 crawl4ai 抓取 st.com 官方页面核对（2026-08-22）：MCU 页确认 Cortex-M4+DSP+FPU @84MHz / up to 512KB Flash / up to 96KB SRAM / 78 fast I/O；Nucleo-F401RE 板页确认板级身份。
+- 记录补齐 `objectLevel:"board"` + 平台级 source + 6 条 facts（core/flash/sram/gpio/board-identity/wireless），全部 official-direct、https 官方 URL。candidateTier "industrial" 保留。
+
+### ESP32-S3 — 补齐对象层级声明 ✅
+- 芯片/模组记录原缺 objectLevel 与平台级来源（此前仅经 referenceKit 携带事实）。补 `objectLevel:"module"` + WROOM-1 官方 datasheet 来源。候选矩阵的 recommended 席位完全合规。
+
+### RP2040 — 挂起出矩阵 ⏸（方案 C 在网络受限下的诚实降级）
+- raspberrypi.com 全域 TLS 掐断（直连/代理/HTTP1.1 降级均败）、archive.org 不可达、r.jina.ai 代理返回空——**本机无法完成第一方来源核对**。
+- 按规格自身规则（未知值保持未知、无证据不得 pass），未核验平台不得留在首发推荐矩阵：移除 candidateTier，select_mcu 工程路径保留（s5b/s7 e2e 验证通过）。
+- **复入条件**已写入代码注释与 platform-provenance 测试：官方 datasheet 核对 → 补 objectLevel+source+facts → 同步测试断言。
+
+### 永久锁
+- 新增 `tests/unit/domain/knowledge/platform-provenance.test.ts`（4 测试）：任何平台进入候选矩阵必须 objectLevel+官方系来源+≥3 条官方系 facts（或 referenceKit 携带）；RP2040 未核验前不得回归；recommended 席必须携带来源背书的精确参考套件身份。
+- 候选 DTO/UI 全链路新增 sourceUrl/sourceTitle 并在硬件选择卡渲染"来源"链接。
+
+### 附带发现 V2（本轮不动，待后续工单）
+- STM32 记录 toolchain 写 `stm32duino:STM32F1:nucleo_f401re`——F401 属 F4 系列，FQBN 家族段错误且无来源背书。不影响候选展示与商用门（build-profile 仅钉 ESP32-S3），修复时须先核 stm32duino 官方仓库。
+
+### 门禁
+typecheck 0 错、lint 净、provenance+mcu 契约 8/8、s4/s5b/s7 e2e 5/5；全量套件结果见提交信息。

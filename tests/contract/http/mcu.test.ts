@@ -83,10 +83,10 @@ describe("S4 commands surface", () => {
       .send({ capability: "recommend_mcu", payload: {} });
     expect(res.status).toBe(200);
     const body = res.body as { candidates: Array<{ id: string; tier: string }>; peripherals: unknown[] };
-    expect(body.candidates.map((c) => c.id)).toEqual(["ESP32-S3", "RP2040", "STM32F401RE"]);
+    // V1 审计后候选矩阵仅含已核验平台（RP2040 因 raspberrypi.com 不可达挂起）
+    expect(body.candidates.map((c) => c.id)).toEqual(["ESP32-S3", "STM32F401RE"]);
     expect(body.candidates[0]?.tier).toBe("recommended");
-    expect(body.candidates[1]?.tier).toBe("alternative");
-    expect(body.candidates[2]?.tier).toBe("industrial");
+    expect(body.candidates[1]?.tier).toBe("industrial");
     expect(body.peripherals.length).toBeGreaterThan(0);
   });
 

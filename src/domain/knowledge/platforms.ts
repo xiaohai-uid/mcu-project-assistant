@@ -65,7 +65,12 @@ export interface PlatformDefinition {
   codegenProfile: string;
   /** strapping 引脚（ESP32 系；上电引导/电压配置风险） */
   strappingPins?: Array<{ pin: string; reason: string }>;
-  /** 候选分类（冻结 UI：推荐/备选/工业级） */
+  // V1 审计（docs/audit/2026-08-22-spec-compliance-audit.md）：进入候选矩阵的平台
+  // 必须携带官方来源与事实数组——spec 实现决策"其他平台不能以未经核验的静态事实参与首发推荐"。
+  objectLevel?: PlatformObjectLevel;
+  source?: PlatformSource;
+  facts?: PlatformFact[];
+  /** 候选分类（冻结 UI：推荐/备选/工业级）。仅当 objectLevel+source+facts 齐备时才允许设置。 */
   candidateTier?: "recommended" | "alternative" | "industrial";
   /** 外设兼容（候选卡 ⚠️ 约束警告依据） */
   constraints?: string[];
@@ -152,6 +157,15 @@ const ESP32_S3: PlatformDefinition = {
   family: "esp32s3",
   framework: "arduino",
   logicVoltage: 3.3,
+  // V1 审计：模组级对象；精确可购买身份由 referenceKit（DevKitC-1-N8R8 v1.1）承载。
+  objectLevel: "module",
+  source: {
+    owner: "Espressif",
+    url: "https://www.espressif.com/sites/default/files/documentation/esp32-s3-wroom-1_wroom-1u_datasheet_en.pdf",
+    title: "ESP32-S3-WROOM-1 Datasheet",
+    accessedAt: "2026-08-16",
+    confidence: "official-direct",
+  },
   // 引脚池顺序 = 冻结 UI Golden Journey 参考分配（土壤→IO4、继电器→IO12、OLED→IO8/IO9）：
   // strapping 引脚（IO0/IO12/IO45/IO46）可用但带风险 → 不入 reserved（reserved=系统功能独占），
   // 由 ConstraintEngine 的 STRAPPING_PIN_USAGE 检查标记（Golden Journey 冲突场景数据源）
@@ -288,13 +302,109 @@ const RP2040: PlatformDefinition = {
   },
   toolchain: { type: "arduino_cli", fqbn: "rp2040:rp2040:rpipico", core: "rp2040:rp2040" },
   codegenProfile: "arduino_rp2040",
-  candidateTier: "alternative",
+  // V1 审计挂起（docs/audit/2026-08-22-spec-compliance-audit.md）：本记录的静态事实
+  // 无官方一手来源（raspberrypi.com / archive.org 在当前网络不可达，2026-08-22 核对失败）。
+  // 按 spec 实现决策"未核验平台不得参与首发推荐"→ 移出候选矩阵。
+  // 复入条件：以官方 datasheet 核对后补 objectLevel+source+facts，并同步
+  // platform-provenance 测试与 s4/mcu 契约断言。select_mcu 工程路径不受影响。
   wireless: "None (Requires external CYW43439)",
   flashSram: "2MB External Flash / 264KB SRAM",
   ioMatrix: "30 GPIO Pins, 4x 12-bit ADC",
   constraints: ["No integrated Wi-Fi — conflicts with wireless requirement"],
   reason: "High PIO flexibility, but lacks native Wi-Fi/BLE radio hardware.",
 };
+
+// ── V1 已核验来源（官方一手文档，抓取核对于 2026-08-22）──────────────────────────
+// 注意顺序：常量定义在 CATALOG 之后仅供 STM32 记录引用（TDZ 由 hoisting 规则规避——
+// 实际上 const 不提升，故这两个常量必须移到 STM32F401RE 定义之前）。见下方修正。
+
+const STM32_MCU_PAGE_SOURCE: PlatformSource = {
+  owner: "STMicroelectronics",
+  url: "https://www.st.com/en/microcontrollers-microprocessors/stm32f401re.html",
+  title: "STM32F401RE — Arm Cortex-M4 with DSP and FPU, up to 512 Kbytes of Flash memory, 84 MHz CPU",
+  accessedAt: "2026-08-22",
+  confidence: "official-direct",
+};
+
+const STM32_NUCLEO_F401RE_SOURCE: PlatformSource = {
+  owner: "STMicroelectronics",
+  url: "https://www.st.com/en/evaluation-tools/nucleo-f401re.html",
+  title: "STM32 Nucleo-64 development board with STM32F401RE MCU, supports Arduino and ST morpho connectivity",
+  accessedAt: "2026-08-22",
+  confidence: "official-direct",
+};
+
+const STM32_F401RE_FACTS: PlatformFact[] = [
+  {
+    key: "core",
+    value: "Arm Cortex-M4 with DSP and FPU @ 84 MHz",
+    valueClass: "stated",
+    source: STM32_MCU_PAGE_SOURCE,
+  },
+  {
+    key: "flash",
+    value: "512",
+    unit: "KB",
+    condition: "官方页表述为 F401 线 'up to 512 Kbytes'；RE 后缀按 ST 命名法对应 512KB 容量档",
+    valueClass: "stated",
+    source: STM32_MCU_PAGE_SOURCE,
+  },
+  {
+    key: "sram",
+    value: "96",
+    unit: "KB",
+    condition: "官方页表述为 'up to 96 Kbytes of SRAM'",
+    valueClass: "stated",
+    source: STM32_MCU_PAGE_SOURCE,
+  },
+  {
+    key: "gpio",
+    value: "78 fast I/Os",
+    condition: "芯片级数字；Nucleo-64 板仅经 Arduino UNO R3 + Morpho 排针引出子集",
+    valueClass: "stated",
+    source: STM32_MCU_PAGE_SOURCE,
+  },
+  {
+    key: "board-identity",
+    value: "STM32 Nucleo-64 development board with STM32F401RE MCU (Arduino UNO R3 + ST morpho connectivity)",
+    valueClass: "stated",
+    source: STM32_NUCLEO_F401RE_SOURCE,
+  },
+  {
+    key: "wireless",
+    value: "No radio integrated",
+    condition: "官方外设摘要不含任何 RF 外设；无线需外接模块",
+    valueClass: "stated",
+    source: STM32_MCU_PAGE_SOURCE,
+  },
+];
+
+export function createPlatformRegistry(): PlatformRegistry {
+  const byId = new Map<string, PlatformDefinition>();
+  for (const p of CATALOG) {
+    if (byId.has(p.id)) throw new Error(`Duplicate platform id: ${p.id}`);
+    byId.set(p.id, p);
+  }
+  return {
+    get count() {
+      return byId.size;
+    },
+    get allIds() {
+      return [...byId.keys()];
+    },
+    get(id: string): PlatformDefinition {
+      const p = byId.get(id);
+      if (!p) throw new Error(`Platform not found: ${id}. Available: ${[...byId.keys()].join(", ")}`);
+      return p;
+    },
+    getOrNone(id: string): PlatformDefinition | null {
+      return byId.get(id) ?? null;
+    },
+    isSupported(id: string): boolean {
+      return byId.has(id);
+    },
+  };
+}
 
 const STM32F401RE: PlatformDefinition = {
   id: "STM32F401RE",
@@ -324,6 +434,10 @@ const STM32F401RE: PlatformDefinition = {
   },
   toolchain: { type: "arduino_cli", fqbn: "stm32duino:STM32F1:nucleo_f401re", core: "stm32duino:STM32F1" },
   codegenProfile: "arduino_stm32",
+  // 已核验来源（2026-08-22 经官方 st.com 页面抓取核对；见 docs/audit/2026-08-22-spec-compliance-audit.md V1）
+  objectLevel: "board",
+  source: STM32_NUCLEO_F401RE_SOURCE,
+  facts: STM32_F401RE_FACTS,
   candidateTier: "industrial",
   wireless: "None",
   flashSram: "512KB Flash / 96KB SRAM",
@@ -333,30 +447,3 @@ const STM32F401RE: PlatformDefinition = {
 };
 
 const CATALOG: PlatformDefinition[] = [ARDUINO_UNO, ESP32_S3, RP2040, STM32F401RE];
-
-export function createPlatformRegistry(): PlatformRegistry {
-  const byId = new Map<string, PlatformDefinition>();
-  for (const p of CATALOG) {
-    if (byId.has(p.id)) throw new Error(`Duplicate platform id: ${p.id}`);
-    byId.set(p.id, p);
-  }
-  return {
-    get count() {
-      return byId.size;
-    },
-    get allIds() {
-      return [...byId.keys()];
-    },
-    get(id: string): PlatformDefinition {
-      const p = byId.get(id);
-      if (!p) throw new Error(`Platform not found: ${id}. Available: ${[...byId.keys()].join(", ")}`);
-      return p;
-    },
-    getOrNone(id: string): PlatformDefinition | null {
-      return byId.get(id) ?? null;
-    },
-    isSupported(id: string): boolean {
-      return byId.has(id);
-    },
-  };
-}

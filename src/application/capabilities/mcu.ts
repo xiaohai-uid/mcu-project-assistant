@@ -44,6 +44,9 @@ export interface McuCandidate {
   ioMatrix: string;
   reason: string;
   constraints: string[];
+  /** V1 审计：候选规格声明的官方来源（无来源平台不得进入候选矩阵） */
+  sourceUrl?: string;
+  sourceTitle?: string;
   referenceKit?: ReferenceKitDefinition;
 }
 
@@ -78,6 +81,7 @@ function toCandidate(p: PlatformDefinition): McuCandidate {
     ioMatrix: p.ioMatrix ?? `${p.pins.digital.length} GPIOs`,
     reason: p.reason ?? "",
     constraints: [...(p.constraints ?? [])],
+    ...(p.source ? { sourceUrl: p.source.url, sourceTitle: p.source.title } : {}),
     ...(p.referenceKit ? { referenceKit: p.referenceKit } : {}),
   };
 }
