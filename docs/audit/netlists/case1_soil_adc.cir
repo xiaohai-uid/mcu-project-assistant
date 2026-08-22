@@ -1,0 +1,10 @@
+* CASE1: Capacitive soil sensor v1.2 -> ESP32-S3 GPIO4 ADC input
+* Sensor modeled as swept source + 10k output impedance + pin cap 32pF
+* Open in Multisim: File > Open (.cir), then run DC Sweep / Operating Point
+* Expected: V(pin)=sweep value; source impedance at ESP32 10k recommendation limit
+VSENSE SEN 0 DC 1.36
+ROUT SEN PIN 10k
+CPIN PIN 0 32p
+.DC VSENSE 1.36 3.05 0.05
+* firmware threshold 1800/4095 * 3.3V = 1.45V must fall inside sensor span
+.END

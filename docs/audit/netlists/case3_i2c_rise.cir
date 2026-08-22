@@ -1,0 +1,12 @@
+* CASE3: I2C bus rise time, SSD1306 OLED @ IO8/IO9, Cbus~200pF
+* Switch emulates open-drain pull-down. Compare Rp values against
+* I2C Fast-mode tr<=300ns (30%-70% => tr=0.847*Rp*Cbus).
+* Run .TRAN 4us in Multisim and measure rising edge 30%-70% time.
+VPULL VDD 0 DC 3.3
+RP    VDD SDA 4.7k
+MSW   SDA GL 0 0  SWMOD
+VG    GL  0 PULSE(3.3 0 1u 10n 10n 1.99u 4u)
+CBUS  SDA 0 200p
+.MODEL SWMOD NMOS(KP=50m VTO=1.5)
+.TRAN 2n 4u
+.END

@@ -1,0 +1,14 @@
+* CASE2: GPIO21 (3.3V logic) low-side NPN driver for SRD-05VDC-SL-C relay coil
+* Coil 5V/71mA (~70 ohm, L~30mH). Flyback diode 1N4148 across coil is MANDATORY.
+* Run .TRAN 20ms in Multisim: watch V(collector) clamp at ~5.7V at turn-off.
+VCC   V5   0    DC 5
+VGPIO G    0    PWL(0 3.3  9.9M 3.3  10M 0  20M 0)
+RB    G    B    1k
+Q1    C    B    0   S8050
+RCOIL V5   C    70.4
+LCOIL V5   C    30m
+DFLY  C    V5   D1N4148
+.MODEL S8050 NPN(IS=1e-14 BF=150 VAF=100 IKF=0.3 CJE=20p CJC=8p)
+.MODEL D1N4148 D(IS=2.5n RS=0.6 N=1.8 CJO=4p M=0.333 BV=100 IBV=5u)
+.TRAN 1u 20m
+.END

@@ -8,7 +8,7 @@ matching the workspace peripheral IDs — assumptions listed per case).
 
 Tooling note: NI Multisim 14.3 is installed locally but its MCU co-sim covers only
 8051/PIC — it cannot execute ESP32 firmware (that layer stays with Wokwi). The
-`.cir` netlists under `work/circuit-sim/multisim-netlists/` open directly in
+`.cir` netlists under `docs/audit/netlists/` open directly in
 Multisim (File ▸ Open) for interactive re-verification of every number below.
 
 ## CASE 1 — Capacitive soil sensor → GPIO4 ADC
