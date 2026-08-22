@@ -22,4 +22,9 @@ Blocked by: 无
 
 ## Comments
 
+- 2026-08-23 agent: code-review 追加发现——drain 中间件直发 503 原本依赖 finish 处理器的 http.request 行获得唯一记录，≥500 停写后变零行；已让该路径同样走 recordApiError（warn 级 api.error），排队拒绝与 handleEvents 抛错语义统一。
+- 2026-08-23 agent: 同步 handler 的 throw 会穿透 withErrorHandler 落入 express 默认边界，ApiError 声明状态码被降级为 500——已修（try/catch 包裹调用），server_draining 503 恢复正确状态码且 warn 分支不再死代码。
+
+## Comments
+
 - 2026-08-22 zcode: 来源 = /code-review dadc46a...HEAD Spec 轴 (c)2 + Standards 轴 Duplicated Code #2（合并处置）。

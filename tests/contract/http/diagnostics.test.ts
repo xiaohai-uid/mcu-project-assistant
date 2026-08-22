@@ -241,7 +241,7 @@ describe("5xx event_log 单一事实源（ISSUE-004）", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.type).toBe("api.error");
     expect(rows[0]!.level).toBe("error");
-    expect((rows[0]!.data as { code?: string }).code).toBeDefined();
+    expect((rows[0]!.data as { code?: string }).code).toBe("internal");
     expect(rows[0]!.correlationId).toBe(response.headers["x-request-id"]);
   });
 
@@ -251,6 +251,22 @@ describe("5xx event_log 单一事实源（ISSUE-004）", () => {
       .get("/api/v1/projects/p1/events")
       .set("Authorization", authHeader(OPERATOR));
     expect(response.status).toBe(503);
+    const rows = eventLog.list({ source: "server" });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.type).toBe("api.error");
+    expect(rows[0]!.level).toBe("warn");
+    expect((rows[0]!.data as { code?: string }).code).toBe("server_draining");
+    expect(rows[0]!.correlationId).toBe(response.headers["x-request-id"]);
+  });
+
+  it("drain-rejected mutations also write exactly one warn api.error row", async () => {
+    const draining = makeApp(undefined, { shutdown: { isDraining: () => true, begin: () => false, complete: () => {} } });
+    const response = await request(draining)
+      .post("/api/v1/projects")
+      .set("Authorization", authHeader(OPERATOR))
+      .send({ name: "late arrival" });
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe("server_draining");
     const rows = eventLog.list({ source: "server" });
     expect(rows).toHaveLength(1);
     expect(rows[0]!.type).toBe("api.error");

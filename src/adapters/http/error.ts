@@ -105,7 +105,7 @@ export interface HttpErrorObservers {
  * api.error 是 5xx 失败细节的单一事实源（ISSUE-004：不再与 http.request 双写）。
  * 三处记录点（边界未处理错误 / ApiError ≥500 / 包装器兜底）统一走此助手。
  */
-function recordApiError(
+export function recordApiError(
   observers: HttpErrorObservers | undefined,
   req: Request,
   res: Response,

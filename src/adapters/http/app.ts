@@ -80,7 +80,7 @@ import type { InProcessTaskRuntime } from "@/src/adapters/task/in-process";
 import { createProductionTaskExecutor } from "@/src/infrastructure/task-runtime";
 import type { ArtifactKind, DeviceExecutionReality, SerialSessionDto } from "@/src/shared-contracts/types";
 import { toSafeError } from "@/src/shared-contracts/errors";
-import { ApiError, apiErrorBoundary, withErrorHandler } from "./error";
+import { ApiError, apiErrorBoundary, recordApiError, withErrorHandler } from "./error";
 import { loadVerifiedArtifactContent, PersistenceIntegrityError } from "@/src/shared/persistence-integrity";
 import { writeProjectMirror } from "@/src/infrastructure/workspace";
 import {
@@ -248,6 +248,9 @@ export function createApp(deps: AppDeps): HttpApp {
 
   app.use("/api", (req, res, next) => {
     if (deps.shutdown?.isDraining() && ["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+      // 排队拒绝也是 5xx：与 handleEvents 的 drain 抛错同走 api.error 单一事实源（ISSUE-004）。
+      const safe = toSafeError(new ApiError(503, "server_draining", "Server is shutting down"));
+      recordApiError(httpObservers, req, res, "warn", safe, { code: safe.code, path: req.path, method: req.method });
       res.status(503).json({ error: { code: "server_draining", message: "Server is shutting down" } });
       return;
     }
