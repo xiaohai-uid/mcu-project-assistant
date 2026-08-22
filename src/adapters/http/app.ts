@@ -1187,13 +1187,18 @@ export function createApp(deps: AppDeps): HttpApp {
     if (!message) throw new ApiError(400, "invalid_content", "message is required");
     const extraRaw = body.extra && typeof body.extra === "object" && !Array.isArray(body.extra) ? body.extra : undefined;
     const extra = extraRaw && JSON.stringify(extraRaw).length <= 4000 ? (extraRaw as Record<string, unknown>) : undefined;
+    // ISSUE-003：correlationId 用本请求的 x-request-id（与请求日志/服务端错误行同键，可 join）；
+    // 客户端自造 sessionId 降级为 data 字段保留（同浏览器多错误的聚合键）。
+    const requestId = res.getHeader("x-request-id");
+    const sessionId = asBoundedString(body.sessionId, 64);
     deps.eventLog.append({
       level: "error",
       source: "client",
       type: "client.error",
-      correlationId: asBoundedString(body.sessionId, 64) ?? null,
+      correlationId: typeof requestId === "string" ? requestId : null,
       data: {
         message,
+        ...(sessionId ? { sessionId } : {}),
         ...(asBoundedString(body.stack, 16000) ? { stack: asBoundedString(body.stack, 16000) } : {}),
         ...(asBoundedString(body.url, 500) ? { url: asBoundedString(body.url, 500) } : {}),
         ...(asBoundedString(body.userAgent, 200) ? { userAgent: asBoundedString(body.userAgent, 200) } : {}),

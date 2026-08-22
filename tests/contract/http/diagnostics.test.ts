@@ -77,13 +77,37 @@ describe("POST /api/v1/diagnostics/client-errors", () => {
       .send({ message: "TypeError: x is not a function", stack: "at f()", url: "http://x/", sessionId: "web-1" });
     expect(response.status).toBe(202);
     expect(response.body).toEqual({ status: "accepted" });
+    // ISSUE-003：client.error 的 correlationId 是上报请求自身的 x-request-id，
+    // 与服务端请求日志可 join；sessionId 降级为 data 字段保留聚合键。
+    const requestId = response.headers["x-request-id"];
+    expect(requestId).toBeTruthy();
     const stored = eventLog.list({ source: "client" });
     expect(stored).toHaveLength(1);
     const first = stored[0]!;
     expect(first.type).toBe("client.error");
     expect(first.level).toBe("error");
-    expect(first.correlationId).toBe("web-1");
+    expect(first.correlationId).toBe(requestId);
     expect((first.data as { message: string }).message).toContain("TypeError");
+    expect((first.data as { sessionId?: string }).sessionId).toBe("web-1");
+  });
+
+  it("stamps each client.error row with its own request id so server logs join on it", async () => {
+    const first = await request(app)
+      .post("/api/v1/diagnostics/client-errors")
+      .set("Authorization", authHeader(OPERATOR))
+      .send({ message: "boom-a", sessionId: "shared-session" });
+    const second = await request(app)
+      .post("/api/v1/diagnostics/client-errors")
+      .set("Authorization", authHeader(OPERATOR))
+      .send({ message: "boom-b", sessionId: "shared-session" });
+    expect(first.headers["x-request-id"]).not.toBe(second.headers["x-request-id"]);
+    const stored = eventLog.list({ source: "client" });
+    expect(stored.map((e) => e.correlationId)).toEqual([
+      second.headers["x-request-id"],
+      first.headers["x-request-id"],
+    ]);
+    // 同一浏览器会话的多次错误仍可通过 data.sessionId 聚合
+    expect(stored.every((e) => (e.data as { sessionId?: string }).sessionId === "shared-session")).toBe(true);
   });
 
   it("accepts a report from a session-cookie user (public beta user path)", async () => {
