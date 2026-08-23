@@ -45,7 +45,7 @@ labels: [wayfinder:map, mcu, commercial]
 - `issues/07-commercial-golden-journey-and-delivery-report.md` resolved (2026-08-22 audit sync).
 - `issues/08-recommendation-missing-facts-trace.md` resolved (2026-08-23): derived per-candidate `missingFacts` enumeration (source/facts/Reference Kit/physical-acceptance gaps) exposed through HTTP and rendered as a distinct 仍缺事实 list; `sourceUrl`+`sourceTitle` folded into a single `source` object end to end.
 - `issues/09-global-tri-state-badges-and-companion-propagation.md` resolved (2026-08-23): delivery-report reads unified behind a module-level shared store (one deduplicated in-flight request per project — B8/c3 N+1 closed without a batched endpoint); tri-state strip on hardware/pinmap/firmware/BOM cards, per-row local-ready chips, per-section gate chips; companion detect/serial/flash actions refresh gates in place via `refreshDeliveryGates`; first UI test rig (jsdom + RTL) with 8 badge/propagation cases.
-- `issues/10-middleware-level-ai-permission-enforcement.md` open: enforce AI tiers at the routing layer.
+- `issues/10-middleware-level-ai-permission-enforcement.md` resolved (2026-08-23): R4 tier table enforced once at the API perimeter middleware — command seam tier-checked regardless of marker, all other write routes reject `x-ai-agent`-marked traffic 403; router-stack drift test probes every write route so new routes cannot bypass; B6 `candidateTier` comment invariant became `defineCandidatePlatform()` typed factory (evidence = source + facts top-level-or-reference-kit).
 - `issues/11-platform-neutral-storage-examples.md` resolved (2026-08-22): canonical `/absolute/…` examples valid under both POSIX and win32 semantics; test asserts dual-semantics absoluteness.
 
 ## Not yet specified

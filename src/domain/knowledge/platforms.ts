@@ -70,7 +70,7 @@ export interface PlatformDefinition {
   objectLevel?: PlatformObjectLevel;
   source?: PlatformSource;
   facts?: PlatformFact[];
-  /** 候选分类（冻结 UI：推荐/备选/工业级）。仅当 objectLevel+source+facts 齐备时才允许设置。 */
+  /** 候选分类（冻结 UI：推荐/备选/工业级）。设置须经 defineCandidatePlatform（证据不变量在类型层强制）。 */
   candidateTier?: "recommended" | "alternative" | "industrial";
   /** 外设兼容（候选卡 ⚠️ 约束警告依据） */
   constraints?: string[];
@@ -109,6 +109,23 @@ export function availableAnalog(p: PlatformDefinition): string[] {
 export function availablePwm(p: PlatformDefinition): string[] {
   const reserved = reservedPinSet(p);
   return p.pins.pwm.filter((pin) => !reserved.has(pin));
+}
+
+// B6（code-review）：candidateTier 的「仅当证据齐备时才允许设置」从注释升级为类型——
+// 候选平台必须经此工厂声明；证据字段缺失在编译期报错，运行期再兜底拒绝。
+// 不变量与 deriveMissingFacts 对齐：官方来源必备；事实数组顶层或随 Reference Kit 携带。
+export interface CandidatePlatformDefinition extends PlatformDefinition {
+  candidateTier: "recommended" | "alternative" | "industrial";
+  objectLevel: PlatformObjectLevel;
+  source: PlatformSource;
+}
+
+export function defineCandidatePlatform(p: CandidatePlatformDefinition): PlatformDefinition {
+  const hasFacts = Boolean(p.facts?.length || p.referenceKit?.facts.length);
+  if (!p.objectLevel || !p.source || !hasFacts) {
+    throw new Error(`Candidate platform ${p.id} requires verified source, facts and object level before carrying a candidateTier`);
+  }
+  return p;
 }
 
 // ---------- V2 catalog/platforms/arduino_uno.yaml（1:1 数据保真） ----------
@@ -150,7 +167,7 @@ const ARDUINO_UNO: PlatformDefinition = {
 
 // ---------- Golden Journey 目标平台（冻结 UI MCU_CANDIDATES + ESP32-S3 strapping 工程事实） ----------
 
-const ESP32_S3: PlatformDefinition = {
+const ESP32_S3 = defineCandidatePlatform({
   id: "ESP32-S3",
   schemaVersion: "1",
   displayName: "ESP32-S3 WROOM-1",
@@ -272,7 +289,7 @@ const ESP32_S3: PlatformDefinition = {
       reason: "当前记录尚未包含这块实物的 USB 识别、上传和串口启动证据。",
     },
   },
-};
+});
 
 const RP2040: PlatformDefinition = {
   id: "RP2040",
@@ -422,7 +439,7 @@ export function createPlatformRegistry(): PlatformRegistry {
   };
 }
 
-const STM32F401RE: PlatformDefinition = {
+const STM32F401RE = defineCandidatePlatform({
   id: "STM32F401RE",
   schemaVersion: "1",
   displayName: "STM32F401RE Nucleo",
@@ -461,6 +478,6 @@ const STM32F401RE: PlatformDefinition = {
   ioMatrix: "50 GPIO Pins, 12-bit ADC 2.4 MSPS",
   constraints: ["No integrated Wi-Fi", "Arduino/ESP-IDF 生态外——固件路径不同"],
   reason: "Ultra-reliable industrial HAL target with zero integrated wireless.",
-};
+});
 
 const CATALOG: PlatformDefinition[] = [ARDUINO_UNO, ESP32_S3, RP2040, STM32F401RE];

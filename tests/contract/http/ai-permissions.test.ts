@@ -89,3 +89,79 @@ describe("command surface fail-closed enforcement", () => {
     expect(res.body.code ?? res.body.error?.code).toBe("capability_forbidden");
   });
 });
+
+// ---------- issues/10：路由层 AI 权限强制（结构化，不靠约定） ----------
+
+// AI 流量标记：带此头的请求自称为 AI 代理，只允许走命令缝。
+const AI_MARKER = "x-ai-agent";
+
+type RouteProbe = { method: string; path: string };
+
+/** 枚举 express 路由表中的全部写路由（漂移测试的结构化探针）。 */
+function collectWriteRoutes(instance: ReturnType<typeof createApp>): RouteProbe[] {
+  const stack = (instance as unknown as { _router?: { stack: Array<{ route?: { path?: unknown; methods?: Record<string, boolean> } }> } })._router?.stack ?? [];
+  const routes: RouteProbe[] = [];
+  for (const layer of stack) {
+    const route = layer.route;
+    if (!route?.path || !route.methods) continue;
+    for (const method of Object.keys(route.methods)) {
+      if (["post", "put", "patch", "delete"].includes(method)) {
+        routes.push({ method: method.toUpperCase(), path: String(route.path) });
+      }
+    }
+  }
+  return routes;
+}
+
+describe("middleware-level AI enforcement (issues/10)", () => {
+  it("rejects AI-marked requests to direct REST write routes with 403 capability_forbidden", async () => {
+    for (const path of ["/api/v1/projects", "/api/v1/device/flash-token", "/api/v1/device/flash"]) {
+      const res = await request(app).post(path).set(AI_MARKER, "1").send({ capability: "flash_device" });
+      expect([path, res.status]).toEqual([path, 403]);
+      expect([path, res.body.code ?? res.body.error?.code]).toEqual([path, "capability_forbidden"]);
+    }
+  });
+
+  it("lets unmarked human requests keep using direct REST write routes", async () => {
+    const res = await request(app).post("/api/v1/projects").send({ name: "Human" });
+    expect(res.status).toBe(201);
+  });
+
+  it("drift test: every write route outside the auth perimeter rejects AI-marked traffic", async () => {
+    const probes = collectWriteRoutes(app);
+    expect(probes.length).toBeGreaterThanOrEqual(20); // 路由枚举本身必须有效
+
+    // 认证端点在 API 周界之前（登录本身建立身份）——是唯一豁免，且必须恰好只有这两个。
+    const authRoutes = probes.filter((p) => p.path.startsWith("/api/v1/auth/")).map((p) => p.path).sort();
+    expect(authRoutes).toEqual(["/api/v1/auth/login", "/api/v1/auth/logout"]);
+
+    const seamPaths = [
+      "/api/v1/projects/:projectId/commands",
+      "/api/v1/commands/:taskId/clarification",
+      "/api/v1/commands/:taskId/cancel",
+    ];
+    for (const probe of probes) {
+      if (probe.path.startsWith("/api/v1/auth/")) continue;
+      const url = probe.path.replace(/:([A-Za-z]+)/g, "drift-probe");
+      const res = await request(app)[probe.method.toLowerCase() as "post"](url)
+        .set(AI_MARKER, "1")
+        .send({ capability: "__drift_probe__" });
+      // 命令缝：404（commands 端点=unknown_capability；任务续问/取消=not_found——
+      // 它们不带 capability，由任务存在性裁决）。其余写路由：403 capability_forbidden。
+      if (probe.path === "/api/v1/projects/:projectId/commands") {
+        expect([probe.path, res.status]).toEqual([probe.path, 404]);
+        expect([probe.path, res.body.code ?? res.body.error?.code]).toEqual([probe.path, "unknown_capability"]);
+      } else if (seamPaths.includes(probe.path)) {
+        // 续问/取消按任务状态裁决（404 not_found / 409 状态冲突），结构性要求=不得成功。
+        expect([probe.path, res.status >= 400]).toEqual([probe.path, true]);
+      } else {
+        expect([probe.path, res.status]).toEqual([probe.path, 403]);
+        expect([probe.path, res.body.code ?? res.body.error?.code]).toEqual([probe.path, "capability_forbidden"]);
+      }
+    }
+    // 缝路由必须真实存在于路由表中（豁免清单不为空集）。
+    for (const seam of seamPaths) {
+      expect(probes.some((p) => p.path === seam), `seam route ${seam} must exist`).toBe(true);
+    }
+  });
+});

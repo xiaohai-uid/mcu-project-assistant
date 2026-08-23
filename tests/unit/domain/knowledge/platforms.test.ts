@@ -1,6 +1,6 @@
 // unit/domain/knowledge/platforms — V2 搬运测试 1:1（worker/tests/unit/platforms/test_platform.py）+ ESP32-S3 strapping
 import { describe, expect, it } from "vitest";
-import { availableDigital, createPlatformRegistry, reservedPinSet } from "@/src/domain/knowledge/platforms";
+import { availableDigital, createPlatformRegistry, defineCandidatePlatform, reservedPinSet } from "@/src/domain/knowledge/platforms";
 
 const registry = createPlatformRegistry();
 
@@ -108,5 +108,19 @@ describe("ESP32-S3（Golden Journey 目标；strapping 数据完整性）", () =
   it("无精确参考套件身份的平台不能被当成商业套件", () => {
     expect(registry.get("arduino_uno").referenceKit).toBeUndefined();
     expect(registry.get("ESP32-S3").referenceKit?.boardModel).not.toBe("ESP32-S3");
+  });
+});
+
+// B6/issues-10：candidateTier 证据不变量——注释升级为 defineCandidatePlatform 工厂。
+describe("defineCandidatePlatform（B6 类型化不变量）", () => {
+  it("registered candidates pass through the factory (evidence complete)", () => {
+    for (const id of ["ESP32-S3", "STM32F401RE"]) {
+      expect(registry.get(id).candidateTier).toBeTruthy();
+    }
+  });
+
+  it("fails closed at runtime when source/facts evidence is missing", () => {
+    const bare = { id: "bare-board", facts: [] } as unknown as Parameters<typeof defineCandidatePlatform>[0];
+    expect(() => defineCandidatePlatform(bare)).toThrow(/requires verified source, facts and object level/);
   });
 });

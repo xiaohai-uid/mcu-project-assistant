@@ -218,6 +218,46 @@ export function createApp(deps: AppDeps): HttpApp {
   });
   app.use(createBasicAuthMiddleware(deps.basicAuth, browserSessions));
 
+  // ---------- issues/10：路由层 AI 权限强制（唯一强制点） ----------
+  // R4 三级表从命令处理器内部检查升级为 API 周界中间件——新增写路由自动被覆盖，不靠约定：
+  //  - 命令缝（/commands 与任务续问/取消）：无论是否带 AI 标记都按表 fail-closed
+  //    （未登记 404 unknown_capability、forbidden 403 capability_forbidden，R4 语义不变）。
+  //  - 命令缝之外的写路由：带 x-ai-agent 标记的请求一律 403 capability_forbidden——
+  //    AI 流量结构上只能经命令缝触达变更能力；人类流量（无标记）不受影响。
+  //  - 认证端点（/auth/*）注册在周界之前：登录本身建立身份，不属能力写路径。
+  const AI_COMMAND_SEAM = /^\/api\/v1\/projects\/[^/]+\/commands$/;
+  const AI_COMMAND_CONTINUATION = /^\/api\/v1\/commands\/[^/]+\/(clarification|cancel)$/;
+  app.use("/api", (req, res, next) => {
+    if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+      next();
+      return;
+    }
+    const path = (req.originalUrl ?? req.url).split("?")[0] ?? "";
+    if (AI_COMMAND_CONTINUATION.test(path)) {
+      next();
+      return;
+    }
+    if (AI_COMMAND_SEAM.test(path)) {
+      const capability = typeof req.body?.capability === "string" ? req.body.capability : "";
+      const tier = aiPermissionFor(capability);
+      if (tier === null) {
+        res.status(404).json({ error: { code: "unknown_capability", message: `Unknown command capability: ${capability}` } });
+        return;
+      }
+      if (tier === "forbidden") {
+        res.status(403).json({ error: { code: "capability_forbidden", message: `Capability is not reachable via the AI command surface: ${capability}` } });
+        return;
+      }
+      next();
+      return;
+    }
+    if (req.header("x-ai-agent") === undefined) {
+      next();
+      return;
+    }
+    res.status(403).json({ error: { code: "capability_forbidden", message: "AI traffic must use the command seam; direct write routes are human-only" } });
+  });
+
   // 诊断切片：请求关联 ID + 请求日志（stdout 全量；event_log 收 4xx 与慢请求，≥500 由 api.error 单一事实源承载）。
   const httpObservers = { logger: deps.logger, eventLog: deps.eventLog };
   const route = (handler: (req: Request, res: Response) => Promise<unknown> | unknown) => withErrorHandler(handler, httpObservers);
@@ -464,13 +504,8 @@ export function createApp(deps: AppDeps): HttpApp {
     const project = await getProjectCapability({ id: projectId }, capDeps);
     if (!project) throw new ApiError(404, "not_found", "Project not found");
 
-    // R4：AI 权限三级表 fail-closed 强制——未登记拒绝、forbidden 拒绝、其余按既有提案路径放行。
-    const tier = aiPermissionFor(String(capability ?? ""));
-    if (tier === null) throw new ApiError(404, "unknown_capability", `Unknown command capability: ${String(capability)}`);
-    if (tier === "forbidden") {
-      throw new ApiError(403, "capability_forbidden", `Capability is not reachable via the AI command surface: ${String(capability)}`);
-    }
-
+    // R4/issues/10：三级表强制已上移到 API 周界中间件（本文件上方，唯一强制点）——
+    // 走到这里说明 capability 已登记且非 forbidden；处理器不再重复校验。
     if (capability === "analyze_requirement") {
       const description = typeof payload?.description === "string" ? payload.description : "";
       const idempotency = makeIdempotencyRequest(
