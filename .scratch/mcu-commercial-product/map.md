@@ -50,7 +50,7 @@ labels: [wayfinder:map, mcu, commercial]
 
 ## Not yet specified
 
-- Packaging, distribution, support, update, and licensing mechanics.
+- Packaging, distribution, support, update, and licensing mechanics — now drafted as `issues/12-packaging-distribution-update-licensing.md` (status: draft); D1–D5 product decisions pending user.
 
 Physical acceptance of the board, USB enumeration, and real compile/upload/serial evidence are still pending; the technical target is fixed but the machine has not yet proven it.
 
