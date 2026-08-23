@@ -12,7 +12,7 @@ map: .scratch/mcu-commercial-product/map.md
 
 独立硬件和物联网开发者通常能找到一段示例代码，却很难确认这段代码是否适合自己手里的具体板子和器件：芯片、模组、整板和电商商品经常被混为一谈，参数没有条件和来源，接线冲突不会在早期暴露，编译成功也常被误解成真实硬件已经成功运行。
 
-当前项目已经具备本地项目、ArtifactVersion、Proposal、接线检查、固件生成、BuildRecord、ValidationRecord、真实设备识别、上传和串口能力，但知识目录仍有静态参数混用和缺少来源的问题，真实硬件验收也尚未完成。
+当前项目已经具备本地项目、ArtifactVersion、Proposal、接线检查、固件生成、BuildRecord、ValidationRecord、真实设备识别、上传和串口能力；知识目录的静态参数混用与缺源问题已在首发矩阵路径上修复（b0ff6c2：候选平台必须携带官方来源与事实，RP2040 已移出候选矩阵），真实硬件验收仍待实物完成。
 
 首个商业版本需要把这些能力连成一条可信的本地工作流，并且只支持一个明确的 Reference Kit：Espressif `ESP32-S3-DevKitC-1-N8R8`，集成 `ESP32-S3-WROOM-1-N8R8`，优先按 v1.1 板级引脚图支持。
 

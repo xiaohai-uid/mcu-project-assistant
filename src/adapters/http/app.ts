@@ -184,7 +184,7 @@ export function createApp(deps: AppDeps): HttpApp {
   // Public platform health probes cannot provide the internal Basic Auth
   // credentials. Keep this endpoint deliberately data-free; the API health
   // route below remains protected with the rest of the application surface.
-  app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
+  app.get("/healthz", (_req, res) => res.json({ status: "ok", version: __APP_VERSION__ }));
   // Load the JSON parser and browser shell before the API perimeter. This
   // lets a browser show a normal login form instead of receiving a native
   // Basic Auth challenge, which some embedded browsers cannot complete.

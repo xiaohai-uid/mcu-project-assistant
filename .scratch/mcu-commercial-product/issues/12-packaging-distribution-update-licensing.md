@@ -29,6 +29,6 @@
 - [ ] D1–D5 decided and recorded here (owner: user).
 - [ ] `scripts/package.mjs`: produce archive + `SHA256SUMS` manifest + install README; wire into CI-runnable command.
 - [ ] Install smoke on the dev platform (and at least one other OS if available): unpack → start → golden journey reaches login → workspace/backup paths resolve inside the installed layout.
-- [ ] Version visibility: `/healthz` gains `{version}` from package.json; TopNav/About shows it.
+- [ ] Version visibility: `/healthz` gains `{version}` from package.json; TopNav/About shows it. — **done ahead of decisions (2026-08-23)**: build-time injection via all three vite/vitest configs (`__APP_VERSION__`), `/healthz` returns `{status,version}`, Settings header renders `v<version>`; contract + UI tests assert both.
 - [ ] Update path doc: upgrade = replace app dir, keep workspace/data dir; backup → upgrade → restore rehearsal recorded as audit evidence.
 - [ ] Licensing seam (only if D3 requires it): key verification capability + `paid-release-ready` evidence integration + fail-visible (unlicensed state shows pending, never fake-pass).

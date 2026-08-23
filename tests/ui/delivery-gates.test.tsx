@@ -193,3 +193,17 @@ describe("各表面徽章在位（共享组件，不自造状态）", () => {
     expect(screen.getByTestId("readiness-section-physical").getAttribute("data-gate")).toBe("physical-accepted");
   });
 });
+
+// issues/12：版本身份用户可见——Settings 头卡渲染构建期注入的 __APP_VERSION__。
+describe("version visibility (issues/12)", () => {
+  it("Settings header shows the app version", async () => {
+    const { SettingsView } = await import("@/app/src/components/SettingsView");
+    appState.current = {
+      lang: "en", theme: "light", selectedMcu: null, project: null,
+      runtime: { deviceStage: "idle", serialStage: "disconnected", deviceId: null },
+    };
+    appActions.current = { dispatch: () => {}, selectMcu: () => {}, detectBoard: () => {} };
+    const { container } = render(<SettingsView />);
+    expect(container.textContent).toMatch(/v0\.1\.0/);
+  });
+});

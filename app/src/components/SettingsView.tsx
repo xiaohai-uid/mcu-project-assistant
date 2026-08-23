@@ -80,7 +80,11 @@ export const SettingsView: React.FC = () => {
           <span>{t(lang, "configCategory")}</span>
         </div>
         <h1 className="text-sm font-semibold text-[var(--text-primary)]">{t(lang, "settingsTitle")}</h1>
-        <p className="text-xs text-[var(--text-secondary)] mt-0.5">{t(lang, "settingsSubtitle")}</p>
+        <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+          {t(lang, "settingsSubtitle")}
+          {/* issues/12：版本身份用户可见（构建期注入；升级后可核对）。 */}
+          <span className="ml-2 font-mono text-[10px] text-[var(--text-muted)]">v{__APP_VERSION__}</span>
+        </p>
       </header>
 
       <div className="mac-card overflow-hidden flex flex-col md:flex-row min-h-[420px]">

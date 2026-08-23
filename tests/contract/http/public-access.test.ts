@@ -42,7 +42,8 @@ describe("public internal-test access boundary", () => {
     const response = await request(app).get("/healthz");
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ status: "ok" });
+    // issues/12：版本身份随探针暴露（构建期注入），升级后可见。
+    expect(response.body).toEqual({ status: "ok", version: "0.1.0" });
   });
 
   it("serves the browser shell without triggering a native Basic Auth challenge", async () => {
