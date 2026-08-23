@@ -28,3 +28,4 @@ Blocked by: 无
 ## Comments
 
 - 2026-08-22 zcode: 来源 = /code-review dadc46a...HEAD Spec 轴 (c)2 + Standards 轴 Duplicated Code #2（合并处置）。
+- 2026-08-23 agent: 可玩状态机原型（检验写入决策表自洽性）已存于分支 `prototype/diagnostics-event-pipeline` 的 `.scratch/prototype-diagnostics-pipeline.html`；纯模块经 13 条行为断言与真实管线语义一致。建模中发现证据文档一处表述失准（解析失败路径亦无 stdout 指标行），已在 docs/audit/diagnostics-gate-evidence-2026-08-23.md 更正。

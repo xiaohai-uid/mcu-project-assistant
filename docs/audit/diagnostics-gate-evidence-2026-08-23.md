@@ -75,7 +75,7 @@ node dist/server/server.js
 - ISSUE-003 契约在真实进程生效：`client.error.correlationId == 该 POST 响应头 x-request-id`；原 `sessionId` 降级为 data 字段保留。✅
 - ISSUE-004 单一事实源生效：400 仅一行 `http.request`；无 api.error 双写。✅
 
-观测备注（预存行为，非本切片缺陷）：请求体 JSON 解析失败（`invalid_json` 400）发生在 express.json 解析器层，先于 request-id/finish 中间件链，故不产生 event_log 行——stdout 仍可见。如需覆盖该路径，后续可在解析错误处理器内补一行记录。
+观测备注（预存行为，非本切片缺陷）：请求体 JSON 解析失败（`invalid_json` 400）发生在 express.json 解析器层，先于 request-id/finish 中间件链，故**既不产生 event_log 行，也不产生本服务的 stdout 指标行**（完成钩子从未挂载）。这类请求只存在于接入层（反向代理）日志中；如需覆盖，可在解析错误处理器内补一行记录。
 
 ---
 
