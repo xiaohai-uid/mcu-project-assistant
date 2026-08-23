@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>原型 · 诊断账本：一次请求记几笔？</title>
+<style>
+  :root { --accent:#4f46e5; --ink:#1e293b; --muted:#64748b; --line:#e2e8f0; --bg:#f8fafc;
+          --ok:#059669; --warn:#d97706; --err:#dc2626; --skip:#cbd5e1; }
+  * { box-sizing:border-box; margin:0; }
+  body { font-family:"PingFang SC","Microsoft YaHei",-apple-system,sans-serif; background:var(--bg); color:var(--ink);
+         line-height:1.55; padding:32px clamp(16px,5vw,64px); max-width:1180px; margin:0 auto; }
+  h1 { font-size:22px; letter-spacing:.01em; }
+  .question { background:#fff; border:1px solid var(--line); border-left:4px solid var(--accent);
+              padding:14px 18px; border-radius:8px; margin:14px 0 24px; font-size:14px; color:var(--muted); }
+  .grid { display:grid; grid-template-columns:minmax(300px,380px) 1fr; gap:24px; align-items:start; }
+  @media (max-width:900px){ .grid{ grid-template-columns:1fr; } }
+  .panel { background:#fff; border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin-bottom:20px; }
+  .panel h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:12px; }
+  .chip-row { margin-bottom:12px; }
+  .chip-row .lbl { font-size:13px; color:var(--muted); margin-bottom:5px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { border:1.5px solid var(--line); background:#fff; border-radius:999px; padding:5px 13px;
+          font-size:13px; cursor:pointer; color:var(--ink); transition:border-color .12s; }
+  .chip:hover { border-color:var(--accent); }
+  .chip.on { border-color:var(--accent); background:var(--accent); color:#fff; }
+  .chip:disabled { opacity:.35; cursor:not-allowed; }
+  .send { width:100%; margin-top:6px; background:var(--accent); color:#fff; border:none; border-radius:8px;
+          padding:11px; font-size:15px; cursor:pointer; font-weight:600; }
+  .send:hover { filter:brightness(1.08); }
+  .toggle { display:flex; justify-content:space-between; align-items:center; padding:9px 12px;
+            border:1.5px solid var(--line); border-radius:8px; margin-bottom:16px; font-size:14px; cursor:pointer; }
+  .toggle.drain-on { border-color:var(--err); background:#fef2f2; }
+  .pill { font-size:12px; padding:2px 10px; border-radius:999px; background:var(--line); color:var(--muted); }
+  .pill.hot { background:var(--err); color:#fff; }
+  .stages { font-size:13.5px; }
+  .stage { display:flex; gap:10px; padding:5px 0; border-bottom:1px dashed var(--line); align-items:baseline; }
+  .stage:last-child { border-bottom:none; }
+  .mark { width:20px; flex:none; text-align:center; }
+  .big-status { display:flex; align-items:center; gap:14px; margin:10px 0; }
+  .status-num { font-size:40px; font-weight:700; }
+  .status-num.s2xx{color:var(--ok)} .s4xx{color:var(--warn)} .s5xx{color:var(--err)}
+  .resp-body { font-family:ui-monospace,Menlo,monospace; font-size:12.5px; background:var(--bg);
+               border:1px solid var(--line); border-radius:6px; padding:8px 10px; color:var(--muted); word-break:break-all; }
+  .stdout { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:var(--muted); padding:4px 0; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th { text-align:left; color:var(--muted); font-weight:500; font-size:12px; padding:6px 8px; border-bottom:1.5px solid var(--line); }
+  td { padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  tr.fresh td { background:#eef2ff; }
+  .lv { font-weight:600; } .lv.warn{color:var(--warn)} .lv.error{color:var(--err)}
+  .mono { font-family:ui-monospace,Menlo,monospace; font-size:12px; }
+  .join-hit { color:var(--accent); font-weight:700; }
+  .empty { color:var(--muted); font-size:13px; padding:14px 4px; text-align:center; }
+  .note { font-size:12.5px; color:var(--muted); margin-top:10px; }
+  .tabs { display:flex; gap:4px; border-bottom:1.5px solid var(--line); margin-bottom:0; flex-wrap:wrap; }
+  .tab { border:none; background:none; padding:9px 15px; font-size:13.5px; cursor:pointer; color:var(--muted);
+         border-bottom:2.5px solid transparent; margin-bottom:-1.5px; }
+  .tab.on { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+  .tab-body { padding:16px 4px 4px; }
+  .blurb { font-size:13.5px; color:var(--muted); margin-bottom:12px; max-width:70ch; }
+  .steps { display:flex; flex-direction:column; gap:7px; }
+  .stepbtn { text-align:left; border:1.5px solid var(--line); background:#fff; border-radius:8px;
+             padding:9px 14px; font-size:13.5px; cursor:pointer; display:flex; gap:10px; align-items:baseline; }
+  .stepbtn:hover:not(:disabled) { border-color:var(--accent); }
+  .stepbtn:disabled { opacity:.45; cursor:default; }
+  .stepbtn.current { border-color:var(--accent); background:#eef2ff; }
+  .stepnum { color:var(--accent); font-weight:700; font-size:12px; flex:none; }
+  .reset { background:none; border:1px solid var(--line); border-radius:6px; padding:5px 12px;
+           font-size:12.5px; cursor:pointer; color:var(--muted); margin-top:14px; }
+</style>
+</head>
+<body>
+
+<h1>原型 · 诊断账本：一次请求到底记几笔？</h1>
+<div class="question">
+  <strong>这个问题要验证什么：</strong>mcu-project-assistant 的诊断切片经过 ISSUE-002~004 修复后，任何一条请求路径进来自由组合（方法 × 请求体 × 处理器结局 × 是否排水期），event_log 里应当恰好落对行数、行级别与关联 ID——不多写（双写）、不少写（漏记）、也不张冠李戴（错关联）。下面每发一次请求，左侧流水线各站的通/断和右侧账本的增量都会如实展开。<em>范围假设：</em>已通过认证（认证站在记账站之前，不在本模型内）；限流窗口是另一条独立机制，也未纳入。
+</div>
+
+<div class="grid">
+  <div>
+    <div class="panel">
+      <h2>服务状态</h2>
+      <div class="toggle" id="drainToggle"><span>服务正在排水（拒绝变更类请求）</span><span class="pill" id="drainPill">关闭</span></div>
+    </div>
+
+    <div class="panel">
+      <h2>编排一次请求</h2>
+      <div class="chip-row"><div class="lbl">方法与路径</div><div class="chips" id="g-path"></div></div>
+      <div class="chip-row"><div class="lbl">请求体</div><div class="chips" id="g-body"></div></div>
+      <div class="chip-row"><div class="lbl">处理器结局</div><div class="chips" id="g-fate"></div></div>
+      <button class="send" id="sendBtn">发出这次请求 →</button>
+    </div>
+
+    <div class="panel">
+      <h2>本次请求 · 流水线</h2>
+      <div class="big-status"><span class="status-num" id="statusNum">—</span><span style="font-size:13px;color:var(--muted)" id="statusNote"></span></div>
+      <div class="resp-body" id="respBody">尚未发出请求</div>
+      <div class="stages" id="stageTrace" style="margin-top:12px"></div>
+      <div class="note" id="lastEffect"></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>本次请求 · 标准输出（stdout 全量日志）</h2>
+      <div id="stdoutBox"><div class="empty">—</div></div>
+    </div>
+
+    <div class="panel">
+      <h2>event_log 账本（持久化行，最新在前）</h2>
+      <table>
+        <thead><tr><th>#</th><th>级别</th><th>来源</th><th>类型</th><th>关联 ID</th><th>内容</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+      <div class="empty" id="logEmpty">账本是空的——正常请求本来就不留痕。</div>
+      <div class="note">底色淡紫 = 最近一次请求新增。关联 ID 只显示前 8 位；<span class="join-hit">紫色加粗</span>表示与该次响应头 x-request-id 相同——运营者就是靠它把客户端错误和服务端请求日志拼起来的。</div>
+    </div>
+
+    <div class="panel">
+      <div class="tabs" id="tabs"></div>
+      <div class="tab-body">
+        <div class="blurb" id="wBlurb"></div>
+        <div class="steps" id="wSteps"></div>
+        <button class="reset" id="wReset">↺ 重置此场景</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ═══════════ 纯逻辑模块（可整体拎走的那部分） ═══════════
+ * DiagnosticsPipeline.handle(env, req) -> 结果
+ *   env: { draining:boolean }
+ *   req: { kind:'api'|'report', method:'GET'|'POST', bodyKind:null|'valid'|'broken'|'oversized', fate:string }
+ * 返回 { status, code, requestId, stages:[{name,outcome}], stdout:[str], rows:[row] }
+ * row: { level, source, type, correlationId, summary }
+ * 不碰 DOM —— 页面持有账本数组并自行追加。 */
+const DiagnosticsPipeline = (() => {
+  const SLOW_MS = 5000;
+  const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+  const rid = () => Array.from({length:2},()=>Math.floor(Math.random()*0xffffffff).toString(16).padStart(8,"0")).join("");
+
+  function handle(env, req) {
+    const stages = [], stdout = [], rows = [];
+    let requestId = null, status = 0, code = "";
+    const say = (name, outcome) => stages.push({ name, outcome });
+
+    const recordApiError = (level, errCode, extra) => {
+      rows.push({ level, source: "server", type: "api.error", correlationId: requestId,
+                  summary: errCode + (extra ? " · " + extra : "") });
+      stdout.push(`[${level}] API error: ${errCode} id=${requestId.slice(0,8)}`);
+    };
+    const finishHook = (durationMs, skipReason) => {
+      stdout.push(`http.request ${req.method} ${req.path} → ${status} ${durationMs}ms id=${requestId.slice(0,8)}`);
+      if (!skipReason && (status >= 500)) { say("完成记账", "≥500 已由 api.error 承载，跳过（防双写）"); return; }
+      if (!skipReason && (status >= 400 || durationMs > SLOW_MS))
+        rows.push({ level: "warn", source: "server", type: "http.request", correlationId: requestId,
+                    summary: `${req.method} ${req.path} ${status} · ${durationMs}ms` });
+      else if (!skipReason) say("完成记账", "健康请求不留痕");
+    };
+
+    /* ── 第 1 站：请求体解析（在关联 ID 之前！）── */
+    if (req.bodyKind === "broken") {
+      say("① 体解析", "⛔ 坏 JSON → 400 invalid_json，链条在此断掉");
+      return { status: 400, code: "invalid_json", requestId: null, stages, stdout, rows };
+    }
+    if (req.bodyKind === "oversized") {
+      say("① 体解析", "⛔ 超大 → 413 payload_too_large，链条在此断掉");
+      return { status: 413, code: "payload_too_large", requestId: null, stages, stdout, rows };
+    }
+    say("① 体解析", req.bodyKind ? "✅ 通过" : "➖ 无请求体，跳过");
+
+    /* ── 第 2 站：关联 ID + 完成钩子 ── */
+    requestId = rid();
+    say("② 关联 ID", `✅ x-request-id = ${requestId.slice(0,8)}（完成时按状态码决定是否落行）`);
+
+    /* ── 第 3 站：排水门 ── */
+    if (env.draining && MUTATING.has(req.method)) {
+      status = 503; code = "server_draining";
+      say("③ 排水门", "⛔ 变更类请求被拒");
+      recordApiError("warn", "server_draining", "排队拒绝也记一笔");
+      say("④ 业务处理", "➖ 未到达"); finishHook(3, true);
+      say("⑤ 完成记账", "✅ 本次共 1 行 api.error(warn)");
+      return { status, code, requestId, stages, stdout, rows };
+    }
+    say("③ 排水门", env.draining ? "✅ 非变更请求放行" : "✅ 未在排水期");
+
+    /* ── 第 4 站：业务处理 ── */
+    if (req.kind === "report") {
+      rows.push({ level: "error", source: "client", type: "client.error", correlationId: requestId,
+                  summary: "浏览器崩溃上报 · 会话键在 data 里" });
+      stdout.push(`[info] client error accepted id=${requestId.slice(0,8)}`);
+      status = 202; code = "accepted"; say("④ 业务处理", "✅ 上报入库（client.error，关联 ID=本请求）");
+    } else switch (req.fate) {
+      case "ok-fast":  status = 200; say("④ 业务处理", "✅ 快速成功"); break;
+      case "ok-slow":  status = 200; say("④ 业务处理", "✅ 成功但耗时 >5s"); break;
+      case "bad-400":  status = 400; code = "invalid_name";
+                       say("④ 业务处理", "⚠️ 校验拒绝（ApiError<500）"); break;
+      case "async-503": status = 503; code = "provider_unavailable";
+                        recordApiError("warn", "provider_unavailable", "声明的 503");
+                        say("④ 业务处理", "❌ 异步抛出 ApiError(503) → 统一管线接住"); break;
+      case "async-crash": status = 500; code = "internal";
+                          recordApiError("error", "internal", "未预期异常");
+                          say("④ 业务处理", "💥 异步未捕获异常 → 兜底分支"); break;
+      case "sync-503": status = 503; code = "server_draining";
+                       recordApiError("warn", "server_draining", "声明的 503");
+                       say("④ 业务处理", "❌ 同步抛出 ApiError(503) → try/catch 也接住了（修复点）"); break;
+      case "sync-crash": status = 500; code = "internal";
+                         recordApiError("error", "internal", "未预期异常");
+                         say("④ 业务处理", "💥 同步抛出非 ApiError → 兜底分支（修复点）"); break;
+    }
+
+    /* ── 第 5 站：完成记账 ── */
+    const dur = req.fate === "ok-slow" ? 6000 : 12;
+    const before = rows.length;
+    finishHook(dur, false);
+    say("⑤ 完成记账", rows.length - before === 0 ? "本次 0 行" : `追加 ${rows.length - before} 行 http.request(warn)`);
+    return { status, code, requestId, stages, stdout, rows };
+  }
+  return { handle };
+})();
+/* ═══════════ 模块结束 ═══════════ */
+
+/* ---------- 页面状态（账本归页面管） ---------- */
+const $ = (id) => document.getElementById(id);
+const PATHS = [
+  { key:"api-get",   label:"普通接口 · GET",  kind:"api",    method:"GET" },
+  { key:"api-post",  label:"普通接口 · POST", kind:"api",    method:"POST" },
+  { key:"report",    label:"客户端错误上报",   kind:"report", method:"POST" },
+];
+const BODIES = [
+  { key:null,         label:"无 / 正常" },
+  { key:"broken",     label:"坏 JSON" },
+  { key:"oversized",  label:"超大载荷" },
+];
+const FATES = [
+  { key:"ok-fast",    label:"快速成功" },
+  { key:"ok-slow",    label:"慢成功 >5s" },
+  { key:"bad-400",    label:"校验拒绝 400" },
+  { key:"async-503",  label:"异步抛 503" },
+  { key:"async-crash",label:"异步崩溃 500" },
+  { key:"sync-503",   label:"同步抛 503" },
+  { key:"sync-crash", label:"同步崩溃 500" },
+];
+const sel = { path:PATHS[0], body:BODIES[0], fate:FATES[0] };
+let draining = false;
+let logStore = [], rowSeq = 0, lastFreshIds = new Set(), lastRequestId = null;
+
+function renderChips(el, items, cur, pick, disabledKeys=new Set()) {
+  el.innerHTML = "";
+  items.forEach(it => {
+    const b = document.createElement("button");
+    b.className = "chip" + (cur.key === it.key ? " on" : "");
+    b.textContent = it.label; b.disabled = disabledKeys.has(it.key);
+    b.onclick = () => { pick(it); render(); };
+    el.appendChild(b);
+  });
+}
+function shortId(id){ return id ? id.slice(0,8) : "—"; }
+
+function render() {
+  $("drainToggle").className = "toggle" + (draining ? " drain-on" : "");
+  $("drainPill").className = "pill" + (draining ? " hot" : "");
+  $("drainPill").textContent = draining ? "排水中" : "关闭";
+  renderChips($("g-path"), PATHS, sel.path, v => sel.path = v);
+  renderChips($("g-body"), BODIES, sel.body, v => sel.body = v,
+              new Set(sel.path.method === "GET" ? ["broken","oversized"] : []));
+  renderChips($("g-fate"), FATES, sel.fate, v => sel.fate = v,
+              new Set(sel.path.kind === "report" ? FATES.map(f=>f.key) : []));
+}
+
+function renderResult(res) {
+  const n = $("statusNum");
+  n.textContent = res.status || "—";
+  n.className = "status-num s" + String(res.status)[0] + "xx";
+  $("statusNote").textContent = res.code ? "code=" + res.code : (res.status ? "成功" : "");
+  $("respBody").textContent = res.code
+    ? `{"error":{"code":"${res.code}",…}}` + (res.requestId ? `\n# 响应头 x-request-id: ${res.requestId}` : "")
+    : (res.requestId ? `# 响应头 x-request-id: ${res.requestId}` : "—");
+  $("stageTrace").innerHTML = res.stages.map(s => {
+    const mark = s.outcome.startsWith("⛔") ? "🚫" : s.outcome.startsWith("➖") ? "·" : "✓";
+    return `<div class="stage"><span class="mark">${mark}</span><span><b>${s.name}</b>　<span style="color:var(--muted)">${s.outcome}</span></span></div>`;
+  }).join("");
+  $("stdoutBox").innerHTML = res.stdout.length
+    ? res.stdout.map(l => `<div class="stdout">${l}</div>`).join("")
+    : `<div class="empty">（什么都没打 —— 记账站根本没运行到）</div>`;
+}
+
+function renderLog() {
+  const tb = $("logBody");
+  $("logEmpty").style.display = logStore.length ? "none" : "block";
+  tb.innerHTML = "";
+  [...logStore].reverse().forEach(r => {
+    const tr = document.createElement("tr");
+    if (lastFreshIds.has(r._seq)) tr.className = "fresh";
+    const join = r.correlationId && r.correlationId === lastRequestId;
+    tr.innerHTML = `<td>${r._seq}</td>
+      <td class="lv ${r.level}">${r.level}</td><td>${r.source}</td><td>${r.type}</td>
+      <td class="mono ${join ? "join-hit" : ""}" title="${r.correlationId||""}">${shortId(r.correlationId)}</td>
+      <td>${r.summary}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+function send() {
+  const bodyKind = sel.path.method === "GET" ? null : sel.body.key;
+  const req = { kind: sel.path.kind, method: sel.path.method,
+                path: sel.path.kind === "report" ? "/api/v1/diagnostics/client-errors"
+                    : "/api/v1/projects/" + (sel.path.method==="GET"?"abc":""),
+                bodyKind, fate: sel.fate.key };
+  const res = DiagnosticsPipeline.handle({ draining }, req);
+  lastRequestId = res.requestId;
+  lastFreshIds = new Set();
+  res.rows.forEach(r => { r._seq = ++rowSeq; lastFreshIds.add(r._seq); logStore.push(r); });
+  if (logStore.length > 60) logStore = logStore.slice(-60);
+  renderResult(res); renderLog();
+  const delta = res.rows.length;
+  $("lastEffect").innerHTML = `本次净增账本行数：<b>${delta}</b>` +
+    (delta === 0 ? "（可能完全正确，也可能是盲区——对照场景页判断）" : "");
+}
+
+$("drainToggle").onclick = () => { draining = !draining; render(); };
+$("sendBtn").onclick = send;
+
+/* ---------- 引导场景 ---------- */
+const SCENARIOS = [
+  { title:"一切正常",
+    blurb:"健康的请求不该留下任何痕迹——账本安静才是对的。唯一的例外：成功但太慢（>5s），性能飞轮需要这一行。",
+    steps:[
+      { label:"普通接口 GET · 快速成功", act:() => fire({kind:"api",method:"GET",bodyKind:null,fate:"ok-fast"}) },
+      { label:"普通接口 GET · 慢成功 >5s", act:() => fire({kind:"api",method:"GET",bodyKind:null,fate:"ok-slow"}) },
+    ]},
+  { title:"失败的姿势",
+    blurb:"三类常见失败各自应该恰好一笔：校验拒绝 400 → http.request(warn)；异步抛 ApiError(503) → api.error(warn) 单行（无双写！）；异步崩溃 → api.error(error)。盯住账本行数。",
+    steps:[
+      { label:"POST · 校验拒绝 400", act:() => fire({kind:"api",method:"POST",bodyKind:"valid",fate:"bad-400"}) },
+      { label:"POST · 异步抛 ApiError(503)", act:() => fire({kind:"api",method:"POST",bodyKind:"valid",fate:"async-503"}) },
+      { label:"POST · 异步未捕获崩溃", act:() => fire({kind:"api",method:"POST",bodyKind:"valid",fate:"async-crash"}) },
+    ]},
+  { title:"同步陷阱（ISSUE-004 修复点）",
+    blurb:"同步 handler 抛出的异常曾会绕过统一管线、直接掉进兜底：声明 503 被降级成 500，且级别从 warn 变 error。修复后同步与异步行为一致。试着对比上一场景的 503 与这里的 503——级别、状态码应完全相同。",
+    steps:[
+      { label:"GET 事件流路由 · 同步抛 ApiError(503)", act:() => fire({kind:"api",method:"GET",bodyKind:null,fate:"sync-503"}) },
+      { label:"GET · 同步抛非 ApiError（崩溃）", act:() => fire({kind:"api",method:"GET",bodyKind:null,fate:"sync-crash"}) },
+    ]},
+  { title:"解析器盲区",
+    blurb:"请求体解析站在『关联 ID』站之前。坏 JSON 或超大载荷在这里就被弹回——链条从未到达记账站，所以既没有 event_log 行，也没有 stdout 指标行。这不是 bug，但它是运营者视界的空洞：这类请求只存在于接入层（如反向代理）的日志里。",
+    steps:[
+      { label:"POST · 坏 JSON", act:() => fire({kind:"api",method:"POST",bodyKind:"broken",fate:"ok-fast"}) },
+      { label:"POST · 超大载荷", act:() => fire({kind:"api",method:"POST",bodyKind:"oversized",fate:"ok-fast"}) },
+      { label:"对照：合法 JSON 但校验拒绝（有行）", act:() => fire({kind:"api",method:"POST",bodyKind:"valid",fate:"bad-400"}) },
+    ]},
+  { title:"排水期",
+    blurb:"打开排水开关后再试：变更类请求在排水门被拒，落一行 api.error(warn)（排队拒绝也要可查）；但注意第三步——客户端错误上报也是 POST，同样会被拒。排水期间浏览器端发生的崩溃将无法进入账本，这是否合意值得讨论。",
+    steps:[
+      { label:"⚙ 打开排水开关", act:() => { draining = true; render(); } },
+      { label:"POST 普通接口 → 503 拒绝", act:() => fire({kind:"api",method:"POST",bodyKind:"valid",fate:"ok-fast"}, "已跳过业务处理") },
+      { label:"POST 客户端错误上报 → 也被拒！", act:() => fire({kind:"report",method:"POST",bodyKind:"valid",fate:"ok-fast"}) },
+      { label:"⚙ 关闭排水开关（恢复）", act:() => { draining = false; render(); } },
+      { label:"再试一次上报 → 这次进来了", act:() => fire({kind:"report",method:"POST",bodyKind:"valid",fate:"ok-fast"}) },
+    ]},
+  { title:"关联闭环",
+    blurb:"ISSUE-003 的核心：客户端错误的关联 ID 是『上报请求自己』的 x-request-id，与服务端行同键可 join。先制造一个 400（服务端行），再上报一次（客户端行），然后到账本里核对：两行的关联 ID 不同（各自请求各自的），而客户端行里原 sessionId 降级成了 data 字段。",
+    steps:[
+      { label:"制造一个服务端失败（400）", act:() => fire({kind:"api",method:"POST",bodyKind:"valid",fate:"bad-400"}) },
+      { label:"客户端上报一条错误", act:() => fire({kind:"report",method:"POST",bodyKind:"valid",fate:"ok-fast"}) },
+      { label:"再看一眼账本的两行关联 ID", act:() => {} },
+    ]},
+];
+
+let curTab = 0, curStep = 0;
+function fire(reqTraits, _note) {
+  const res = DiagnosticsPipeline.handle({ draining }, reqTraits);
+  lastRequestId = res.requestId;
+  lastFreshIds = new Set();
+  res.rows.forEach(r => { r._seq = ++rowSeq; lastFreshIds.add(r._seq); logStore.push(r); });
+  if (logStore.length > 60) logStore = logStore.slice(-60);
+  renderResult(res); renderLog();
+  $("lastEffect").innerHTML = `本次净增账本行数：<b>${res.rows.length}</b>`;
+}
+function renderTabs() {
+  $("tabs").innerHTML = "";
+  SCENARIOS.forEach((sc, i) => {
+    const t = document.createElement("button");
+    t.className = "tab" + (i === curTab ? " on" : "");
+    t.textContent = sc.title;
+    t.onclick = () => { curTab = i; curStep = 0; resetWorld(); renderTabs(); };
+    $("tabs").appendChild(t);
+  });
+  const sc = SCENARIOS[curTab];
+  $("wBlurb").textContent = sc.blurb;
+  const box = $("wSteps"); box.innerHTML = "";
+  sc.steps.forEach((st, i) => {
+    const b = document.createElement("button");
+    b.className = "stepbtn" + (i === curStep ? " current" : "");
+    b.disabled = i !== curStep;
+    b.innerHTML = `<span class="stepnum">${i+1}</span><span>${st.label}</span>`;
+    b.onclick = () => { st.act(); curStep = Math.min(curStep + 1, sc.steps.length); renderTabs(); };
+    box.appendChild(b);
+  });
+}
+function resetWorld() {
+  draining = false; logStore = []; lastFreshIds = new Set(); lastRequestId = null;
+  sel.path = PATHS[0]; sel.body = BODIES[0]; sel.fate = FATES[0];
+  $("statusNum").textContent = "—"; $("statusNote").textContent = "";
+  $("respBody").textContent = "已重置为初始状态";
+  $("stageTrace").innerHTML = ""; $("stdoutBox").innerHTML = `<div class="empty">—</div>`;
+  $("lastEffect").textContent = ""; renderLog(); render();
+}
+$("wReset").onclick = () => { curStep = 0; resetWorld(); renderTabs(); };
+
+render(); renderTabs();
+</script>
+</body>
+</html>
