@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCU 项目助手 · 设计系统</title>
+<style>
+  :root {
+    --primary: #0d9488;
+    --primary-hover: #0f766e;
+    --primary-active: #115e59;
+    --primary-muted: #ccfbf1;
+    --primary-text: #0d9488;
+    --primary-border: #0d9488;
+
+    --accent: #06b6d4;
+    --accent-hover: #0891b2;
+
+    --surface-bg: #f8fafc;
+    --surface-card: #ffffff;
+    --surface-alt: #f1f5f9;
+
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-tertiary: #94a3b8;
+
+    --border-default: #e2e8f0;
+    --border-strong: #cbd5e1;
+
+    --success: #10b981;
+    --success-bg: #d1fae5;
+    --warning: #d97706;
+    --warning-bg: #fef3c7;
+    --error: #e11d48;
+    --error-bg: #ffe4e6;
+    --info: #0ea5e9;
+    --info-bg: #e0f2fe;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.1);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1);
+
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-xl: 16px;
+    --radius-full: 9999px;
+
+    --space-0: 0;
+    --space-2: 2px;
+    --space-4: 4px;
+    --space-8: 8px;
+    --space-12: 12px;
+    --space-16: 16px;
+    --space-20: 20px;
+    --space-24: 24px;
+    --space-32: 32px;
+    --space-40: 40px;
+    --space-48: 48px;
+    --space-64: 64px;
+  }
+
+  [data-theme="dark"] {
+    --surface-bg: #0f172a;
+    --surface-card: #1e293b;
+    --surface-alt: #334155;
+
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-tertiary: #64748b;
+
+    --border-default: #334155;
+    --border-strong: #475569;
+
+    --success: #10b981;
+    --success-bg: #064e3b;
+    --warning: #f59e0b;
+    --warning-bg: #451a03;
+    --error: #e11d48;
+    --error-bg: #4c0519;
+    --info: #0ea5e9;
+    --info-bg: #0c4a6e;
+
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+    --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.4);
+    --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.4);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { font-family: var(--font-sans); }
+
+  body {
+    background: var(--surface-bg);
+    color: var(--text-primary);
+    transition: background 0.3s ease, color 0.3s ease;
+    line-height: 1.5;
+  }
+
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: var(--space-32) var(--space-24);
+  }
+
+  /* Section spacing */
+  section { margin-bottom: var(--space-64); }
+  .section-title {
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: var(--space-4);
+    color: var(--text-primary);
+  }
+  .section-subtitle {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-24);
+  }
+  hr { border: none; border-top: 1px solid var(--border-default); margin: var(--space-48) 0; }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-16);
+    padding-bottom: var(--space-32);
+    border-bottom: 1px solid var(--border-default);
+    margin-bottom: var(--space-48);
+  }
+  .header-left { flex: 1; min-width: 200px; }
+  .header-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: var(--space-4);
+  }
+  .header-subtitle {
+    font-size: 14px;
+    color: var(--text-secondary);
+  }
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-12);
+  }
+  .badge-def {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-4) var(--space-12);
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 500;
+    background: var(--primary-muted);
+    color: var(--primary);
+    white-space: nowrap;
+  }
+
+  /* Toggle */
+  .theme-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-8) var(--space-16);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    background: var(--surface-card);
+    color: var(--text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font-sans);
+  }
+  .theme-toggle:hover {
+    border-color: var(--border-strong);
+    color: var(--text-primary);
+  }
+
+  /* Color swatches */
+  .color-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: var(--space-12);
+  }
+  .color-card {
+    background: var(--surface-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: var(--space-16);
+    transition: box-shadow 0.2s;
+  }
+  .color-card:hover { box-shadow: var(--shadow-md); }
+  .color-preview {
+    width: 100%;
+    height: 40px;
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--space-8);
+    border: 1px solid var(--border-default);
+  }
+  .color-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--space-2);
+  }
+  .color-hex {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+  }
+
+  .surface-row {
+    display: flex;
+    gap: var(--space-12);
+    flex-wrap: wrap;
+  }
+  .surface-row .color-card { flex: 1; min-width: 150px; }
+
+  .semantic-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: var(--space-12);
+  }
+
+  .neutral-strip {
+    display: flex;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    height: 48px;
+    border: 1px solid var(--border-default);
+  }
+  .neutral-strip div {
+    flex: 1;
+    position: relative;
+  }
+  .neutral-strip div span {
+    position: absolute;
+    bottom: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+  }
+
+  /* Typography */
+  .type-sample {
+    padding: var(--space-16);
+    border-bottom: 1px solid var(--border-default);
+  }
+  .type-sample:last-child { border-bottom: none; }
+  .type-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    margin-bottom: var(--space-4);
+  }
+
+  /* Spacing */
+  .spacing-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-12);
+    margin-bottom: var(--space-8);
+  }
+  .spacing-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    min-width: 60px;
+  }
+  .spacing-vis {
+    background: var(--primary);
+    border-radius: var(--radius-sm);
+    height: 16px;
+    flex-shrink: 0;
+  }
+
+  /* Buttons */
+  .button-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-12);
+    align-items: center;
+    margin-bottom: var(--space-16);
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-4);
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    font-family: var(--font-sans);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .btn-sm { height: 32px; padding: 0 var(--space-12); font-size: 13px; }
+  .btn-md { height: 40px; padding: 0 var(--space-20); font-size: 14px; }
+  .btn-lg { height: 48px; padding: 0 var(--space-28); font-size: 16px; }
+
+  .btn-primary { background: var(--primary); color: #fff; }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-primary:active { background: var(--primary-active); }
+  .btn-primary:disabled { background: var(--text-tertiary); cursor: not-allowed; opacity: 0.6; }
+
+  .btn-secondary { background: var(--surface-alt); color: var(--text-primary); border-color: var(--border-default); }
+  .btn-secondary:hover { border-color: var(--border-strong); background: var(--surface-card); }
+
+  .btn-outline { background: transparent; color: var(--primary); border-color: var(--primary); }
+  .btn-outline:hover { background: var(--primary-muted); }
+
+  .btn-ghost { background: transparent; color: var(--text-secondary); border-color: transparent; }
+  .btn-ghost:hover { background: var(--surface-alt); color: var(--text-primary); }
+
+  .btn-danger { background: var(--error); color: #fff; }
+  .btn-danger:hover { opacity: 0.9; }
+
+  .btn:hover { box-shadow: var(--shadow-sm); }
+
+  /* Form Elements */
+  .form-group { margin-bottom: var(--space-20); }
+  .form-label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+    margin-bottom: var(--space-6);
+  }
+  .form-input,
+  .form-select,
+  .form-textarea {
+    width: 100%;
+    padding: var(--space-8) var(--space-12);
+    font-size: 14px;
+    font-family: var(--font-sans);
+    color: var(--text-primary);
+    background: var(--surface-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    transition: border-color 0.15s, box-shadow 0.15s;
+    outline: none;
+  }
+  .form-input:focus,
+  .form-select:focus,
+  .form-textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-muted);
+  }
+  .form-input::placeholder,
+  .form-textarea::placeholder { color: var(--text-tertiary); }
+  .form-textarea { min-height: 100px; resize: vertical; }
+  .form-select { cursor: pointer; }
+
+  .checkbox-group {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-primary);
+  }
+  .checkbox-group input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary);
+    cursor: pointer;
+  }
+
+  .form-row {
+    display: flex;
+    gap: var(--space-16);
+    flex-wrap: wrap;
+  }
+  .form-row .form-group { flex: 1; min-width: 200px; }
+
+  /* Cards */
+  .card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: var(--space-16);
+  }
+  .card {
+    background: var(--surface-card);
+    border-radius: var(--radius-lg);
+    padding: var(--space-24);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-12);
+  }
+  .card-default { border: 1px solid var(--border-default); box-shadow: none; }
+  .card-elevated { border: none; box-shadow: var(--shadow-lg); }
+  .card-bordered {
+    border: 1px solid var(--border-default);
+    background: var(--surface-alt);
+    box-shadow: none;
+  }
+  .card-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .card-desc {
+    font-size: 14px;
+    color: var(--text-secondary);
+    flex: 1;
+  }
+
+  /* Pipeline Steps */
+  .pipeline {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-8);
+    padding: var(--space-32) 0;
+    position: relative;
+  }
+  .step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    position: relative;
+    text-align: center;
+  }
+  .step-circle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: var(--space-8);
+    position: relative;
+    z-index: 1;
+    border: 2px solid var(--border-default);
+    background: var(--surface-card);
+    color: var(--text-secondary);
+  }
+  .step.completed .step-circle {
+    background: var(--success);
+    border-color: var(--success);
+    color: #fff;
+  }
+  .step.active .step-circle {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    box-shadow: 0 0 0 4px var(--primary-muted);
+  }
+  .step-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    max-width: 80px;
+  }
+  .step.completed .step-label { color: var(--success); }
+  .step.active .step-label { color: var(--primary); font-weight: 600; }
+
+  .step-line {
+    position: absolute;
+    top: 20px;
+    left: calc(50% + 20px);
+    right: calc(-50% + 20px);
+    height: 2px;
+    background: var(--border-default);
+    z-index: 0;
+  }
+  .step.completed .step-line { background: var(--success); }
+  .step.active .step-line { background: var(--primary); }
+
+  /* Badges */
+  .badge-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-12);
+    align-items: center;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-2) var(--space-10);
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .badge-sm { font-size: 11px; padding: var(--space-1) var(--space-8); }
+  .badge-lg { font-size: 14px; padding: var(--space-4) var(--space-14); }
+
+  .badge-solid-success { background: var(--success); color: #fff; }
+  .badge-solid-error { background: var(--error); color: #fff; }
+  .badge-solid-warning { background: var(--warning); color: #fff; }
+  .badge-solid-info { background: var(--info); color: #fff; }
+  .badge-solid-progress { background: var(--primary); color: #fff; }
+
+  .badge-soft-success { background: var(--success-bg); color: var(--success); }
+  .badge-soft-error { background: var(--error-bg); color: var(--error); }
+  .badge-soft-warning { background: var(--warning-bg); color: var(--warning); }
+  .badge-soft-info { background: var(--info-bg); color: var(--info); }
+
+  /* Tables */
+  .table-wrapper {
+    overflow-x: auto;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  thead { background: var(--surface-alt); }
+  th {
+    padding: var(--space-12) var(--space-16);
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-strong);
+    position: sticky;
+    top: 0;
+    background: var(--surface-alt);
+    white-space: nowrap;
+  }
+  td {
+    padding: var(--space-10) var(--space-16);
+    border-bottom: 1px solid var(--border-default);
+    color: var(--text-secondary);
+  }
+  tr:hover td { background: var(--surface-alt); }
+  tr:last-child td { border-bottom: none; }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s;
+  }
+  .modal-overlay.open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .modal-box {
+    background: var(--surface-card);
+    border-radius: var(--radius-xl);
+    padding: var(--space-32);
+    max-width: 420px;
+    width: 90%;
+    box-shadow: var(--shadow-lg);
+  }
+  .modal-title {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: var(--space-12);
+  }
+  .modal-body {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-24);
+    line-height: 1.6;
+  }
+  .modal-actions {
+    display: flex;
+    gap: var(--space-12);
+    justify-content: flex-end;
+  }
+
+  /* Toast */
+  .toast-container {
+    position: fixed;
+    top: var(--space-20);
+    right: var(--space-20);
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-8);
+    pointer-events: none;
+  }
+  .toast {
+    display: flex;
+    align-items: center;
+    gap: var(--space-8);
+    padding: var(--space-12) var(--space-20);
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: var(--shadow-lg);
+    transform: translateX(120%);
+    transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+    pointer-events: auto;
+  }
+  .toast.show { transform: translateX(0); }
+  .toast-success { background: var(--success); color: #fff; }
+  .toast-error { background: var(--error); color: #fff; }
+  .toast-info { background: var(--info); color: #fff; }
+
+  /* Code Block */
+  .code-block {
+    background: #1e1e1e;
+    border-radius: var(--radius-md);
+    padding: var(--space-20);
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.7;
+    color: #d4d4d4;
+  }
+  .code-block .kw { color: #569cd6; }
+  .code-block .fn { color: #dcdcaa; }
+  .code-block .str { color: #ce9178; }
+  .code-block .num { color: #b5cea8; }
+  .code-block .cm { color: #6a9955; }
+  .code-block .pp { color: #c586c0; }
+  .code-block .type { color: #4ec9b0; }
+
+  /* Empty State */
+  .empty-state {
+    text-align: center;
+    padding: var(--space-64) var(--space-24);
+    background: var(--surface-card);
+    border: 1px dashed var(--border-default);
+    border-radius: var(--radius-xl);
+  }
+  .empty-icon {
+    font-size: 48px;
+    margin-bottom: var(--space-16);
+    opacity: 0.5;
+  }
+  .empty-title {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: var(--space-8);
+    color: var(--text-primary);
+  }
+  .empty-desc {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: var(--space-24);
+  }
+
+  /* Utility */
+  .mt-4 { margin-top: var(--space-16); }
+  .mb-2 { margin-bottom: var(--space-8); }
+  .gap-2 { gap: var(--space-8); }
+  .flex { display: flex; }
+  .flex-wrap { flex-wrap: wrap; }
+  .items-center { align-items: center; }
+
+  /* Form demo container */
+  .form-demo {
+    background: var(--surface-card);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    padding: var(--space-24);
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-left">
+      <div class="header-title">MCU 项目助手 · 设计系统</div>
+      <div class="header-subtitle">Oscilloscope Design System v2.0 — Technical Workshop Meets Clean SaaS</div>
+    </div>
+    <div class="header-right">
+      <span class="badge-def">● 设计令牌已定义</span>
+      <button class="theme-toggle" id="themeToggle" aria-label="切换主题">🌙 深色模式</button>
+    </div>
+  </header>
+
+  <!-- 1. COLOR PALETTE -->
+  <section>
+    <div class="section-title">色彩体系</div>
+    <div class="section-subtitle">Color Palette</div>
+
+    <h3 style="font-size:16px;font-weight:600;margin-bottom:var(--space-12);color:var(--text-primary);">主色 Primary</h3>
+    <div class="color-grid" style="margin-bottom:var(--space-24);">
+      <div class="color-card">
+        <div class="color-preview" style="background:#0d9488;"></div>
+        <div class="color-name">Primary</div>
+        <div class="color-hex">#0d9488</div>
+      </div>
+      <div class="color-card">
+        <div class="color-preview" style="background:#0f766e;"></div>
+        <div class="color-name">Hover</div>
+        <div class="color-hex">#0f766e</div>
+      </div>
+      <div class="color-card">
+        <div class="color-preview" style="background:#115e59;"></div>
+        <div class="color-name">Active</div>
+        <div class="color-hex">#115e59</div>
+      </div>
+      <div class="color-card">
+        <div class="color-preview" style="background:#ccfbf1;"></div>
+        <div class="color-name">Muted</div>
+        <div class="color-hex">#ccfbf1</div>
+      </div>
+      <div class="color-card">
+        <div class="color-preview" style="background:#0d9488;opacity:0.7;"></div>
+        <div class="color-name">Text</div>
+        <div class="color-hex">#0d9488</div>
+      </div>
+      <div class="color-card">
+        <div class="color-preview" style="background:#0d9488;opacity:0.3;"></div>
+        <div class="color-name">Border</div>
+        <div class="color-hex">#0d9488</div>
+      </div>
+    </div>
+
+    <h3 style="font-size:16px;font-weight:600;margin-bottom:var(--space-12);color:var(--text-primary);">强调色 Accent</h3>
+    <div class="color-grid" style="margin-bottom:var(--space-24);">
+      <div class="color-card">
+        <div class="color-preview" style="background:#06b6d4;"></div>
+        <div class="color-name">Accent</div>
+        <div class="color-hex">#06b6d4</div>
+      </div>
+      <div class="color-card">
+        <div class="color-preview" style="background:#0891b2;"></div>
+        <div class="color-name">Hover</div>
+        <div class="color-hex">#0891b2</div>
+      </div>
+    </div>
+
+    <h3 style="font-size:16px;font-weight:600;margin-bottom:var(--space-12);color:var(--text-primary);">表面色 Surface</h3>
+    <div class="surface-row" style="margin-bottom:var(--space-24);">
+      <div class="color-card"><div class="color-preview" style="background:var(--surface-bg);"></div><div class="color-name">Background</div><div class="color-hex">var(--surface-bg)</div></div>
+      <div class="color-card"><div class="color-preview" style="background:var(--surface-card);"></div><div class="color-name">Card</div><div class="color-hex">var(--surface-card)</div></div>
+      <div class="color-card"><div class="color-preview" style="background:var(--surface-alt);"></div><div class="color-name">Alt</div><div class="color-hex">var(--surface-alt)</div></div>
+    </div>
+
+    <h3 style="font-size:16px;font-weight:600;margin-bottom:var(--space-12);color:var(--text-primary);">语义色 Semantic</h3>
+    <div class="semantic-row" style="margin-bottom:var(--space-24);">
+      <div class="color-card"><div class="color-preview" style="background:var(--success);"></div><div class="color-name">成功 Success</div><div class="color-hex">#10b981</div></div>
+      <div class="color-card"><div class="color-preview" style="background:var(--warning);"></div><div class="color-name">警告 Warning</div><div class="color-hex">#d97706 / #f59e0b</div></div>
+      <div class="color-card"><div class="color-preview" style="background:var(--error);"></div><div class="color-name">错误 Error</div><div class="color-hex">#e11d48</div></div>
+      <div class="color-card"><div class="color-preview" style="background:var(--info);"></div><div class="color-name">信息 Info</div><div class="color-hex">#0ea5e9</div></div>
+    </div>
+
+    <h3 style="font-size:16px;font-weight:600;margin-bottom:var(--space-12);color:var(--text-primary);">中性色阶 Neutral Scale</h3>
+    <div class="neutral-strip" style="margin-bottom:var(--space-8);">
+      <div style="background:#f8fafc;"><span>50</span></div>
+      <div style="background:#f1f5f9;"><span>100</span></div>
+      <div style="background:#e2e8f0;"><span>200</span></div>
+      <div style="background:#cbd5e1;"><span>300</span></div>
+      <div style="background:#94a3b8;"><span>400</span></div>
+      <div style="background:#64748b;"><span>500</span></div>
+      <div style="background:#475569;"><span>600</span></div>
+      <div style="background:#334155;"><span>700</span></div>
+      <div style="background:#1e293b;"><span>800</span></div>
+      <div style="background:#0f172a;"><span>900</span></div>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- 2. TYPOGRAPHY -->
+  <section>
+    <div class="section-title">字体排版</div>
+    <div class="section-subtitle">Typography</div>
+
+    <div class="type-sample">
+      <div class="type-label">Display 48px / 700</div>
+      <div style="font-size:48px;font-weight:700;color:var(--text-primary);line-height:1.2;">单片机智能助手</div>
+    </div>
+    <div class="type-sample">
+      <div class="type-label">H1 40px / 700</div>
+      <div style="font-size:40px;font-weight:700;color:var(--text-primary);line-height:1.2;">项目分析与建议</div>
+    </div>
+    <div class="type-sample">
+      <div class="type-label">H2 32px / 600</div>
+      <div style="font-size:32px;font-weight:600;color:var(--text-primary);line-height:1.25;">代码生成完成</div>
+    </div>
+    <div class="type-sample">
+      <div class="type-label">H3 28px / 600</div>
+      <div style="font-size:28px;font-weight:600;color:var(--text-primary);line-height:1.3;">元件清单与预算</div>
+    </div>
+    <div class="type-sample">
+      <div class="type-label">H4 24px / 600</div>
+      <div style="font-size:24px;font-weight:600;color:var(--text-primary);line-height:1.35;">接线图预览</div>
+    </div>
+    <div class="type-sample">
+      <div class="type-label">H5 20px / 600</div>
+      <div style="font-size:20px;font-weight:600;color:var(--text-primary);line-height:1.4;">Arduino UNO 开发板</div>
+    </div>
+    <div class="type-sample">
+      <div class="type-label">H6 18px / 600</div>
+      <div style="font-size:18px;font-weight:600;color:var(--text-primary);line-height:1.4;">ESP32-C3 模组</div>
+    </div>
+    <div class="type-sample">
+      <div class="type-label">Body Large 16px / 400</div>
+      <div style="font-size:16px;color:var(--text-primary);line-height:1.75;">这是一个帮助电子爱好者和工程师快速完成单片机项目的智能工具。</div>
+    </div>
+    <div class="type-sample">
+      <div class="type-label">Body 14px / 400</div>
+      <div style="font-size:14px;color:var(--text-secondary);line-height:1.6;">支持 Arduino、ESP32、STM32 等多种平台，自动生成代码、接线图和 BOM。</div>
+    </div>
+    <div class="type-sample">
+      <div class="type-label">Caption 12px / 400</div>
+      <div style="font-size:12px;color:var(--text-tertiary);line-height:1.5;">2026-07-06 · 更新时间</div>
+    </div>
+    <div class="type-sample">
+      <div class="type-label">Code 13px / 400</div>
+      <code style="font-family:var(--font-mono);font-size:13px;color:var(--accent);background:var(--surface-alt);padding:var(--space-2) var(--space-8);border-radius:var(--radius-sm);">const int ledPin = 13; // 定义LED引脚</code>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- 3. SPACING -->
+  <section>
+    <div class="section-title">间距</div>
+    <div class="section-subtitle">Spacing</div>
+    <div style="padding:var(--space-16) 0;">
+      <div class="spacing-bar"><span class="spacing-label">4px</span><div class="spacing-vis" style="width:4px;"></div></div>
+      <div class="spacing-bar"><span class="spacing-label">8px</span><div class="spacing-vis" style="width:8px;"></div></div>
+      <div class="spacing-bar"><span class="spacing-label">12px</span><div class="spacing-vis" style="width:12px;"></div></div>
+      <div class="spacing-bar"><span class="spacing-label">16px</span><div class="spacing-vis" style="width:16px;"></div></div>
+      <div class="spacing-bar"><span class="spacing-label">20px</span><div class="spacing-vis" style="width:20px;"></div></div>
+      <div class="spacing-bar"><span class="spacing-label">24px</span><div class="spacing-vis" style="width:24px;"></div></div>
+      <div class="spacing-bar"><span class="spacing-label">32px</span><div class="spacing-vis" style="width:32px;"></div></div>
+      <div class="spacing-bar"><span class="spacing-label">40px</span><div class="spacing-vis" style="width:40px;"></div></div>
+      <div class="spacing-bar"><span class="spacing-label">48px</span><div class="spacing-vis" style="width:48px;"></div></div>
+      <div class="spacing-bar"><span class="spacing-label">64px</span><div class="spacing-vis" style="width:64px;"></div></div>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- 4. BUTTONS -->
+  <section>
+    <div class="section-title">按钮</div>
+    <div class="section-subtitle">Buttons</div>
+
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:var(--space-8);color:var(--text-secondary);">变体 Variants</h3>
+    <div class="button-grid">
+      <button class="btn btn-md btn-primary">开始生成</button>
+      <button class="btn btn-md btn-secondary">返回</button>
+      <button class="btn btn-md btn-outline">保存为模板</button>
+      <button class="btn btn-md btn-ghost">查看更多</button>
+      <button class="btn btn-md btn-danger">删除项目</button>
+    </div>
+
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:var(--space-8);margin-top:var(--space-16);color:var(--text-secondary);">尺寸 Sizes</h3>
+    <div class="button-grid">
+      <button class="btn btn-sm btn-primary">小号</button>
+      <button class="btn btn-md btn-primary">中号</button>
+      <button class="btn btn-lg btn-primary">大号</button>
+    </div>
+
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:var(--space-8);margin-top:var(--space-16);color:var(--text-secondary);">状态 States</h3>
+    <div class="button-grid">
+      <button class="btn btn-md btn-primary">默认</button>
+      <button class="btn btn-md btn-primary" style="opacity:0.9;box-shadow:var(--shadow-sm);">悬停</button>
+      <button class="btn btn-md btn-primary" disabled>禁用</button>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- 5. FORM ELEMENTS -->
+  <section>
+    <div class="section-title">表单元素</div>
+    <div class="section-subtitle">Form Elements</div>
+
+    <div class="form-demo">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label" for="demo-name">项目名称</label>
+          <input class="form-input" id="demo-name" type="text" placeholder="例如：智能温控系统">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="demo-platform">选择平台</label>
+          <select class="form-select" id="demo-platform">
+            <option>Arduino</option>
+            <option>ESP32</option>
+            <option>STM32</option>
+            <option>Raspberry Pi</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="demo-desc">项目描述</label>
+        <textarea class="form-textarea" id="demo-desc" placeholder="请描述你的单片机项目需求..."></textarea>
+      </div>
+      <label class="checkbox-group">
+        <input type="checkbox"> 保存为模板
+      </label>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- 6. CARDS -->
+  <section>
+    <div class="section-title">卡片</div>
+    <div class="section-subtitle">Cards</div>
+
+    <div class="card-grid">
+      <div class="card card-default">
+        <div class="card-title">默认卡片</div>
+        <div class="card-desc">带边框的基础卡片，适用于列表项和侧边栏内容展示。</div>
+        <div><button class="btn btn-sm btn-outline">查看详情</button></div>
+      </div>
+      <div class="card card-elevated">
+        <div class="card-title">浮起卡片</div>
+        <div class="card-desc">带阴影的浮动卡片，适用于弹窗、下拉面板和突出内容。</div>
+        <div><button class="btn btn-sm btn-primary">查看详情</button></div>
+      </div>
+      <div class="card card-bordered">
+        <div class="card-title">强调卡片</div>
+        <div class="card-desc">深色背景带边框，适用于侧栏信息或辅助内容区域。</div>
+        <div><button class="btn btn-sm btn-secondary">查看详情</button></div>
+      </div>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- 7. PIPELINE STEPS -->
+  <section>
+    <div class="section-title">流程步骤</div>
+    <div class="section-subtitle">Pipeline Steps</div>
+
+    <div class="pipeline">
+      <div class="step completed">
+        <div class="step-circle">✓</div>
+        <div class="step-line"></div>
+        <div class="step-label">项目需求</div>
+      </div>
+      <div class="step active">
+        <div class="step-circle">2</div>
+        <div class="step-line"></div>
+        <div class="step-label">元件推荐</div>
+      </div>
+      <div class="step">
+        <div class="step-circle">3</div>
+        <div class="step-line"></div>
+        <div class="step-label">代码生成</div>
+      </div>
+      <div class="step">
+        <div class="step-circle">4</div>
+        <div class="step-line"></div>
+        <div class="step-label">接线图</div>
+      </div>
+      <div class="step">
+        <div class="step-circle">5</div>
+        <div class="step-label">导出</div>
+      </div>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- 8. BADGES -->
+  <section>
+    <div class="section-title">标签</div>
+    <div class="section-subtitle">Badges</div>
+
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:var(--space-8);color:var(--text-secondary);">实心 Solid</h3>
+    <div class="badge-grid" style="margin-bottom:var(--space-16);">
+      <span class="badge badge-solid-success">成功</span>
+      <span class="badge badge-solid-error">失败</span>
+      <span class="badge badge-solid-warning">警告</span>
+      <span class="badge badge-solid-info">信息</span>
+      <span class="badge badge-solid-progress">进行中</span>
+    </div>
+
+    <h3 style="font-size:14px;font-weight:600;margin-bottom:var(--space-8);color:var(--text-secondary);">柔和 Soft</h3>
+    <div class="badge-grid">
+      <span class="badge badge-soft-success">成功</span>
+      <span class="badge badge-soft-error">失败</span>
+      <span class="badge badge-soft-warning">警告</span>
+      <span class="badge badge-soft-info">信息</span>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- 9. TABLES -->
+  <section>
+    <div class="section-title">数据表格</div>
+    <div class="section-subtitle">Tables — BOM 元件清单</div>
+
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>元件</th>
+            <th>数量</th>
+            <th>单价</th>
+            <th>平台</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="font-weight:500;color:var(--text-primary);">Arduino UNO R3</td>
+            <td>1</td>
+            <td>¥65.00</td>
+            <td>Arduino</td>
+          </tr>
+          <tr>
+            <td style="font-weight:500;color:var(--text-primary);">DHT11 温湿度传感器</td>
+            <td>1</td>
+            <td>¥8.50</td>
+            <td>Arduino</td>
+          </tr>
+          <tr>
+            <td style="font-weight:500;color:var(--text-primary);">LCD1602 显示屏</td>
+            <td>1</td>
+            <td>¥15.00</td>
+            <td>Arduino</td>
+          </tr>
+          <tr>
+            <td style="font-weight:500;color:var(--text-primary);">10kΩ 电位器</td>
+            <td>2</td>
+            <td>¥3.00</td>
+            <td>通用</td>
+          </tr>
+          <tr>
+            <td style="font-weight:500;color:var(--text-primary);">面包板 830 孔</td>
+            <td>1</td>
+            <td>¥12.00</td>
+            <td>通用</td>
+          </tr>
+          <tr>
+            <td style="font-weight:500;color:var(--text-primary);">杜邦线 (公对公)</td>
+            <td>20</td>
+            <td>¥0.50</td>
+            <td>通用</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- 10. MODALS -->
+  <section>
+    <div class="section-title">对话框</div>
+    <div class="section-subtitle">Modals</div>
+
+    <div class="button-grid">
+      <button class="btn btn-md btn-danger" id="openModalBtn">打开对话框</button>
+    </div>
+  </section>
+
+  <!-- 11. TOAST NOTIFICATIONS -->
+  <section>
+    <div class="section-title">通知提示</div>
+    <div class="section-subtitle">Toast Notifications</div>
+
+    <div class="button-grid">
+      <button class="btn btn-md btn-primary" onclick="showToast('success','代码生成完成！')">成功提示</button>
+      <button class="btn btn-md btn-danger" onclick="showToast('error','生成失败，请重试')">错误提示</button>
+      <button class="btn btn-md btn-outline" onclick="showToast('info','正在分析项目需求...')">信息提示</button>
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- 12. CODE BLOCK -->
+  <section>
+    <div class="section-title">代码块</div>
+    <div class="section-subtitle">Code Block — Arduino 示例</div>
+
+    <div class="code-block">
+<span class="pp">#include</span> <span class="str">&lt;DHT.h&gt;</span>
+
+<span class="pp">#define</span> <span class="fn">DHTPIN</span> <span class="num">2</span>
+<span class="pp">#define</span> <span class="fn">DHTTYPE</span> <span class="type">DHT11</span>
+
+<span class="type">DHT</span> <span class="fn">dht</span>(<span class="type">DHTPIN</span>, <span class="type">DHTTYPE</span>);
+
+<span class="type">void</span> <span class="fn">setup</span>() {
+  <span class="type">Serial</span>.<span class="fn">begin</span>(<span class="num">9600</span>);
+  <span class="fn">dht</span>.<span class="fn">begin</span>();
+  <span class="fn">pinMode</span>(<span class="type">LED_BUILTIN</span>, <span class="type">OUTPUT</span>);
+}
+
+<span class="type">void</span> <span class="fn">loop</span>() {
+  <span class="type">float</span> temp = <span class="fn">dht</span>.<span class="fn">readTemperature</span>();
+  <span class="type">float</span> hum = <span class="fn">dht</span>.<span class="fn">readHumidity</span>();
+  <span class="type">Serial</span>.<span class="fn">print</span>(<span class="str">"温度: "</span>);
+  <span class="type">Serial</span>.<span class="fn">println</span>(temp);
+  <span class="fn">digitalWrite</span>(<span class="type">LED_BUILTIN</span>, <span class="type">HIGH</span>);
+  <span class="fn">delay</span>(<span class="num">500</span>);
+  <span class="fn">digitalWrite</span>(<span class="type">LED_BUILTIN</span>, <span class="type">LOW</span>);
+  <span class="fn">delay</span>(<span class="num">500</span>);
+}
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- 13. EMPTY STATE -->
+  <section>
+    <div class="section-title">空状态</div>
+    <div class="section-subtitle">Empty State</div>
+
+    <div class="empty-state">
+      <div class="empty-icon">📂</div>
+      <div class="empty-title">还没有项目</div>
+      <div class="empty-desc">点击下方按钮创建你的第一个单片机项目</div>
+      <button class="btn btn-md btn-primary">创建项目</button>
+    </div>
+  </section>
+
+</div>
+
+<!-- MODAL OVERLAY -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box">
+    <div class="modal-title">确认删除项目</div>
+    <div class="modal-body">此操作不可撤销，项目中的所有数据将被永久删除。你确定要继续吗？</div>
+    <div class="modal-actions">
+      <button class="btn btn-md btn-secondary" id="closeModalBtn">取消</button>
+      <button class="btn btn-md btn-danger" id="confirmModalBtn">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+  (function() {
+    // Theme toggle
+    var toggle = document.getElementById('themeToggle');
+    var html = document.documentElement;
+
+    toggle.addEventListener('click', function() {
+      var isDark = html.getAttribute('data-theme') === 'dark';
+      html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+      toggle.textContent = isDark ? '🌙 深色模式' : '☀️ 浅色模式';
+    });
+
+    // Modal
+    var modalOverlay = document.getElementById('modalOverlay');
+    document.getElementById('openModalBtn').addEventListener('click', function() {
+      modalOverlay.classList.add('open');
+    });
+    document.getElementById('closeModalBtn').addEventListener('click', function() {
+      modalOverlay.classList.remove('open');
+    });
+    document.getElementById('confirmModalBtn').addEventListener('click', function() {
+      modalOverlay.classList.remove('open');
+      showToast('error', '项目已删除');
+    });
+    modalOverlay.addEventListener('click', function(e) {
+      if (e.target === modalOverlay) modalOverlay.classList.remove('open');
+    });
+
+    // Toast
+    window.showToast = function(type, message) {
+      var container = document.getElementById('toastContainer');
+      var toast = document.createElement('div');
+      toast.className = 'toast toast-' + type;
+      var icons = { success: '✓', error: '✗', info: 'ℹ' };
+      toast.innerHTML = '<span>' + (icons[type] || '') + '</span> ' + message;
+      container.appendChild(toast);
+      requestAnimationFrame(function() {
+        toast.classList.add('show');
+      });
+      setTimeout(function() {
+        toast.classList.remove('show');
+        setTimeout(function() { toast.remove(); }, 400);
+      }, 3000);
+    };
+  })();
+</script>
+
+</body>
+</html>

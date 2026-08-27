@@ -1,0 +1,1 @@
+D:/Projects/ECC/.opencode/tools/git-summary.ts

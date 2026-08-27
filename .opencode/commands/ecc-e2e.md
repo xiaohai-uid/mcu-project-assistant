@@ -1,0 +1,1 @@
+D:/Projects/ECC/.opencode/commands/e2e.md
