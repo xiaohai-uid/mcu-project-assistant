@@ -2,6 +2,17 @@
 
 Local-first engineering assistant for microcontroller projects: requirements discovery → hardware selection → pin/wiring constraints → firmware generation → build/validation → companion device flash + serial telemetry. TypeScript modular monolith (Node.js 20.x + Express + SQLite + React/Vite). The internal-test deployment path is a single protected process with isolated persistent storage.
 
+## Try a project without a board
+
+With Node.js 20.x, run these commands from a fresh clone:
+
+```bash
+npm ci
+npm run e2e:golden
+```
+
+The [end-to-end scenarios](tests/e2e/) exercise the project flow from requirements and wiring through firmware, build and flash evidence using deterministic adapters. The [commercial golden journey](tests/e2e/s10-commercial-golden-journey.e2e.test.ts) shows the requests and expected results. Physical flashing and serial telemetry require a board and the companion setup described below.
+
 ## Architecture
 
 Single-process modular monolith (ADR-0003, ADR-0013). One production path: HTTP API → application capabilities → domain services → ports/adapters.
